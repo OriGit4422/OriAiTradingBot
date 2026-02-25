@@ -1,185 +1,116 @@
 import { sql } from "drizzle-orm";
-import { pgTable, text, varchar, boolean, integer, real, timestamp, serial } from "drizzle-orm/pg-core";
+import { pgTable, text, varchar, integer, real, boolean, timestamp, jsonb } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 
 export const users = pgTable("users", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
-  email: text("email").notNull().unique(),
+  username: text("username").notNull().unique(),
   password: text("password").notNull(),
-  name: text("name").notNull(),
-  role: text("role").notNull().default("user"),
-  isActive: boolean("is_active").notNull().default(true),
-  avatarColor: text("avatar_color").default("#3B82F6"),
-  lastLogin: timestamp("last_login"),
-  resetToken: text("reset_token"),
-  resetTokenExpiry: timestamp("reset_token_expiry"),
-});
-
-export const strategies = pgTable("strategies", {
-  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
-  userId: varchar("user_id").notNull(),
-  name: text("name").notNull(),
-  description: text("description"),
-  type: text("type").notNull().default("scalping"),
-  pairs: text("pairs").array().default(sql`ARRAY[]::text[]`),
-  indicators: text("indicators").array().default(sql`ARRAY[]::text[]`),
-  timeframe: text("timeframe").notNull().default("1h"),
-  riskLevel: text("risk_level").notNull().default("medium"),
-  isActive: boolean("is_active").notNull().default(false),
-  takeProfit: real("take_profit").default(2.0),
-  stopLoss: real("stop_loss").default(1.0),
-  maxPositionSize: real("max_position_size").default(10.0),
-  winRate: real("win_rate").default(0),
-  totalTrades: integer("total_trades").default(0),
-  profitLoss: real("profit_loss").default(0),
-  aiScore: real("ai_score"),
-  aiReview: text("ai_review"),
-});
-
-export const signals = pgTable("signals", {
-  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
-  strategyId: varchar("strategy_id"),
-  userId: varchar("user_id").notNull(),
-  pair: text("pair").notNull(),
-  type: text("type").notNull(),
-  entry: real("entry").notNull(),
-  target: real("target"),
-  stopLoss: real("stop_loss"),
-  confidence: real("confidence").notNull().default(0.5),
-  status: text("status").notNull().default("active"),
-  aiAnalysis: text("ai_analysis"),
-  aiValidation: text("ai_validation"),
-  aiRiskScore: real("ai_risk_score"),
-  riskReward: text("risk_reward"),
-  marketContext: text("market_context"),
-  createdAt: timestamp("created_at").defaultNow(),
-});
-
-export const botSettings = pgTable("bot_settings", {
-  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
-  userId: varchar("user_id").notNull().unique(),
-  exchangeName: text("exchange_name").default("binance"),
-  apiKey: text("api_key").default(""),
-  apiSecret: text("api_secret").default(""),
-  isLive: boolean("is_live").notNull().default(false),
-  maxDailyTrades: integer("max_daily_trades").default(10),
-  maxRiskPerTrade: real("max_risk_per_trade").default(2.0),
-  dailyLossLimit: real("daily_loss_limit").default(5.0),
-  notificationsEnabled: boolean("notifications_enabled").default(true),
-  emailAlerts: boolean("email_alerts").default(true),
-  autoTrade: boolean("auto_trade").default(false),
-  trailingStop: boolean("trailing_stop").default(false),
-  defaultLeverage: integer("default_leverage").default(1),
-});
-
-export const tradeHistory = pgTable("trade_history", {
-  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
-  userId: varchar("user_id").notNull(),
-  strategyId: varchar("strategy_id"),
-  pair: text("pair").notNull(),
-  type: text("type").notNull(),
-  entryPrice: real("entry_price").notNull(),
-  exitPrice: real("exit_price"),
-  quantity: real("quantity").notNull(),
-  profitLoss: real("profit_loss"),
-  status: text("status").notNull().default("open"),
-  openedAt: timestamp("opened_at").defaultNow(),
-  closedAt: timestamp("closed_at"),
-});
-
-export const conversations = pgTable("conversations", {
-  id: serial("id").primaryKey(),
-  userId: varchar("user_id").notNull(),
-  title: text("title").notNull(),
-  createdAt: timestamp("created_at").default(sql`CURRENT_TIMESTAMP`).notNull(),
-});
-
-export const messages = pgTable("messages", {
-  id: serial("id").primaryKey(),
-  conversationId: integer("conversation_id").notNull(),
-  role: text("role").notNull(),
-  content: text("content").notNull(),
-  createdAt: timestamp("created_at").default(sql`CURRENT_TIMESTAMP`).notNull(),
 });
 
 export const insertUserSchema = createInsertSchema(users).pick({
-  email: true,
+  username: true,
   password: true,
-  name: true,
-});
-
-export const loginSchema = z.object({
-  email: z.string().email("Invalid email address"),
-  password: z.string().min(6, "Password must be at least 6 characters"),
-});
-
-export const registerSchema = z.object({
-  email: z.string().email("Invalid email address"),
-  password: z.string().min(6, "Password must be at least 6 characters"),
-  name: z.string().min(2, "Name must be at least 2 characters"),
-});
-
-export const resetPasswordSchema = z.object({
-  email: z.string().email("Invalid email address"),
-});
-
-export const newPasswordSchema = z.object({
-  token: z.string(),
-  password: z.string().min(6, "Password must be at least 6 characters"),
-});
-
-export const insertStrategySchema = createInsertSchema(strategies).pick({
-  name: true,
-  description: true,
-  type: true,
-  pairs: true,
-  indicators: true,
-  timeframe: true,
-  riskLevel: true,
-  takeProfit: true,
-  stopLoss: true,
-  maxPositionSize: true,
-});
-
-export const insertSignalSchema = createInsertSchema(signals).pick({
-  pair: true,
-  type: true,
-  entry: true,
-  target: true,
-  stopLoss: true,
-  confidence: true,
-  aiAnalysis: true,
-  aiValidation: true,
-  aiRiskScore: true,
-  riskReward: true,
-  marketContext: true,
-  strategyId: true,
-});
-
-export const insertBotSettingsSchema = createInsertSchema(botSettings).pick({
-  exchangeName: true,
-  apiKey: true,
-  apiSecret: true,
-  isLive: true,
-  maxDailyTrades: true,
-  maxRiskPerTrade: true,
-  dailyLossLimit: true,
-  notificationsEnabled: true,
-  emailAlerts: true,
-  autoTrade: true,
-  trailingStop: true,
-  defaultLeverage: true,
 });
 
 export type InsertUser = z.infer<typeof insertUserSchema>;
 export type User = typeof users.$inferSelect;
-export type Strategy = typeof strategies.$inferSelect;
+
+// User Settings
+export const settings = pgTable("settings", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  displayName: text("display_name").notNull().default("Trader"),
+  compactMode: boolean("compact_mode").notNull().default(false),
+  soundEffects: boolean("sound_effects").notNull().default(true),
+  maxLeverage: integer("max_leverage").notNull().default(20),
+  maxRiskPercent: real("max_risk_percent").notNull().default(2.0),
+  autoStopLoss: boolean("auto_stop_loss").notNull().default(true),
+  telegramEnabled: boolean("telegram_enabled").notNull().default(false),
+  telegramBotToken: text("telegram_bot_token"),
+  telegramChatId: text("telegram_chat_id"),
+  discordEnabled: boolean("discord_enabled").notNull().default(false),
+  discordWebhookUrl: text("discord_webhook_url"),
+  notifyOnSignal: boolean("notify_on_signal").notNull().default(true),
+  notifyOnHighConfidence: boolean("notify_on_high_confidence").notNull().default(true),
+  minNotifyConfidence: integer("min_notify_confidence").notNull().default(80),
+  binanceApiKey: text("binance_api_key"),
+  binanceConnected: boolean("binance_connected").notNull().default(false),
+  bybitApiKey: text("bybit_api_key"),
+  bybitConnected: boolean("bybit_connected").notNull().default(false),
+});
+
+export const insertSettingsSchema = createInsertSchema(settings).omit({ id: true });
+export type InsertSettings = z.infer<typeof insertSettingsSchema>;
+export type Settings = typeof settings.$inferSelect;
+
+// Trading Strategies
+export const strategies = pgTable("strategies", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  name: text("name").notNull(),
+  description: text("description").notNull(),
+  status: text("status").notNull().default("active"), // active | paused
+  risk: text("risk").notNull().default("Medium"), // Low | Medium | High
+  winRate: real("win_rate").notNull().default(0),
+  totalPnl: real("total_pnl").notNull().default(0),
+  totalTrades: integer("total_trades").notNull().default(0),
+  pairs: text("pairs").array().notNull().default(sql`'{}'::text[]`),
+  config: jsonb("config"),
+});
+
+export const insertStrategySchema = createInsertSchema(strategies).omit({ id: true });
 export type InsertStrategy = z.infer<typeof insertStrategySchema>;
-export type Signal = typeof signals.$inferSelect;
+export type Strategy = typeof strategies.$inferSelect;
+
+// Signal History
+export const signals = pgTable("signals", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  coin: text("coin").notNull(),
+  strategy: text("strategy").notNull(),
+  type: text("type").notNull(), // LONG | SHORT
+  entry: real("entry").notNull(),
+  tp: real("tp").notNull(),
+  sl: real("sl").notNull(),
+  marketPrice: real("market_price").notNull(),
+  timeframe: text("timeframe").notNull(),
+  confidence: integer("confidence").notNull(),
+  status: text("status").notNull().default("ACTIVE"), // ACTIVE | PENDING | EXECUTED | INVALIDATED
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+});
+
+export const insertSignalSchema = createInsertSchema(signals).omit({ id: true, createdAt: true });
 export type InsertSignal = z.infer<typeof insertSignalSchema>;
-export type BotSettings = typeof botSettings.$inferSelect;
-export type InsertBotSettings = z.infer<typeof insertBotSettingsSchema>;
-export type TradeHistory = typeof tradeHistory.$inferSelect;
-export type Conversation = typeof conversations.$inferSelect;
-export type Message = typeof messages.$inferSelect;
+export type Signal = typeof signals.$inferSelect;
+
+// Portfolio Positions
+export const positions = pgTable("positions", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  symbol: text("symbol").notNull(),
+  amount: real("amount").notNull(),
+  entryPrice: real("entry_price").notNull(),
+  type: text("type").notNull(), // LONG | SHORT
+  leverage: integer("leverage").notNull().default(1),
+  status: text("status").notNull().default("open"), // open | closed
+  pnl: real("pnl"),
+  closedAt: timestamp("closed_at"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+});
+
+export const insertPositionSchema = createInsertSchema(positions).omit({ id: true, createdAt: true, closedAt: true, pnl: true });
+export type InsertPosition = z.infer<typeof insertPositionSchema>;
+export type Position = typeof positions.$inferSelect;
+
+// Demo Wallet
+export const wallet = pgTable("wallet", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  balance: real("balance").notNull().default(10000), // Default $10k demo
+  currency: text("currency").notNull().default("USD"),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+});
+
+export const insertWalletSchema = createInsertSchema(wallet).omit({ id: true, updatedAt: true });
+export type Wallet = typeof wallet.$inferSelect;
+
+// AI Chat (for integration)
+export { conversations, messages } from "./models/chat";
+export type { Conversation, Message } from "./models/chat";

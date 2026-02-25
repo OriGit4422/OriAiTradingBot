@@ -1,216 +1,150 @@
-import { eq, desc, and } from "drizzle-orm";
+import { eq } from "drizzle-orm";
 import { db } from "./db";
 import {
-  users, strategies, signals, botSettings, tradeHistory, conversations, messages,
-  type User, type InsertUser, type Strategy, type InsertStrategy,
-  type Signal, type InsertSignal, type BotSettings, type InsertBotSettings,
-  type TradeHistory, type Conversation, type Message,
+  users, type User, type InsertUser,
+  settings, type Settings, type InsertSettings,
+  strategies, type Strategy, type InsertStrategy,
+  signals, type Signal, type InsertSignal,
+  positions, type Position, type InsertPosition,
+  wallet, type Wallet
 } from "@shared/schema";
-import { scryptSync, randomBytes } from "crypto";
-
-function hashPassword(password: string): string {
-  const salt = randomBytes(16).toString("hex");
-  const hash = scryptSync(password, salt, 64).toString("hex");
-  return `${salt}:${hash}`;
-}
-
-function verifyPassword(password: string, stored: string): boolean {
-  const [salt, hash] = stored.split(":");
-  const newHash = scryptSync(password, salt, 64).toString("hex");
-  return hash === newHash;
-}
 
 export interface IStorage {
   getUser(id: string): Promise<User | undefined>;
-  getUserByEmail(email: string): Promise<User | undefined>;
+  getUserByUsername(username: string): Promise<User | undefined>;
   createUser(user: InsertUser): Promise<User>;
-  verifyUser(email: string, password: string): Promise<User | null>;
-  getAllUsers(): Promise<User[]>;
-  updateUser(id: string, data: Partial<User>): Promise<User | undefined>;
-  deleteUser(id: string): Promise<void>;
-  setResetToken(email: string, token: string, expiry: Date): Promise<boolean>;
-  getUserByResetToken(token: string): Promise<User | undefined>;
-  resetPassword(userId: string, newPassword: string): Promise<void>;
 
-  getStrategies(userId: string): Promise<Strategy[]>;
+  getSettings(): Promise<Settings | undefined>;
+  upsertSettings(data: Partial<InsertSettings>): Promise<Settings>;
+
+  getStrategies(): Promise<Strategy[]>;
   getStrategy(id: string): Promise<Strategy | undefined>;
-  createStrategy(userId: string, data: InsertStrategy): Promise<Strategy>;
-  updateStrategy(id: string, data: Partial<Strategy>): Promise<Strategy | undefined>;
+  createStrategy(data: InsertStrategy): Promise<Strategy>;
+  updateStrategy(id: string, data: Partial<InsertStrategy>): Promise<Strategy | undefined>;
   deleteStrategy(id: string): Promise<void>;
 
-  getSignals(userId: string): Promise<Signal[]>;
-  getSignal(id: string): Promise<Signal | undefined>;
-  createSignal(userId: string, data: InsertSignal): Promise<Signal>;
-  updateSignal(id: string, data: Partial<Signal>): Promise<Signal | undefined>;
-  deleteSignal(id: string): Promise<void>;
+  getSignals(): Promise<Signal[]>;
+  createSignal(data: InsertSignal): Promise<Signal>;
+  updateSignalStatus(id: string, status: string): Promise<Signal | undefined>;
+  clearSignals(): Promise<void>;
 
-  getBotSettings(userId: string): Promise<BotSettings | undefined>;
-  upsertBotSettings(userId: string, data: InsertBotSettings): Promise<BotSettings>;
-
-  getTradeHistory(userId: string): Promise<TradeHistory[]>;
-  createTrade(userId: string, data: Partial<TradeHistory>): Promise<TradeHistory>;
-
-  getConversations(userId: string): Promise<Conversation[]>;
-  getConversation(id: number): Promise<Conversation | undefined>;
-  createConversation(userId: string, title: string): Promise<Conversation>;
-  deleteConversation(id: number): Promise<void>;
-  getMessages(conversationId: number): Promise<Message[]>;
-  createMessage(conversationId: number, role: string, content: string): Promise<Message>;
+  getPositions(): Promise<Position[]>;
+  getOpenPositions(): Promise<Position[]>;
+  createPosition(data: InsertPosition): Promise<Position>;
+  closePosition(id: string, pnl: number): Promise<Position | undefined>;
+  // Wallet
+  getWallet(): Promise<Wallet>;
+  updateWalletBalance(amount: number): Promise<Wallet>;
 }
 
 export class DatabaseStorage implements IStorage {
+  async getWallet(): Promise<Wallet> {
+    let [w] = await db.select().from(wallet);
+    if (!w) {
+      [w] = await db.insert(wallet).values({ balance: 10000 }).returning();
+    }
+    return w;
+  }
+
+  async updateWalletBalance(amount: number): Promise<Wallet> {
+    const w = await this.getWallet();
+    const [updated] = await db.update(wallet)
+      .set({ balance: w.balance + amount, updatedAt: new Date() })
+      .where(eq(wallet.id, w.id))
+      .returning();
+    return updated;
+  }
+
   async getUser(id: string): Promise<User | undefined> {
     const [user] = await db.select().from(users).where(eq(users.id, id));
     return user;
   }
 
-  async getUserByEmail(email: string): Promise<User | undefined> {
-    const [user] = await db.select().from(users).where(eq(users.email, email));
+  async getUserByUsername(username: string): Promise<User | undefined> {
+    const [user] = await db.select().from(users).where(eq(users.username, username));
     return user;
   }
 
   async createUser(insertUser: InsertUser): Promise<User> {
-    const hashedPassword = hashPassword(insertUser.password);
-    const [user] = await db.insert(users).values({
-      ...insertUser,
-      password: hashedPassword,
-    }).returning();
+    const [user] = await db.insert(users).values(insertUser).returning();
     return user;
   }
 
-  async verifyUser(email: string, password: string): Promise<User | null> {
-    const user = await this.getUserByEmail(email);
-    if (!user) return null;
-    if (!user.isActive) return null;
-    if (!verifyPassword(password, user.password)) return null;
-    await db.update(users).set({ lastLogin: new Date() }).where(eq(users.id, user.id));
-    return user;
+  async getSettings(): Promise<Settings | undefined> {
+    const [s] = await db.select().from(settings);
+    return s;
   }
 
-  async getAllUsers(): Promise<User[]> {
-    return db.select().from(users);
+  async upsertSettings(data: Partial<InsertSettings>): Promise<Settings> {
+    const existing = await this.getSettings();
+    if (existing) {
+      const [updated] = await db.update(settings).set(data).where(eq(settings.id, existing.id)).returning();
+      return updated;
+    }
+    const [created] = await db.insert(settings).values(data as InsertSettings).returning();
+    return created;
   }
 
-  async updateUser(id: string, data: Partial<User>): Promise<User | undefined> {
-    const [user] = await db.update(users).set(data).where(eq(users.id, id)).returning();
-    return user;
-  }
-
-  async deleteUser(id: string): Promise<void> {
-    await db.delete(users).where(eq(users.id, id));
-  }
-
-  async setResetToken(email: string, token: string, expiry: Date): Promise<boolean> {
-    const result = await db.update(users).set({ resetToken: token, resetTokenExpiry: expiry }).where(eq(users.email, email)).returning();
-    return result.length > 0;
-  }
-
-  async getUserByResetToken(token: string): Promise<User | undefined> {
-    const [user] = await db.select().from(users).where(eq(users.resetToken, token));
-    return user;
-  }
-
-  async resetPassword(userId: string, newPassword: string): Promise<void> {
-    const hashedPassword = hashPassword(newPassword);
-    await db.update(users).set({ password: hashedPassword, resetToken: null, resetTokenExpiry: null }).where(eq(users.id, userId));
-  }
-
-  async getStrategies(userId: string): Promise<Strategy[]> {
-    return db.select().from(strategies).where(eq(strategies.userId, userId));
+  async getStrategies(): Promise<Strategy[]> {
+    return db.select().from(strategies);
   }
 
   async getStrategy(id: string): Promise<Strategy | undefined> {
-    const [strategy] = await db.select().from(strategies).where(eq(strategies.id, id));
-    return strategy;
+    const [s] = await db.select().from(strategies).where(eq(strategies.id, id));
+    return s;
   }
 
-  async createStrategy(userId: string, data: InsertStrategy): Promise<Strategy> {
-    const [strategy] = await db.insert(strategies).values({ ...data, userId }).returning();
-    return strategy;
+  async createStrategy(data: InsertStrategy): Promise<Strategy> {
+    const [s] = await db.insert(strategies).values(data).returning();
+    return s;
   }
 
-  async updateStrategy(id: string, data: Partial<Strategy>): Promise<Strategy | undefined> {
-    const [strategy] = await db.update(strategies).set(data).where(eq(strategies.id, id)).returning();
-    return strategy;
+  async updateStrategy(id: string, data: Partial<InsertStrategy>): Promise<Strategy | undefined> {
+    const [s] = await db.update(strategies).set(data).where(eq(strategies.id, id)).returning();
+    return s;
   }
 
   async deleteStrategy(id: string): Promise<void> {
     await db.delete(strategies).where(eq(strategies.id, id));
   }
 
-  async getSignals(userId: string): Promise<Signal[]> {
-    return db.select().from(signals).where(eq(signals.userId, userId)).orderBy(desc(signals.createdAt));
+  async getSignals(): Promise<Signal[]> {
+    return db.select().from(signals).orderBy(signals.createdAt);
   }
 
-  async getSignal(id: string): Promise<Signal | undefined> {
-    const [signal] = await db.select().from(signals).where(eq(signals.id, id));
-    return signal;
+  async createSignal(data: InsertSignal): Promise<Signal> {
+    const [s] = await db.insert(signals).values(data).returning();
+    return s;
   }
 
-  async createSignal(userId: string, data: InsertSignal): Promise<Signal> {
-    const [signal] = await db.insert(signals).values({ ...data, userId }).returning();
-    return signal;
+  async updateSignalStatus(id: string, status: string): Promise<Signal | undefined> {
+    const [s] = await db.update(signals).set({ status }).where(eq(signals.id, id)).returning();
+    return s;
   }
 
-  async updateSignal(id: string, data: Partial<Signal>): Promise<Signal | undefined> {
-    const [signal] = await db.update(signals).set(data).where(eq(signals.id, id)).returning();
-    return signal;
+  async clearSignals(): Promise<void> {
+    await db.delete(signals);
   }
 
-  async deleteSignal(id: string): Promise<void> {
-    await db.delete(signals).where(eq(signals.id, id));
+  async getPositions(): Promise<Position[]> {
+    return db.select().from(positions).orderBy(positions.createdAt);
   }
 
-  async getBotSettings(userId: string): Promise<BotSettings | undefined> {
-    const [settings] = await db.select().from(botSettings).where(eq(botSettings.userId, userId));
-    return settings;
+  async getOpenPositions(): Promise<Position[]> {
+    return db.select().from(positions).where(eq(positions.status, "open"));
   }
 
-  async upsertBotSettings(userId: string, data: InsertBotSettings): Promise<BotSettings> {
-    const existing = await this.getBotSettings(userId);
-    if (existing) {
-      const [updated] = await db.update(botSettings).set(data).where(eq(botSettings.userId, userId)).returning();
-      return updated;
-    }
-    const [created] = await db.insert(botSettings).values({ ...data, userId }).returning();
-    return created;
+  async createPosition(data: InsertPosition): Promise<Position> {
+    const [p] = await db.insert(positions).values(data).returning();
+    return p;
   }
 
-  async getTradeHistory(userId: string): Promise<TradeHistory[]> {
-    return db.select().from(tradeHistory).where(eq(tradeHistory.userId, userId)).orderBy(desc(tradeHistory.openedAt));
-  }
-
-  async createTrade(userId: string, data: Partial<TradeHistory>): Promise<TradeHistory> {
-    const [trade] = await db.insert(tradeHistory).values({ ...data, userId } as any).returning();
-    return trade;
-  }
-
-  async getConversations(userId: string): Promise<Conversation[]> {
-    return db.select().from(conversations).where(eq(conversations.userId, userId)).orderBy(desc(conversations.createdAt));
-  }
-
-  async getConversation(id: number): Promise<Conversation | undefined> {
-    const [conv] = await db.select().from(conversations).where(eq(conversations.id, id));
-    return conv;
-  }
-
-  async createConversation(userId: string, title: string): Promise<Conversation> {
-    const [conv] = await db.insert(conversations).values({ userId, title }).returning();
-    return conv;
-  }
-
-  async deleteConversation(id: number): Promise<void> {
-    await db.delete(messages).where(eq(messages.conversationId, id));
-    await db.delete(conversations).where(eq(conversations.id, id));
-  }
-
-  async getMessages(conversationId: number): Promise<Message[]> {
-    return db.select().from(messages).where(eq(messages.conversationId, conversationId)).orderBy(messages.createdAt);
-  }
-
-  async createMessage(conversationId: number, role: string, content: string): Promise<Message> {
-    const [msg] = await db.insert(messages).values({ conversationId, role, content }).returning();
-    return msg;
+  async closePosition(id: string, pnl: number): Promise<Position | undefined> {
+    const [p] = await db.update(positions)
+      .set({ status: "closed", pnl, closedAt: new Date() })
+      .where(eq(positions.id, id))
+      .returning();
+    return p;
   }
 }
 

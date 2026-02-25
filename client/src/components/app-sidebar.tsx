@@ -7,7 +7,8 @@ import {
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { LayoutDashboard, TrendingUp, Target, Settings, Shield, LogOut, Bot, Brain } from "lucide-react";
+import { LayoutDashboard, TrendingUp, Target, Settings, Shield, LogOut, Brain } from "lucide-react";
+import { WinmLogo } from "@/components/winm-logo";
 
 export function AppSidebar() {
   const [location] = useLocation();
@@ -29,12 +30,10 @@ export function AppSidebar() {
     <Sidebar>
       <SidebarHeader className="p-4 border-b border-sidebar-border">
         <div className="flex items-center gap-3">
-          <div className="w-9 h-9 rounded-md bg-primary flex items-center justify-center">
-            <Bot className="w-5 h-5 text-primary-foreground" />
-          </div>
+          <WinmLogo size={36} />
           <div className="min-w-0">
-            <h2 className="font-bold text-sm truncate">CryptoBot AI</h2>
-            <p className="text-xs text-muted-foreground">Trading Platform</p>
+            <h2 className="font-bold text-sm truncate">WINM AI</h2>
+            <p className="text-xs text-muted-foreground">Trading Bot</p>
           </div>
         </div>
       </SidebarHeader>

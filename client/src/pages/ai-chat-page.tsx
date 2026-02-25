@@ -126,7 +126,7 @@ export default function AIChatPage() {
               <div className="w-16 h-16 rounded-2xl bg-primary/10 flex items-center justify-center mx-auto mb-4">
                 <Brain className="w-8 h-8 text-primary" />
               </div>
-              <h2 className="text-2xl font-bold mb-2" data-testid="text-ai-chat-title">CryptoBot AI Assistant</h2>
+              <h2 className="text-2xl font-bold mb-2" data-testid="text-ai-chat-title">WINM AI Assistant</h2>
               <p className="text-muted-foreground mb-6">
                 Powered by Claude AI. Ask about market analysis, trading strategies, risk management, and crypto insights.
               </p>
@@ -152,7 +152,7 @@ export default function AIChatPage() {
           <>
             <div className="border-b px-4 py-3 flex items-center gap-2">
               <Brain className="w-5 h-5 text-primary" />
-              <span className="font-semibold text-sm">CryptoBot AI</span>
+              <span className="font-semibold text-sm">WINM AI</span>
               <Badge variant="secondary" className="text-xs gap-1"><Sparkles className="w-2.5 h-2.5" />Claude</Badge>
             </div>
 

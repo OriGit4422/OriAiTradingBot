@@ -11,7 +11,8 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Form, FormField, FormItem, FormLabel, FormControl, FormMessage } from "@/components/ui/form";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Bot, TrendingUp, Shield, Zap, ArrowRight, Eye, EyeOff } from "lucide-react";
+import { TrendingUp, Shield, Zap, ArrowRight, Eye, EyeOff } from "lucide-react";
+import { WinmLogo } from "@/components/winm-logo";
 import { motion } from "framer-motion";
 import { z } from "zod";
 
@@ -38,7 +39,7 @@ export default function AuthPage() {
   const handleRegister = async (data: z.infer<typeof registerSchema>) => {
     try {
       await register(data.email, data.password, data.name);
-      toast({ title: "Account created!", description: "Welcome to CryptoBot AI." });
+      toast({ title: "Account created!", description: "Welcome to WINM AI Trading Bot." });
     } catch (e: any) {
       toast({ title: "Registration failed", description: e.message, variant: "destructive" });
     }
@@ -96,11 +97,12 @@ export default function AuthPage() {
       <div className="hidden lg:flex lg:w-1/2 bg-primary/5 relative items-center justify-center p-12">
         <div className="max-w-lg">
           <motion.div initial={{ opacity: 0, x: -30 }} animate={{ opacity: 1, x: 0 }} transition={{ duration: 0.6 }}>
-            <div className="flex items-center gap-3 mb-8">
-              <div className="w-12 h-12 rounded-md bg-primary flex items-center justify-center">
-                <Bot className="w-7 h-7 text-primary-foreground" />
+            <div className="flex items-center gap-4 mb-8">
+              <WinmLogo size={52} />
+              <div>
+                <h1 className="text-3xl font-bold tracking-tight">WINM AI</h1>
+                <p className="text-sm text-muted-foreground">Trading Bot</p>
               </div>
-              <h1 className="text-3xl font-bold tracking-tight">CryptoBot AI</h1>
             </div>
             <p className="text-lg text-muted-foreground mb-12 leading-relaxed">
               AI-powered cryptocurrency trading bot with real-time signals, advanced strategies, and intelligent risk management.
@@ -129,10 +131,11 @@ export default function AuthPage() {
       <div className="flex-1 flex items-center justify-center p-4 lg:p-12">
         <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className="w-full max-w-md">
           <div className="lg:hidden flex items-center gap-3 mb-8 justify-center">
-            <div className="w-10 h-10 rounded-md bg-primary flex items-center justify-center">
-              <Bot className="w-6 h-6 text-primary-foreground" />
+            <WinmLogo size={40} />
+            <div>
+              <h1 className="text-2xl font-bold tracking-tight">WINM AI</h1>
+              <p className="text-xs text-muted-foreground">Trading Bot</p>
             </div>
-            <h1 className="text-2xl font-bold tracking-tight">CryptoBot AI</h1>
           </div>
 
           <Tabs value={tab} onValueChange={setTab}>
@@ -182,8 +185,8 @@ export default function AuthPage() {
                   </Form>
                   <div className="mt-4 p-3 rounded-md bg-muted/50 text-xs text-muted-foreground">
                     <p className="font-medium mb-1">Demo Accounts:</p>
-                    <p>Admin: admin@cryptobot.com / admin123</p>
-                    <p>Trader: trader@cryptobot.com / trader123</p>
+                    <p>Admin: patyqm2010@gmail.com / Ori@4422</p>
+                    <p>Trader: trader@winmai.com / trader123</p>
                   </div>
                 </CardContent>
               </Card>

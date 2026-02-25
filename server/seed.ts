@@ -14,15 +14,15 @@ export async function seedDatabase() {
   if (existingUsers.length > 0) return;
 
   const adminUser = await db.insert(users).values({
-    email: "admin@cryptobot.com",
-    password: hashPassword("admin123"),
-    name: "Admin User",
+    email: "patyqm2010@gmail.com",
+    password: hashPassword("Ori@4422"),
+    name: "WINM Admin",
     role: "admin",
     avatarColor: "#8B5CF6",
   }).returning();
 
   const traderUser = await db.insert(users).values({
-    email: "trader@cryptobot.com",
+    email: "trader@winmai.com",
     password: hashPassword("trader123"),
     name: "Pro Trader",
     role: "user",
@@ -30,7 +30,7 @@ export async function seedDatabase() {
   }).returning();
 
   await db.insert(users).values({
-    email: "demo@cryptobot.com",
+    email: "demo@winmai.com",
     password: hashPassword("demo123"),
     name: "Demo User",
     role: "user",

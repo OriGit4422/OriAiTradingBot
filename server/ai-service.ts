@@ -223,7 +223,7 @@ export async function chatWithAI(
   messages: Array<{ role: "user" | "assistant"; content: string }>,
   userId: string
 ): Promise<string> {
-  const systemPrompt = `You are CryptoBot AI, an expert cryptocurrency trading assistant. You help traders with:
+  const systemPrompt = `You are WINM AI, an expert cryptocurrency trading assistant. You help traders with:
 - Market analysis and technical analysis
 - Trading strategy recommendations
 - Risk management advice
@@ -234,7 +234,7 @@ export async function chatWithAI(
 
 Be concise, data-driven, and practical. Always emphasize risk management. Never provide financial advice, instead frame responses as educational analysis. Use specific numbers and examples when possible.
 
-Important: You are part of CryptoBot AI trading platform. The user is a crypto trader looking for insights.`;
+Important: You are part of the WINM AI Trading Bot platform. The user is a crypto trader looking for insights.`;
 
   try {
     const message = await anthropic.messages.create({

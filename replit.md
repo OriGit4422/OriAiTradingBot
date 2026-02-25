@@ -1,4 +1,4 @@
-# CryptoBot AI - Trading Platform
+# WINM AI Trading Bot
 
 ## Overview
 AI-powered cryptocurrency trading bot platform with Claude AI integration for signal validation and market analysis, real-time signals, advanced strategies, risk management, and multi-user admin panel.
@@ -56,9 +56,9 @@ shared/
 - Responsive design for web and mobile
 
 ## Demo Accounts
-- Admin: admin@cryptobot.com / admin123
-- Trader: trader@cryptobot.com / trader123
-- Demo: demo@cryptobot.com / demo123
+- Admin: patyqm2010@gmail.com / Ori@4422
+- Trader: trader@winmai.com / trader123
+- Demo: demo@winmai.com / demo123
 
 ## Database
 PostgreSQL with tables: users, strategies, signals, bot_settings, trade_history, conversations, messages, session

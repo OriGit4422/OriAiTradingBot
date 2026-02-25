@@ -1,5 +1,5 @@
 import { sql } from "drizzle-orm";
-import { pgTable, text, varchar, boolean, integer, real, timestamp, jsonb } from "drizzle-orm/pg-core";
+import { pgTable, text, varchar, boolean, integer, real, timestamp, serial } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 
@@ -33,6 +33,8 @@ export const strategies = pgTable("strategies", {
   winRate: real("win_rate").default(0),
   totalTrades: integer("total_trades").default(0),
   profitLoss: real("profit_loss").default(0),
+  aiScore: real("ai_score"),
+  aiReview: text("ai_review"),
 });
 
 export const signals = pgTable("signals", {
@@ -47,6 +49,10 @@ export const signals = pgTable("signals", {
   confidence: real("confidence").notNull().default(0.5),
   status: text("status").notNull().default("active"),
   aiAnalysis: text("ai_analysis"),
+  aiValidation: text("ai_validation"),
+  aiRiskScore: real("ai_risk_score"),
+  riskReward: text("risk_reward"),
+  marketContext: text("market_context"),
   createdAt: timestamp("created_at").defaultNow(),
 });
 
@@ -80,6 +86,21 @@ export const tradeHistory = pgTable("trade_history", {
   status: text("status").notNull().default("open"),
   openedAt: timestamp("opened_at").defaultNow(),
   closedAt: timestamp("closed_at"),
+});
+
+export const conversations = pgTable("conversations", {
+  id: serial("id").primaryKey(),
+  userId: varchar("user_id").notNull(),
+  title: text("title").notNull(),
+  createdAt: timestamp("created_at").default(sql`CURRENT_TIMESTAMP`).notNull(),
+});
+
+export const messages = pgTable("messages", {
+  id: serial("id").primaryKey(),
+  conversationId: integer("conversation_id").notNull(),
+  role: text("role").notNull(),
+  content: text("content").notNull(),
+  createdAt: timestamp("created_at").default(sql`CURRENT_TIMESTAMP`).notNull(),
 });
 
 export const insertUserSchema = createInsertSchema(users).pick({
@@ -129,6 +150,10 @@ export const insertSignalSchema = createInsertSchema(signals).pick({
   stopLoss: true,
   confidence: true,
   aiAnalysis: true,
+  aiValidation: true,
+  aiRiskScore: true,
+  riskReward: true,
+  marketContext: true,
   strategyId: true,
 });
 
@@ -156,3 +181,5 @@ export type InsertSignal = z.infer<typeof insertSignalSchema>;
 export type BotSettings = typeof botSettings.$inferSelect;
 export type InsertBotSettings = z.infer<typeof insertBotSettingsSchema>;
 export type TradeHistory = typeof tradeHistory.$inferSelect;
+export type Conversation = typeof conversations.$inferSelect;
+export type Message = typeof messages.$inferSelect;

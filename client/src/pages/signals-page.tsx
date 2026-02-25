@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
@@ -6,7 +7,9 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Zap, TrendingUp, TrendingDown, Target, Brain, Trash2, Clock, CheckCircle, XCircle, AlertTriangle } from "lucide-react";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Progress } from "@/components/ui/progress";
+import { Zap, TrendingUp, TrendingDown, Target, Brain, Trash2, Clock, CheckCircle, XCircle, AlertTriangle, Shield, BarChart3, Sparkles, RefreshCw } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import type { Signal } from "@shared/schema";
 
@@ -23,16 +26,39 @@ function ConfidenceBar({ value }: { value: number }) {
   );
 }
 
+function RiskScoreIndicator({ score }: { score: number }) {
+  const color = score <= 3 ? "text-emerald-500" : score <= 6 ? "text-amber-500" : "text-red-500";
+  const bg = score <= 3 ? "bg-emerald-500/10" : score <= 6 ? "bg-amber-500/10" : "bg-red-500/10";
+  const label = score <= 3 ? "Low Risk" : score <= 6 ? "Medium Risk" : "High Risk";
+  return (
+    <div className={`flex items-center gap-1.5 px-2 py-1 rounded-md ${bg}`}>
+      <Shield className={`w-3 h-3 ${color}`} />
+      <span className={`text-xs font-bold ${color}`}>{score.toFixed(1)}/10</span>
+      <span className={`text-xs ${color}`}>{label}</span>
+    </div>
+  );
+}
+
 export default function SignalsPage() {
+  const [selectedPair, setSelectedPair] = useState("auto");
   const { toast } = useToast();
   const { data: signals, isLoading } = useQuery<Signal[]>({ queryKey: ["/api/signals"] });
 
   const generateMutation = useMutation({
-    mutationFn: () => apiRequest("POST", "/api/signals/generate", {}),
+    mutationFn: (pair?: string) => apiRequest("POST", "/api/signals/generate", { pair: pair === "auto" ? undefined : pair }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/signals"] });
       queryClient.invalidateQueries({ queryKey: ["/api/dashboard/stats"] });
-      toast({ title: "AI Signal Generated", description: "New trading signal has been analyzed and created." });
+      toast({ title: "Claude AI Signal Generated", description: "New trading signal has been analyzed and validated by Claude AI." });
+    },
+    onError: (e: Error) => toast({ title: "Error", description: e.message, variant: "destructive" }),
+  });
+
+  const validateMutation = useMutation({
+    mutationFn: (id: string) => apiRequest("POST", `/api/signals/${id}/validate`),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/signals"] });
+      toast({ title: "Signal Re-validated", description: "Claude AI has re-validated this signal." });
     },
     onError: (e: Error) => toast({ title: "Error", description: e.message, variant: "destructive" }),
   });
@@ -77,7 +103,7 @@ export default function SignalsPage() {
       );
     }
     return (
-      <div className="space-y-3">
+      <div className="space-y-4">
         <AnimatePresence>
           {list.map((sig, i) => (
             <motion.div key={sig.id} initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }} transition={{ delay: i * 0.03 }}>
@@ -85,14 +111,17 @@ export default function SignalsPage() {
                 <CardContent className="p-4">
                   <div className="flex items-start justify-between gap-3 mb-3">
                     <div className="flex items-center gap-2 flex-wrap">
-                      <div className={`w-8 h-8 rounded-md flex items-center justify-center ${sig.type === "long" ? "bg-emerald-500/10" : "bg-red-500/10"}`}>
-                        {sig.type === "long" ? <TrendingUp className="w-4 h-4 text-emerald-500" /> : <TrendingDown className="w-4 h-4 text-red-500" />}
+                      <div className={`w-9 h-9 rounded-md flex items-center justify-center ${sig.type === "long" ? "bg-emerald-500/10" : "bg-red-500/10"}`}>
+                        {sig.type === "long" ? <TrendingUp className="w-5 h-5 text-emerald-500" /> : <TrendingDown className="w-5 h-5 text-red-500" />}
                       </div>
                       <div>
                         <div className="flex items-center gap-2">
-                          <h3 className="font-semibold text-sm">{sig.pair}</h3>
+                          <h3 className="font-semibold">{sig.pair}</h3>
                           <Badge variant={sig.type === "long" ? "default" : "destructive"} className="text-xs">
                             {sig.type.toUpperCase()}
+                          </Badge>
+                          <Badge variant="outline" className="text-xs gap-1">
+                            <Sparkles className="w-2.5 h-2.5" />Claude AI
                           </Badge>
                         </div>
                         <p className="text-xs text-muted-foreground">
@@ -100,11 +129,9 @@ export default function SignalsPage() {
                         </p>
                       </div>
                     </div>
-                    <div className="flex items-center gap-1">
-                      <Badge variant="outline" className="text-xs gap-1">
-                        {statusIcon(sig.status)}{sig.status}
-                      </Badge>
-                    </div>
+                    <Badge variant="outline" className="text-xs gap-1 shrink-0">
+                      {statusIcon(sig.status)}{sig.status}
+                    </Badge>
                   </div>
 
                   <div className="grid grid-cols-3 gap-3 p-3 rounded-md bg-muted/30 mb-3">
@@ -122,27 +149,78 @@ export default function SignalsPage() {
                     </div>
                   </div>
 
-                  <div className="mb-3">
-                    <p className="text-xs text-muted-foreground mb-1">AI Confidence</p>
-                    <ConfidenceBar value={sig.confidence} />
+                  <div className="grid grid-cols-2 gap-3 mb-3">
+                    <div>
+                      <p className="text-xs text-muted-foreground mb-1">AI Confidence</p>
+                      <ConfidenceBar value={sig.confidence} />
+                    </div>
+                    <div>
+                      {sig.aiRiskScore ? (
+                        <div>
+                          <p className="text-xs text-muted-foreground mb-1">Risk Assessment</p>
+                          <RiskScoreIndicator score={sig.aiRiskScore} />
+                        </div>
+                      ) : (
+                        <div>
+                          <p className="text-xs text-muted-foreground mb-1">Risk/Reward</p>
+                          <p className="text-sm font-semibold">{sig.riskReward || "N/A"}</p>
+                        </div>
+                      )}
+                    </div>
                   </div>
 
+                  {sig.riskReward && sig.aiRiskScore && (
+                    <div className="flex items-center gap-3 mb-3 text-xs">
+                      <div className="flex items-center gap-1">
+                        <BarChart3 className="w-3 h-3 text-primary" />
+                        <span className="text-muted-foreground">R:R</span>
+                        <span className="font-bold">{sig.riskReward}</span>
+                      </div>
+                    </div>
+                  )}
+
                   {sig.aiAnalysis && (
-                    <div className="p-3 rounded-md bg-primary/5 border border-primary/10 mb-3">
+                    <div className="p-3 rounded-md bg-primary/5 border border-primary/10 mb-2">
                       <div className="flex items-center gap-1.5 mb-1">
                         <Brain className="w-3 h-3 text-primary" />
-                        <p className="text-xs font-semibold text-primary">AI Analysis</p>
+                        <p className="text-xs font-semibold text-primary">Claude AI Analysis</p>
                       </div>
                       <p className="text-xs text-muted-foreground leading-relaxed">{sig.aiAnalysis}</p>
                     </div>
                   )}
 
-                  <div className="flex gap-2">
+                  {sig.aiValidation && (
+                    <div className="p-3 rounded-md bg-emerald-500/5 border border-emerald-500/10 mb-2">
+                      <div className="flex items-center gap-1.5 mb-1">
+                        <Shield className="w-3 h-3 text-emerald-500" />
+                        <p className="text-xs font-semibold text-emerald-600 dark:text-emerald-400">AI Validation</p>
+                      </div>
+                      <p className="text-xs text-muted-foreground leading-relaxed">{sig.aiValidation}</p>
+                    </div>
+                  )}
+
+                  {sig.marketContext && (
+                    <div className="p-3 rounded-md bg-amber-500/5 border border-amber-500/10 mb-3">
+                      <div className="flex items-center gap-1.5 mb-1">
+                        <TrendingUp className="w-3 h-3 text-amber-500" />
+                        <p className="text-xs font-semibold text-amber-600 dark:text-amber-400">Market Context</p>
+                      </div>
+                      <p className="text-xs text-muted-foreground leading-relaxed">{sig.marketContext}</p>
+                    </div>
+                  )}
+
+                  <div className="flex gap-2 flex-wrap">
                     {sig.status === "active" && (
-                      <Button data-testid={`button-close-signal-${sig.id}`} variant="secondary" size="sm" className="flex-1"
-                        onClick={() => updateMutation.mutate({ id: sig.id, status: "closed" })}>
-                        <CheckCircle className="w-3 h-3 mr-1" />Close
-                      </Button>
+                      <>
+                        <Button data-testid={`button-validate-signal-${sig.id}`} variant="secondary" size="sm"
+                          onClick={() => validateMutation.mutate(sig.id)} disabled={validateMutation.isPending}>
+                          <RefreshCw className={`w-3 h-3 mr-1 ${validateMutation.isPending ? "animate-spin" : ""}`} />Re-validate
+                        </Button>
+                        <Button data-testid={`button-close-signal-${sig.id}`} variant="secondary" size="sm"
+                          onClick={() => updateMutation.mutate({ id: sig.id, status: "closed" })}>
+                          <CheckCircle className="w-3 h-3 mr-1" />Close
+                        </Button>
+                      </>
                     )}
                     <Button data-testid={`button-delete-signal-${sig.id}`} variant="destructive" size="sm"
                       onClick={() => deleteMutation.mutate(sig.id)}>
@@ -174,13 +252,55 @@ export default function SignalsPage() {
       <div className="flex items-center justify-between gap-4 flex-wrap">
         <div>
           <h1 className="text-2xl lg:text-3xl font-bold tracking-tight" data-testid="text-signals-title">Trading Signals</h1>
-          <p className="text-muted-foreground mt-1">AI-powered trading signals and analysis</p>
+          <p className="text-muted-foreground mt-1">Claude AI-powered trading signals with validation</p>
         </div>
-        <Button data-testid="button-generate-signal" onClick={() => generateMutation.mutate()} disabled={generateMutation.isPending}>
-          <Zap className="w-4 h-4 mr-2" />
-          {generateMutation.isPending ? "Generating..." : "Generate AI Signal"}
-        </Button>
+        <div className="flex items-center gap-2 flex-wrap">
+          <Select value={selectedPair} onValueChange={setSelectedPair}>
+            <SelectTrigger data-testid="select-signal-pair" className="w-36">
+              <SelectValue placeholder="Select pair" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="auto">Auto Select</SelectItem>
+              <SelectItem value="BTC/USDT">BTC/USDT</SelectItem>
+              <SelectItem value="ETH/USDT">ETH/USDT</SelectItem>
+              <SelectItem value="SOL/USDT">SOL/USDT</SelectItem>
+              <SelectItem value="BNB/USDT">BNB/USDT</SelectItem>
+              <SelectItem value="XRP/USDT">XRP/USDT</SelectItem>
+              <SelectItem value="ADA/USDT">ADA/USDT</SelectItem>
+              <SelectItem value="DOGE/USDT">DOGE/USDT</SelectItem>
+              <SelectItem value="AVAX/USDT">AVAX/USDT</SelectItem>
+            </SelectContent>
+          </Select>
+          <Button data-testid="button-generate-signal" onClick={() => generateMutation.mutate(selectedPair)} disabled={generateMutation.isPending}>
+            {generateMutation.isPending ? (
+              <>
+                <Sparkles className="w-4 h-4 mr-2 animate-spin" />Analyzing...
+              </>
+            ) : (
+              <>
+                <Zap className="w-4 h-4 mr-2" />Generate AI Signal
+              </>
+            )}
+          </Button>
+        </div>
       </div>
+
+      {generateMutation.isPending && (
+        <Card className="border-primary/20 bg-primary/5">
+          <CardContent className="p-4">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-md bg-primary/10 flex items-center justify-center">
+                <Brain className="w-5 h-5 text-primary animate-pulse" />
+              </div>
+              <div className="flex-1">
+                <p className="font-semibold text-sm">Claude AI is analyzing the market...</p>
+                <p className="text-xs text-muted-foreground">Generating signal, running validation, and assessing risk</p>
+                <Progress className="mt-2 h-1.5" value={undefined} />
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      )}
 
       <Tabs defaultValue="active">
         <TabsList className="grid grid-cols-3 w-full max-w-sm">

@@ -7,7 +7,7 @@ import {
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { LayoutDashboard, TrendingUp, Target, Settings, Shield, LogOut, Bot } from "lucide-react";
+import { LayoutDashboard, TrendingUp, Target, Settings, Shield, LogOut, Bot, Brain } from "lucide-react";
 
 export function AppSidebar() {
   const [location] = useLocation();
@@ -17,6 +17,7 @@ export function AppSidebar() {
     { title: "Dashboard", url: "/", icon: LayoutDashboard },
     { title: "Strategies", url: "/strategies", icon: TrendingUp },
     { title: "Signals", url: "/signals", icon: Target },
+    { title: "AI Chat", url: "/ai-chat", icon: Brain },
     { title: "Settings", url: "/settings", icon: Settings },
   ];
 

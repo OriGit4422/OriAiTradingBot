@@ -14,7 +14,7 @@ import { Form, FormField, FormItem, FormLabel, FormControl, FormMessage } from "
 import { Slider } from "@/components/ui/slider";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useForm } from "react-hook-form";
-import { Plus, Trash2, Edit2, Zap, TrendingUp, BarChart3, ArrowUpDown, Activity } from "lucide-react";
+import { Plus, Trash2, Edit2, Zap, TrendingUp, BarChart3, ArrowUpDown, Activity, Brain, Sparkles } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import type { Strategy, InsertStrategy } from "@shared/schema";
 
@@ -81,6 +81,15 @@ export default function StrategiesPage() {
       queryClient.invalidateQueries({ queryKey: ["/api/dashboard/stats"] });
       toast({ title: "Strategy deleted" });
     },
+  });
+
+  const aiReviewMutation = useMutation({
+    mutationFn: (id: string) => apiRequest("POST", `/api/strategies/${id}/ai-review`),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/strategies"] });
+      toast({ title: "AI Review Complete", description: "Claude AI has reviewed your strategy." });
+    },
+    onError: (e: Error) => toast({ title: "Error", description: e.message, variant: "destructive" }),
   });
 
   const toggleActive = useMutation({
@@ -309,7 +318,26 @@ export default function StrategiesPage() {
                       </div>
                     </div>
 
+                    {strat.aiReview && (
+                      <div className="p-3 rounded-md bg-primary/5 border border-primary/10 mb-3">
+                        <div className="flex items-center justify-between mb-1">
+                          <div className="flex items-center gap-1.5">
+                            <Brain className="w-3 h-3 text-primary" />
+                            <p className="text-xs font-semibold text-primary">Claude AI Review</p>
+                          </div>
+                          {strat.aiScore && (
+                            <Badge variant="secondary" className="text-xs">{strat.aiScore.toFixed(1)}/10</Badge>
+                          )}
+                        </div>
+                        <p className="text-xs text-muted-foreground leading-relaxed">{strat.aiReview}</p>
+                      </div>
+                    )}
+
                     <div className="flex gap-2">
+                      <Button data-testid={`button-ai-review-strategy-${strat.id}`} variant="secondary" size="sm"
+                        onClick={() => aiReviewMutation.mutate(strat.id)} disabled={aiReviewMutation.isPending}>
+                        <Sparkles className={`w-3 h-3 mr-1 ${aiReviewMutation.isPending ? "animate-spin" : ""}`} />AI Review
+                      </Button>
                       <Button data-testid={`button-edit-strategy-${strat.id}`} variant="secondary" size="sm" className="flex-1" onClick={() => openEdit(strat)}>
                         <Edit2 className="w-3 h-3 mr-1" />Edit
                       </Button>

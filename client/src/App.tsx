@@ -17,6 +17,7 @@ import StrategiesPage from "@/pages/strategies-page";
 import SignalsPage from "@/pages/signals-page";
 import SettingsPage from "@/pages/settings-page";
 import AdminPage from "@/pages/admin-page";
+import AIChatPage from "@/pages/ai-chat-page";
 
 function ThemeToggle() {
   const { theme, toggleTheme } = useTheme();
@@ -34,6 +35,7 @@ function AuthenticatedRouter() {
       <Route path="/strategies" component={StrategiesPage} />
       <Route path="/signals" component={SignalsPage} />
       <Route path="/settings" component={SettingsPage} />
+      <Route path="/ai-chat" component={AIChatPage} />
       <Route path="/admin" component={AdminPage} />
       <Route component={NotFound} />
     </Switch>

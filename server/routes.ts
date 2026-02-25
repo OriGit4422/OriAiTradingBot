@@ -6,6 +6,7 @@ import { loginSchema, registerSchema, resetPasswordSchema, newPasswordSchema, in
 import { randomBytes } from "crypto";
 import connectPgSimple from "connect-pg-simple";
 import { pool } from "./db";
+import { generateAISignal, validateSignal, reviewStrategy, chatWithAI } from "./ai-service";
 
 const PgSession = connectPgSimple(session);
 
@@ -171,6 +172,32 @@ export async function registerRoutes(
     }
   });
 
+  app.post("/api/strategies/:id/ai-review", requireAuth, async (req, res) => {
+    try {
+      const existing = await storage.getStrategy(req.params.id);
+      if (!existing) return res.status(404).json({ message: "Strategy not found" });
+      if (existing.userId !== (req.session as any).userId) return res.status(403).json({ message: "Access denied" });
+      const review = await reviewStrategy({
+        name: existing.name,
+        type: existing.type,
+        pairs: existing.pairs || [],
+        indicators: existing.indicators || [],
+        timeframe: existing.timeframe,
+        riskLevel: existing.riskLevel,
+        takeProfit: existing.takeProfit || 2,
+        stopLoss: existing.stopLoss || 1,
+        maxPositionSize: existing.maxPositionSize || 10,
+        winRate: existing.winRate || 0,
+        totalTrades: existing.totalTrades || 0,
+        profitLoss: existing.profitLoss || 0,
+      });
+      await storage.updateStrategy(req.params.id, { aiScore: review.score, aiReview: review.review });
+      return res.json(review);
+    } catch (e: any) {
+      return res.status(500).json({ message: e.message });
+    }
+  });
+
   app.get("/api/signals", requireAuth, async (req, res) => {
     try {
       const sigs = await storage.getSignals((req.session as any).userId);
@@ -216,26 +243,57 @@ export async function registerRoutes(
   });
 
   app.post("/api/signals/generate", requireAuth, async (req, res) => {
-    const pairs = ["BTC/USDT", "ETH/USDT", "SOL/USDT", "BNB/USDT", "XRP/USDT", "ADA/USDT", "DOGE/USDT", "AVAX/USDT"];
-    const types = ["long", "short"];
-    const pair = pairs[Math.floor(Math.random() * pairs.length)];
-    const type = types[Math.floor(Math.random() * types.length)];
-    const basePrice = pair === "BTC/USDT" ? 65000 + Math.random() * 5000 : pair === "ETH/USDT" ? 3200 + Math.random() * 300 : pair === "SOL/USDT" ? 140 + Math.random() * 30 : pair === "BNB/USDT" ? 580 + Math.random() * 40 : pair === "XRP/USDT" ? 0.55 + Math.random() * 0.15 : pair === "ADA/USDT" ? 0.45 + Math.random() * 0.1 : pair === "DOGE/USDT" ? 0.08 + Math.random() * 0.03 : 35 + Math.random() * 5;
-    const entry = Math.round(basePrice * 100) / 100;
-    const multiplier = type === "long" ? 1 : -1;
-    const target = Math.round((entry * (1 + multiplier * (0.02 + Math.random() * 0.05))) * 100) / 100;
-    const stopLoss = Math.round((entry * (1 - multiplier * (0.01 + Math.random() * 0.02))) * 100) / 100;
-    const confidence = Math.round((0.55 + Math.random() * 0.4) * 100) / 100;
-    const analyses = [
-      `Strong ${type} signal detected. RSI at ${type === "long" ? "oversold" : "overbought"} levels with MACD crossover confirmation. Volume surge of ${Math.floor(20 + Math.random() * 40)}% supports the move.`,
-      `AI analysis indicates ${type === "long" ? "bullish" : "bearish"} divergence on the 4H chart. Fibonacci retracement aligns with key support/resistance at ${entry}. Risk-reward ratio: ${((Math.abs(target - entry) / Math.abs(stopLoss - entry))).toFixed(1)}:1.`,
-      `Pattern recognition: ${type === "long" ? "Double bottom" : "Head and shoulders"} formation confirmed. Bollinger Band squeeze suggests imminent breakout. Smart money flow indicator is ${type === "long" ? "accumulating" : "distributing"}.`,
-    ];
-    const aiAnalysis = analyses[Math.floor(Math.random() * analyses.length)];
-    const signal = await storage.createSignal((req.session as any).userId, {
-      pair, type, entry, target, stopLoss, confidence, aiAnalysis, strategyId: req.body.strategyId || null,
-    });
-    return res.json(signal);
+    try {
+      const pair = req.body.pair || ["BTC/USDT", "ETH/USDT", "SOL/USDT", "BNB/USDT", "XRP/USDT"][Math.floor(Math.random() * 5)];
+      const aiResult = await generateAISignal(pair);
+      const validation = await validateSignal({
+        pair: aiResult.pair,
+        type: aiResult.type,
+        entry: aiResult.entry,
+        target: aiResult.target,
+        stopLoss: aiResult.stopLoss,
+      });
+      const finalConfidence = validation.isValid ? aiResult.confidence : Math.max(0.3, aiResult.confidence - 0.2);
+      const signal = await storage.createSignal((req.session as any).userId, {
+        pair: aiResult.pair,
+        type: aiResult.type,
+        entry: aiResult.entry,
+        target: aiResult.target,
+        stopLoss: aiResult.stopLoss,
+        confidence: finalConfidence,
+        aiAnalysis: aiResult.aiAnalysis,
+        aiValidation: `${validation.validation} ${validation.suggestions}`,
+        aiRiskScore: validation.riskScore,
+        riskReward: aiResult.riskReward,
+        marketContext: aiResult.marketContext,
+        strategyId: req.body.strategyId || null,
+      });
+      return res.json(signal);
+    } catch (e: any) {
+      return res.status(500).json({ message: e.message });
+    }
+  });
+
+  app.post("/api/signals/:id/validate", requireAuth, async (req, res) => {
+    try {
+      const existing = await storage.getSignal(req.params.id);
+      if (!existing) return res.status(404).json({ message: "Signal not found" });
+      if (existing.userId !== (req.session as any).userId) return res.status(403).json({ message: "Access denied" });
+      const validation = await validateSignal({
+        pair: existing.pair,
+        type: existing.type,
+        entry: existing.entry,
+        target: existing.target || 0,
+        stopLoss: existing.stopLoss || 0,
+      });
+      await storage.updateSignal(req.params.id, {
+        aiValidation: `${validation.validation} ${validation.suggestions}`,
+        aiRiskScore: validation.riskScore,
+      });
+      return res.json(validation);
+    } catch (e: any) {
+      return res.status(500).json({ message: e.message });
+    }
   });
 
   app.get("/api/settings", requireAuth, async (req, res) => {
@@ -294,24 +352,98 @@ export async function registerRoutes(
     }
   });
 
+  app.get("/api/conversations", requireAuth, async (req, res) => {
+    try {
+      const convs = await storage.getConversations((req.session as any).userId);
+      return res.json(convs);
+    } catch (e: any) {
+      return res.status(500).json({ message: e.message });
+    }
+  });
+
+  app.post("/api/conversations", requireAuth, async (req, res) => {
+    try {
+      const conv = await storage.createConversation((req.session as any).userId, req.body.title || "New Chat");
+      return res.json(conv);
+    } catch (e: any) {
+      return res.status(400).json({ message: e.message });
+    }
+  });
+
+  app.delete("/api/conversations/:id", requireAuth, async (req, res) => {
+    try {
+      const conv = await storage.getConversation(parseInt(req.params.id));
+      if (!conv) return res.status(404).json({ message: "Not found" });
+      if (conv.userId !== (req.session as any).userId) return res.status(403).json({ message: "Access denied" });
+      await storage.deleteConversation(parseInt(req.params.id));
+      return res.json({ message: "Deleted" });
+    } catch (e: any) {
+      return res.status(500).json({ message: e.message });
+    }
+  });
+
+  app.get("/api/conversations/:id/messages", requireAuth, async (req, res) => {
+    try {
+      const conv = await storage.getConversation(parseInt(req.params.id));
+      if (!conv) return res.status(404).json({ message: "Not found" });
+      if (conv.userId !== (req.session as any).userId) return res.status(403).json({ message: "Access denied" });
+      const msgs = await storage.getMessages(parseInt(req.params.id));
+      return res.json(msgs);
+    } catch (e: any) {
+      return res.status(500).json({ message: e.message });
+    }
+  });
+
+  app.post("/api/conversations/:id/messages", requireAuth, async (req, res) => {
+    try {
+      const convId = parseInt(req.params.id);
+      const conv = await storage.getConversation(convId);
+      if (!conv) return res.status(404).json({ message: "Not found" });
+      if (conv.userId !== (req.session as any).userId) return res.status(403).json({ message: "Access denied" });
+      const userMsg = await storage.createMessage(convId, "user", req.body.content);
+      const allMsgs = await storage.getMessages(convId);
+      const chatHistory = allMsgs.map(m => ({
+        role: m.role as "user" | "assistant",
+        content: m.content,
+      }));
+      const aiResponse = await chatWithAI(chatHistory, (req.session as any).userId);
+      const assistantMsg = await storage.createMessage(convId, "assistant", aiResponse);
+      return res.json({ userMessage: userMsg, assistantMessage: assistantMsg });
+    } catch (e: any) {
+      return res.status(500).json({ message: e.message });
+    }
+  });
+
   app.get("/api/admin/users", requireAdmin, async (req, res) => {
-    const allUsers = await storage.getAllUsers();
-    return res.json(allUsers.map(u => ({
-      id: u.id, email: u.email, name: u.name, role: u.role,
-      isActive: u.isActive, avatarColor: u.avatarColor, lastLogin: u.lastLogin,
-    })));
+    try {
+      const allUsers = await storage.getAllUsers();
+      return res.json(allUsers.map(u => ({
+        id: u.id, email: u.email, name: u.name, role: u.role,
+        isActive: u.isActive, avatarColor: u.avatarColor, lastLogin: u.lastLogin,
+      })));
+    } catch (e: any) {
+      return res.status(500).json({ message: e.message });
+    }
   });
 
   app.patch("/api/admin/users/:id", requireAdmin, async (req, res) => {
-    const { role, isActive } = req.body;
-    const updated = await storage.updateUser(req.params.id, { role, isActive });
-    if (!updated) return res.status(404).json({ message: "User not found" });
-    return res.json({ id: updated.id, email: updated.email, name: updated.name, role: updated.role, isActive: updated.isActive, avatarColor: updated.avatarColor, lastLogin: updated.lastLogin });
+    try {
+      const { role, isActive } = req.body;
+      const updated = await storage.updateUser(req.params.id, { role, isActive });
+      if (!updated) return res.status(404).json({ message: "User not found" });
+      return res.json({ id: updated.id, email: updated.email, name: updated.name, role: updated.role, isActive: updated.isActive, avatarColor: updated.avatarColor, lastLogin: updated.lastLogin });
+    } catch (e: any) {
+      return res.status(500).json({ message: e.message });
+    }
   });
 
   app.delete("/api/admin/users/:id", requireAdmin, async (req, res) => {
-    await storage.deleteUser(req.params.id);
-    return res.json({ message: "Deleted" });
+    try {
+      await storage.deleteUser(req.params.id);
+      return res.json({ message: "Deleted" });
+    } catch (e: any) {
+      return res.status(500).json({ message: e.message });
+    }
   });
 
   return httpServer;

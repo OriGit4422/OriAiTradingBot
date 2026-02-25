@@ -1,10 +1,10 @@
 import { eq, desc, and } from "drizzle-orm";
 import { db } from "./db";
 import {
-  users, strategies, signals, botSettings, tradeHistory,
+  users, strategies, signals, botSettings, tradeHistory, conversations, messages,
   type User, type InsertUser, type Strategy, type InsertStrategy,
   type Signal, type InsertSignal, type BotSettings, type InsertBotSettings,
-  type TradeHistory,
+  type TradeHistory, type Conversation, type Message,
 } from "@shared/schema";
 import { scryptSync, randomBytes } from "crypto";
 
@@ -49,6 +49,13 @@ export interface IStorage {
 
   getTradeHistory(userId: string): Promise<TradeHistory[]>;
   createTrade(userId: string, data: Partial<TradeHistory>): Promise<TradeHistory>;
+
+  getConversations(userId: string): Promise<Conversation[]>;
+  getConversation(id: number): Promise<Conversation | undefined>;
+  createConversation(userId: string, title: string): Promise<Conversation>;
+  deleteConversation(id: number): Promise<void>;
+  getMessages(conversationId: number): Promise<Message[]>;
+  createMessage(conversationId: number, role: string, content: string): Promise<Message>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -176,6 +183,34 @@ export class DatabaseStorage implements IStorage {
   async createTrade(userId: string, data: Partial<TradeHistory>): Promise<TradeHistory> {
     const [trade] = await db.insert(tradeHistory).values({ ...data, userId } as any).returning();
     return trade;
+  }
+
+  async getConversations(userId: string): Promise<Conversation[]> {
+    return db.select().from(conversations).where(eq(conversations.userId, userId)).orderBy(desc(conversations.createdAt));
+  }
+
+  async getConversation(id: number): Promise<Conversation | undefined> {
+    const [conv] = await db.select().from(conversations).where(eq(conversations.id, id));
+    return conv;
+  }
+
+  async createConversation(userId: string, title: string): Promise<Conversation> {
+    const [conv] = await db.insert(conversations).values({ userId, title }).returning();
+    return conv;
+  }
+
+  async deleteConversation(id: number): Promise<void> {
+    await db.delete(messages).where(eq(messages.conversationId, id));
+    await db.delete(conversations).where(eq(conversations.id, id));
+  }
+
+  async getMessages(conversationId: number): Promise<Message[]> {
+    return db.select().from(messages).where(eq(messages.conversationId, conversationId)).orderBy(messages.createdAt);
+  }
+
+  async createMessage(conversationId: number, role: string, content: string): Promise<Message> {
+    const [msg] = await db.insert(messages).values({ conversationId, role, content }).returning();
+    return msg;
   }
 }
 

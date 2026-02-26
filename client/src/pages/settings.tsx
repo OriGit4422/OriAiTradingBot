@@ -10,12 +10,48 @@ import { Switch } from '@/components/ui/switch';
 import { Label } from '@/components/ui/label';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Separator } from '@/components/ui/separator';
-import { Bell, Lock, Key, Globe, Shield, Loader2 } from 'lucide-react';
-import type { Settings } from '@shared/schema';
+import { Badge } from '@/components/ui/badge';
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+  DialogFooter,
+} from '@/components/ui/dialog';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
+import { Bell, Lock, Key, Globe, Shield, Loader2, Users, UserPlus, Trash2, Edit, Mail, Check, X } from 'lucide-react';
+import type { Settings, UserAccess } from '@shared/schema';
+
+const ROLES = [
+  { value: 'admin', label: 'Admin', description: 'Full access to all features' },
+  { value: 'trader', label: 'Trader', description: 'Can view signals, execute trades' },
+  { value: 'viewer', label: 'Viewer', description: 'Read-only access to dashboard' },
+];
+
+const PERMISSIONS = [
+  { value: 'view_dashboard', label: 'View Dashboard' },
+  { value: 'view_signals', label: 'View Signals' },
+  { value: 'execute_trades', label: 'Execute Trades' },
+  { value: 'manage_wallet', label: 'Manage Wallet' },
+  { value: 'view_portfolio', label: 'View Portfolio' },
+  { value: 'manage_settings', label: 'Manage Settings' },
+  { value: 'manage_strategies', label: 'Manage Strategies' },
+];
 
 export default function SettingsPage() {
   const { data: settings, isLoading } = useQuery<Settings>({
     queryKey: ['/api/settings'],
+  });
+
+  const { data: userAccessList = [], isLoading: accessLoading } = useQuery<UserAccess[]>({
+    queryKey: ['/api/user-access'],
   });
 
   const [displayName, setDisplayName] = useState('');
@@ -23,6 +59,12 @@ export default function SettingsPage() {
   const [binanceApiKey, setBinanceApiKey] = useState('');
   const [bybitApiKey, setBybitApiKey] = useState('');
   const [telegramChatId, setTelegramChatId] = useState('');
+
+  const [addUserOpen, setAddUserOpen] = useState(false);
+  const [editUser, setEditUser] = useState<UserAccess | null>(null);
+  const [newEmail, setNewEmail] = useState('');
+  const [newRole, setNewRole] = useState('viewer');
+  const [newPermissions, setNewPermissions] = useState<string[]>([]);
 
   useEffect(() => {
     if (settings) {
@@ -47,6 +89,81 @@ export default function SettingsPage() {
       toast({ title: 'Failed to update settings', description: error.message, variant: 'destructive' });
     },
   });
+
+  const addUserMutation = useMutation({
+    mutationFn: async (data: { email: string; role: string; permissions: string[]; active: boolean }) => {
+      const res = await apiRequest('POST', '/api/user-access', data);
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['/api/user-access'] });
+      toast({ title: 'User added', description: `Access granted to ${newEmail}` });
+      resetUserForm();
+    },
+    onError: (error: Error) => {
+      toast({ title: 'Failed to add user', description: error.message, variant: 'destructive' });
+    },
+  });
+
+  const updateUserMutation = useMutation({
+    mutationFn: async ({ id, data }: { id: string; data: Partial<UserAccess> }) => {
+      const res = await apiRequest('PATCH', `/api/user-access/${id}`, data);
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['/api/user-access'] });
+      toast({ title: 'User updated' });
+      resetUserForm();
+    },
+    onError: (error: Error) => {
+      toast({ title: 'Failed to update user', description: error.message, variant: 'destructive' });
+    },
+  });
+
+  const deleteUserMutation = useMutation({
+    mutationFn: async (id: string) => {
+      await apiRequest('DELETE', `/api/user-access/${id}`);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['/api/user-access'] });
+      toast({ title: 'User removed' });
+    },
+    onError: (error: Error) => {
+      toast({ title: 'Failed to remove user', description: error.message, variant: 'destructive' });
+    },
+  });
+
+  const resetUserForm = () => {
+    setAddUserOpen(false);
+    setEditUser(null);
+    setNewEmail('');
+    setNewRole('viewer');
+    setNewPermissions([]);
+  };
+
+  const openEditUser = (user: UserAccess) => {
+    setEditUser(user);
+    setNewEmail(user.email);
+    setNewRole(user.role);
+    setNewPermissions(user.permissions || []);
+    setAddUserOpen(true);
+  };
+
+  const handleSaveUser = () => {
+    if (!newEmail.trim()) {
+      toast({ title: 'Email required', variant: 'destructive' });
+      return;
+    }
+    if (editUser) {
+      updateUserMutation.mutate({ id: editUser.id, data: { email: newEmail, role: newRole, permissions: newPermissions } });
+    } else {
+      addUserMutation.mutate({ email: newEmail, role: newRole, permissions: newPermissions, active: true });
+    }
+  };
+
+  const togglePermission = (perm: string) => {
+    setNewPermissions(prev => prev.includes(perm) ? prev.filter(p => p !== perm) : [...prev, perm]);
+  };
 
   if (isLoading || !settings) {
     return (
@@ -73,6 +190,10 @@ export default function SettingsPage() {
               <TabsTrigger value="api" data-testid="tab-api">API Keys</TabsTrigger>
               <TabsTrigger value="trading" data-testid="tab-trading">Trading</TabsTrigger>
               <TabsTrigger value="notifications" data-testid="tab-notifications">Notifications</TabsTrigger>
+              <TabsTrigger value="users" data-testid="tab-users">
+                <Users className="w-3.5 h-3.5 mr-1.5" />
+                User Access
+              </TabsTrigger>
             </TabsList>
 
             <TabsContent value="general">
@@ -315,9 +436,190 @@ export default function SettingsPage() {
                 </CardContent>
               </Card>
             </TabsContent>
+
+            <TabsContent value="users">
+              <Card className="bg-card border-border">
+                <CardHeader>
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <CardTitle>User Access & Rights</CardTitle>
+                      <CardDescription>Manage who can access the platform and their permissions.</CardDescription>
+                    </div>
+                    <Button onClick={() => { resetUserForm(); setAddUserOpen(true); }} className="gap-2" data-testid="button-add-user">
+                      <UserPlus className="w-4 h-4" /> Add User
+                    </Button>
+                  </div>
+                </CardHeader>
+                <CardContent>
+                  {accessLoading ? (
+                    <div className="flex items-center justify-center p-8">
+                      <Loader2 className="h-6 w-6 animate-spin text-primary" />
+                    </div>
+                  ) : userAccessList.length === 0 ? (
+                    <div className="text-center py-12 text-muted-foreground">
+                      <Users className="w-12 h-12 mx-auto mb-3 opacity-30" />
+                      <p className="text-sm">No users added yet. Click "Add User" to grant access.</p>
+                    </div>
+                  ) : (
+                    <div className="space-y-3">
+                      {userAccessList.map(user => (
+                        <div
+                          key={user.id}
+                          className="flex items-center justify-between p-4 rounded-lg border border-border bg-muted/10 hover:bg-muted/20 transition-colors"
+                          data-testid={`user-row-${user.id}`}
+                        >
+                          <div className="flex items-center gap-3">
+                            <div className="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center">
+                              <Mail className="w-4 h-4 text-primary" />
+                            </div>
+                            <div>
+                              <div className="font-medium text-sm" data-testid={`text-user-email-${user.id}`}>{user.email}</div>
+                              <div className="flex items-center gap-2 mt-0.5">
+                                <Badge
+                                  variant={user.role === 'admin' ? 'default' : user.role === 'trader' ? 'secondary' : 'outline'}
+                                  className="text-[10px] h-5"
+                                  data-testid={`badge-role-${user.id}`}
+                                >
+                                  {user.role}
+                                </Badge>
+                                <Badge
+                                  variant={user.active ? 'outline' : 'destructive'}
+                                  className="text-[10px] h-5"
+                                >
+                                  {user.active ? 'Active' : 'Disabled'}
+                                </Badge>
+                                {(user.permissions || []).length > 0 && (
+                                  <span className="text-[10px] text-muted-foreground">
+                                    {(user.permissions || []).length} permissions
+                                  </span>
+                                )}
+                              </div>
+                            </div>
+                          </div>
+                          <div className="flex items-center gap-1">
+                            <Button
+                              size="sm"
+                              variant="ghost"
+                              className="h-8 w-8 p-0"
+                              onClick={() => updateUserMutation.mutate({ id: user.id, data: { active: !user.active } })}
+                              data-testid={`button-toggle-${user.id}`}
+                            >
+                              {user.active ? <X className="w-3.5 h-3.5 text-red-500" /> : <Check className="w-3.5 h-3.5 text-green-500" />}
+                            </Button>
+                            <Button
+                              size="sm"
+                              variant="ghost"
+                              className="h-8 w-8 p-0"
+                              onClick={() => openEditUser(user)}
+                              data-testid={`button-edit-${user.id}`}
+                            >
+                              <Edit className="w-3.5 h-3.5" />
+                            </Button>
+                            <Button
+                              size="sm"
+                              variant="ghost"
+                              className="h-8 w-8 p-0 text-red-500 hover:text-red-400"
+                              onClick={() => deleteUserMutation.mutate(user.id)}
+                              disabled={deleteUserMutation.isPending}
+                              data-testid={`button-delete-${user.id}`}
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </Button>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
+            </TabsContent>
           </Tabs>
         </div>
       </div>
+
+      <Dialog open={addUserOpen} onOpenChange={(open) => { if (!open) resetUserForm(); else setAddUserOpen(true); }}>
+        <DialogContent className="sm:max-w-md bg-card border-border" data-testid="dialog-user-access">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <UserPlus className="w-5 h-5 text-primary" />
+              {editUser ? 'Edit User Access' : 'Add User Access'}
+            </DialogTitle>
+            <DialogDescription>
+              {editUser ? 'Update this user\'s role and permissions.' : 'Grant a new email address access to the platform.'}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-2">
+            <div className="space-y-2">
+              <Label htmlFor="user-email">Email Address</Label>
+              <Input
+                id="user-email"
+                data-testid="input-user-email"
+                type="email"
+                placeholder="user@example.com"
+                value={newEmail}
+                onChange={(e) => setNewEmail(e.target.value)}
+                className="bg-muted/20"
+                disabled={!!editUser}
+              />
+            </div>
+
+            <div className="space-y-2">
+              <Label>Role</Label>
+              <Select value={newRole} onValueChange={setNewRole}>
+                <SelectTrigger className="bg-muted/20" data-testid="select-role">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {ROLES.map(r => (
+                    <SelectItem key={r.value} value={r.value}>
+                      <div>
+                        <div className="font-medium">{r.label}</div>
+                        <div className="text-xs text-muted-foreground">{r.description}</div>
+                      </div>
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div className="space-y-2">
+              <Label>Permissions</Label>
+              <div className="grid grid-cols-2 gap-2">
+                {PERMISSIONS.map(p => (
+                  <div
+                    key={p.value}
+                    className={`flex items-center gap-2 p-2 rounded-lg border cursor-pointer transition-colors ${
+                      newPermissions.includes(p.value)
+                        ? 'border-primary/50 bg-primary/10'
+                        : 'border-border bg-muted/10 hover:bg-muted/20'
+                    }`}
+                    onClick={() => togglePermission(p.value)}
+                    data-testid={`perm-${p.value}`}
+                  >
+                    <div className={`w-4 h-4 rounded border flex items-center justify-center ${
+                      newPermissions.includes(p.value) ? 'bg-primary border-primary' : 'border-muted-foreground'
+                    }`}>
+                      {newPermissions.includes(p.value) && <Check className="w-3 h-3 text-primary-foreground" />}
+                    </div>
+                    <span className="text-xs">{p.label}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={resetUserForm} data-testid="button-cancel-user">Cancel</Button>
+            <Button
+              onClick={handleSaveUser}
+              disabled={addUserMutation.isPending || updateUserMutation.isPending || !newEmail.trim()}
+              data-testid="button-save-user"
+            >
+              {(addUserMutation.isPending || updateUserMutation.isPending) && <Loader2 className="h-4 w-4 animate-spin mr-2" />}
+              {editUser ? 'Update' : 'Add User'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

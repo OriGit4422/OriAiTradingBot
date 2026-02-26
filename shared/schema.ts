@@ -111,6 +111,20 @@ export const wallet = pgTable("wallet", {
 export const insertWalletSchema = createInsertSchema(wallet).omit({ id: true, updatedAt: true });
 export type Wallet = typeof wallet.$inferSelect;
 
+// User Access / Rights Management
+export const userAccess = pgTable("user_access", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  email: text("email").notNull().unique(),
+  role: text("role").notNull().default("viewer"),
+  permissions: text("permissions").array().notNull().default(sql`'{}'::text[]`),
+  active: boolean("active").notNull().default(true),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+});
+
+export const insertUserAccessSchema = createInsertSchema(userAccess).omit({ id: true, createdAt: true });
+export type InsertUserAccess = z.infer<typeof insertUserAccessSchema>;
+export type UserAccess = typeof userAccess.$inferSelect;
+
 // AI Chat (for integration)
 export { conversations, messages } from "./models/chat";
 export type { Conversation, Message } from "./models/chat";

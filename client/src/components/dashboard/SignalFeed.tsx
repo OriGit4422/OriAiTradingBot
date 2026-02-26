@@ -4,10 +4,19 @@ import { ScrollArea } from '@/components/ui/scroll-area';
 import { getQuantumSignal, calculateMultiTFConfluence } from '@/lib/strategies';
 import { fetchKlines } from '@/lib/binance';
 import { cn } from '@/lib/utils';
-import { Clock, Loader2, BrainCircuit, Zap, Flame, Send, TrendingUp, TrendingDown, BarChart3, RefreshCw, ChevronDown, ChevronRight, Activity } from 'lucide-react';
+import { Clock, Loader2, BrainCircuit, Zap, Flame, Send, TrendingUp, TrendingDown, BarChart3, RefreshCw, ChevronDown, ChevronRight, Activity, X, Target, Shield } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { toast } from '@/hooks/use-toast';
 import { apiRequest, queryClient } from '@/lib/queryClient';
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+  DialogFooter,
+  DialogClose,
+} from '@/components/ui/dialog';
 import {
   Tabs,
   TabsContent,
@@ -28,7 +37,7 @@ export function SignalFeed({ compact = false, onSelectCoin }: SignalFeedProps) {
   const [confluenceData, setConfluenceData] = useState<any[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [selectedTF, setSelectedTF] = useState('ALL');
-  const [expandedCoin, setExpandedCoin] = useState<string | null>(null);
+  const [selectedSignal, setSelectedSignal] = useState<any | null>(null);
 
   const generateAllSignals = useCallback(async () => {
     setIsLoading(true);
@@ -173,7 +182,7 @@ export function SignalFeed({ compact = false, onSelectCoin }: SignalFeedProps) {
                   className="px-3 py-2.5 hover:bg-primary/5 transition-all cursor-pointer group relative overflow-hidden"
                   onClick={() => {
                     onSelectCoin?.(signal.coin);
-                    setExpandedCoin(expandedCoin === `${signal.coin}-${signal.timeframe}` ? null : `${signal.coin}-${signal.timeframe}`);
+                    setSelectedSignal(signal);
                   }}
                   data-testid={`signal-${signal.coin}-${signal.timeframe}`}
                 >
@@ -228,66 +237,6 @@ export function SignalFeed({ compact = false, onSelectCoin }: SignalFeedProps) {
                     </div>
                   </div>
 
-                  {expandedCoin === `${signal.coin}-${signal.timeframe}` && (
-                    <div className="mt-2 space-y-1.5">
-                      <div className="grid grid-cols-2 gap-1 text-[9px]">
-                        <div className="bg-muted/20 rounded p-1.5">
-                          <span className="text-muted-foreground">RSI</span>
-                          <span className={cn("ml-1 font-bold font-mono", signal.indicators?.rsi > 70 ? 'text-red-400' : signal.indicators?.rsi < 30 ? 'text-green-400' : 'text-foreground')}>
-                            {signal.indicators?.rsi}
-                          </span>
-                        </div>
-                        <div className="bg-muted/20 rounded p-1.5">
-                          <span className="text-muted-foreground">MACD</span>
-                          <span className={cn("ml-1 font-bold", signal.indicators?.macdSignal === 'BULLISH' ? 'text-green-400' : 'text-red-400')}>
-                            {signal.indicators?.macdSignal}
-                          </span>
-                        </div>
-                        <div className="bg-muted/20 rounded p-1.5">
-                          <span className="text-muted-foreground">EMA</span>
-                          <span className={cn("ml-1 font-bold", signal.indicators?.emaTrend === 'ABOVE' ? 'text-green-400' : 'text-red-400')}>
-                            {signal.indicators?.emaTrend}
-                          </span>
-                        </div>
-                        <div className="bg-muted/20 rounded p-1.5">
-                          <span className="text-muted-foreground">Vol</span>
-                          <span className={cn("ml-1 font-bold", signal.indicators?.volumeProfile === 'HIGH' ? 'text-green-400' : signal.indicators?.volumeProfile === 'LOW' ? 'text-red-400' : 'text-foreground')}>
-                            {signal.indicators?.volumeProfile}
-                          </span>
-                        </div>
-                      </div>
-                      <div className="flex items-center gap-1">
-                        <div className="flex-1 text-[9px] text-muted-foreground">
-                          Trend: <span className="font-bold text-foreground">{signal.indicators?.trendStrength}%</span>
-                        </div>
-                        <div className="w-16 h-1 bg-muted rounded-full overflow-hidden">
-                          <div className={cn("h-full rounded-full", getConfidenceBg(signal.indicators?.trendStrength || 0))} style={{ width: `${signal.indicators?.trendStrength || 0}%` }} />
-                        </div>
-                      </div>
-                      <div className="flex gap-1">
-                        <Button
-                          size="sm"
-                          className="h-6 text-[10px] flex-1 gap-1"
-                          onClick={(e) => { e.stopPropagation(); handleExecuteTrade(signal); }}
-                          data-testid={`button-trade-${signal.coin}-${signal.timeframe}`}
-                        >
-                          Execute
-                        </Button>
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          className="h-6 text-[10px] px-2"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            toast({ title: "Sent to Telegram", description: `${signal.coin} signal forwarded.`, duration: 2000 });
-                          }}
-                        >
-                          <Send className="w-3 h-3" />
-                        </Button>
-                      </div>
-                    </div>
-                  )}
-
                   <div className="mt-1.5 flex items-center gap-1">
                     <div className="flex-1 h-1 bg-muted rounded-full overflow-hidden">
                       <div className={cn("h-full rounded-full transition-all", getConfidenceBg(signal.confidence))} style={{ width: `${signal.confidence}%` }} />
@@ -300,6 +249,141 @@ export function SignalFeed({ compact = false, onSelectCoin }: SignalFeedProps) {
           </div>
         </ScrollArea>
       </Tabs>
+
+      <Dialog open={!!selectedSignal} onOpenChange={(open) => { if (!open) setSelectedSignal(null); }}>
+        <DialogContent className="sm:max-w-md bg-card border-border" data-testid="dialog-signal-detail">
+          {selectedSignal && (
+            <>
+              <DialogHeader>
+                <DialogTitle className="flex items-center gap-2">
+                  <Zap className="w-5 h-5 text-primary" />
+                  <span className="font-display">{selectedSignal.coin}/USDT Signal</span>
+                  <Badge variant={selectedSignal.type === 'LONG' ? 'default' : 'destructive'} className="text-xs font-bold">
+                    {selectedSignal.type === 'LONG' ? <TrendingUp className="w-3 h-3 mr-1" /> : <TrendingDown className="w-3 h-3 mr-1" />}
+                    {selectedSignal.type}
+                  </Badge>
+                </DialogTitle>
+                <DialogDescription className="flex items-center gap-2">
+                  <Badge variant="outline" className="font-mono text-xs">{selectedSignal.timeframe}</Badge>
+                  <Badge variant="outline" className="text-xs border-primary/30 bg-primary/5 text-primary">{selectedSignal.strategy}</Badge>
+                  {selectedSignal.confidence >= 90 && <Flame className="w-4 h-4 text-orange-500 fill-orange-500/50" />}
+                </DialogDescription>
+              </DialogHeader>
+
+              <div className="space-y-4">
+                <div className="flex items-center justify-between">
+                  <span className="text-sm text-muted-foreground">Confidence</span>
+                  <div className="flex items-center gap-2">
+                    <div className="w-32 h-2 bg-muted rounded-full overflow-hidden">
+                      <div className={cn("h-full rounded-full", getConfidenceBg(selectedSignal.confidence))} style={{ width: `${selectedSignal.confidence}%` }} />
+                    </div>
+                    <span className={cn("text-lg font-black font-mono", getConfidenceColor(selectedSignal.confidence))} data-testid="text-signal-confidence">
+                      {selectedSignal.confidence}%
+                    </span>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-3 gap-3">
+                  <div className="bg-muted/20 rounded-lg p-3 text-center">
+                    <div className="text-[10px] text-muted-foreground uppercase font-mono mb-1">Entry</div>
+                    <div className="text-sm font-bold font-mono" data-testid="text-signal-entry">${selectedSignal.entry.toLocaleString(undefined, { maximumFractionDigits: 4 })}</div>
+                  </div>
+                  <div className="bg-green-500/10 rounded-lg p-3 text-center border border-green-500/20">
+                    <div className="text-[10px] text-green-500 uppercase font-mono mb-1">Take Profit</div>
+                    <div className="text-sm font-bold font-mono text-green-400" data-testid="text-signal-tp">${selectedSignal.tp.toLocaleString(undefined, { maximumFractionDigits: 4 })}</div>
+                  </div>
+                  <div className="bg-red-500/10 rounded-lg p-3 text-center border border-red-500/20">
+                    <div className="text-[10px] text-red-500 uppercase font-mono mb-1">Stop Loss</div>
+                    <div className="text-sm font-bold font-mono text-red-400" data-testid="text-signal-sl">${selectedSignal.sl.toLocaleString(undefined, { maximumFractionDigits: 4 })}</div>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-2 gap-2">
+                  <div className="bg-muted/20 rounded-lg p-2.5">
+                    <div className="text-[10px] text-muted-foreground uppercase font-mono mb-1">RSI</div>
+                    <div className={cn("text-sm font-bold font-mono", selectedSignal.indicators?.rsi > 70 ? 'text-red-400' : selectedSignal.indicators?.rsi < 30 ? 'text-green-400' : 'text-foreground')}>
+                      {selectedSignal.indicators?.rsi ?? '-'}
+                    </div>
+                  </div>
+                  <div className="bg-muted/20 rounded-lg p-2.5">
+                    <div className="text-[10px] text-muted-foreground uppercase font-mono mb-1">MACD</div>
+                    <div className={cn("text-sm font-bold", selectedSignal.indicators?.macdSignal === 'BULLISH' ? 'text-green-400' : 'text-red-400')}>
+                      {selectedSignal.indicators?.macdSignal ?? '-'}
+                    </div>
+                  </div>
+                  <div className="bg-muted/20 rounded-lg p-2.5">
+                    <div className="text-[10px] text-muted-foreground uppercase font-mono mb-1">EMA Trend</div>
+                    <div className={cn("text-sm font-bold", selectedSignal.indicators?.emaTrend === 'ABOVE' ? 'text-green-400' : 'text-red-400')}>
+                      {selectedSignal.indicators?.emaTrend ?? '-'}
+                    </div>
+                  </div>
+                  <div className="bg-muted/20 rounded-lg p-2.5">
+                    <div className="text-[10px] text-muted-foreground uppercase font-mono mb-1">Volume</div>
+                    <div className={cn("text-sm font-bold", selectedSignal.indicators?.volumeProfile === 'HIGH' ? 'text-green-400' : selectedSignal.indicators?.volumeProfile === 'LOW' ? 'text-red-400' : 'text-foreground')}>
+                      {selectedSignal.indicators?.volumeProfile ?? '-'}
+                    </div>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-2 gap-2">
+                  <div className="bg-muted/20 rounded-lg p-2.5">
+                    <div className="text-[10px] text-muted-foreground uppercase font-mono mb-1">RSI Divergence</div>
+                    <div className={cn("text-sm font-bold", selectedSignal.indicators?.rsiDivergence === 'BULLISH' ? 'text-green-400' : selectedSignal.indicators?.rsiDivergence === 'BEARISH' ? 'text-red-400' : 'text-muted-foreground')}>
+                      {selectedSignal.indicators?.rsiDivergence || 'NONE'}
+                    </div>
+                  </div>
+                  <div className="bg-muted/20 rounded-lg p-2.5">
+                    <div className="text-[10px] text-muted-foreground uppercase font-mono mb-1">Market Structure</div>
+                    <div className={cn("text-sm font-bold", selectedSignal.indicators?.marketStructure === 'BULLISH' ? 'text-green-400' : selectedSignal.indicators?.marketStructure === 'BEARISH' ? 'text-red-400' : 'text-muted-foreground')}>
+                      {selectedSignal.indicators?.marketStructure || 'RANGING'}
+                    </div>
+                  </div>
+                </div>
+
+                <div className="bg-muted/20 rounded-lg p-2.5">
+                  <div className="flex items-center justify-between">
+                    <span className="text-[10px] text-muted-foreground uppercase font-mono">Trend Strength</span>
+                    <span className="text-sm font-bold font-mono">{selectedSignal.indicators?.trendStrength ?? 0}%</span>
+                  </div>
+                  <div className="w-full h-2 bg-muted rounded-full overflow-hidden mt-1.5">
+                    <div className={cn("h-full rounded-full", getConfidenceBg(selectedSignal.indicators?.trendStrength || 0))} style={{ width: `${selectedSignal.indicators?.trendStrength || 0}%` }} />
+                  </div>
+                </div>
+
+                <div className="text-[10px] text-muted-foreground bg-muted/10 rounded-lg p-2.5 border border-border/50">
+                  <div className="flex items-center gap-1.5 mb-1">
+                    <Shield className="w-3 h-3 text-primary" />
+                    <span className="uppercase font-mono font-bold text-primary">Risk/Reward</span>
+                  </div>
+                  <div className="font-mono">
+                    R:R = 1 : {((Math.abs(selectedSignal.tp - selectedSignal.entry)) / (Math.abs(selectedSignal.entry - selectedSignal.sl) || 1)).toFixed(2)}
+                  </div>
+                </div>
+              </div>
+
+              <DialogFooter className="gap-2 sm:gap-0">
+                <Button
+                  variant="outline"
+                  className="gap-1"
+                  onClick={() => {
+                    toast({ title: "Sent to Telegram", description: `${selectedSignal.coin} signal forwarded.`, duration: 2000 });
+                  }}
+                  data-testid="button-dialog-send"
+                >
+                  <Send className="w-3.5 h-3.5" /> Share
+                </Button>
+                <Button
+                  className="gap-1"
+                  onClick={() => { handleExecuteTrade(selectedSignal); setSelectedSignal(null); }}
+                  data-testid="button-dialog-execute"
+                >
+                  <Target className="w-3.5 h-3.5" /> Execute Trade
+                </Button>
+              </DialogFooter>
+            </>
+          )}
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

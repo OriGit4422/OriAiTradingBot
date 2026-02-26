@@ -483,7 +483,7 @@ export default function Dashboard() {
                 <Badge variant="outline" className="text-[10px] font-mono">{activeSignals} Active</Badge>
               </div>
               <div className="flex-1 overflow-hidden">
-                <SignalFeed onSelectSymbol={setSelectedCoin} />
+                <SignalFeed onSelectCoin={setSelectedCoin} />
               </div>
             </div>
 

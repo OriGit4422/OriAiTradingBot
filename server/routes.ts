@@ -1,7 +1,7 @@
 import type { Express } from "express";
 import { createServer, type Server } from "http";
 import { storage } from "./storage";
-import { insertSettingsSchema, insertStrategySchema, insertSignalSchema, insertPositionSchema } from "@shared/schema";
+import { insertSettingsSchema, insertStrategySchema, insertSignalSchema, insertPositionSchema, insertUserAccessSchema } from "@shared/schema";
 import { z } from "zod";
 import { analyzeSignalWithAI, getMarketInsight } from "./ai-analysis";
 
@@ -211,12 +211,50 @@ export async function registerRoutes(
       const p = await storage.closePosition(req.params.id, pnl);
       if (!p) return res.status(404).json({ message: "Position not found" });
       
-      // Update wallet balance with PnL
       if (pnl !== undefined) {
         await storage.updateWalletBalance(pnl);
       }
       
       res.json(p);
+    } catch (e: any) {
+      res.status(500).json({ message: e.message });
+    }
+  });
+
+  // ─── User Access Management ──────────────────────────────
+  app.get("/api/user-access", async (_req, res) => {
+    try {
+      const list = await storage.getUserAccessList();
+      res.json(list);
+    } catch (e: any) {
+      res.status(500).json({ message: e.message });
+    }
+  });
+
+  app.post("/api/user-access", async (req, res) => {
+    try {
+      const data = insertUserAccessSchema.parse(req.body);
+      const u = await storage.createUserAccess(data);
+      res.status(201).json(u);
+    } catch (e: any) {
+      res.status(400).json({ message: e.message });
+    }
+  });
+
+  app.patch("/api/user-access/:id", async (req, res) => {
+    try {
+      const u = await storage.updateUserAccess(req.params.id, req.body);
+      if (!u) return res.status(404).json({ message: "User not found" });
+      res.json(u);
+    } catch (e: any) {
+      res.status(500).json({ message: e.message });
+    }
+  });
+
+  app.delete("/api/user-access/:id", async (req, res) => {
+    try {
+      await storage.deleteUserAccess(req.params.id);
+      res.status(204).send();
     } catch (e: any) {
       res.status(500).json({ message: e.message });
     }

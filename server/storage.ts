@@ -6,7 +6,8 @@ import {
   strategies, type Strategy, type InsertStrategy,
   signals, type Signal, type InsertSignal,
   positions, type Position, type InsertPosition,
-  wallet, type Wallet
+  wallet, type Wallet,
+  userAccess, type UserAccess, type InsertUserAccess
 } from "@shared/schema";
 
 export interface IStorage {
@@ -35,6 +36,12 @@ export interface IStorage {
   // Wallet
   getWallet(): Promise<Wallet>;
   updateWalletBalance(amount: number): Promise<Wallet>;
+  // User Access
+  getUserAccessList(): Promise<UserAccess[]>;
+  getUserAccess(id: string): Promise<UserAccess | undefined>;
+  createUserAccess(data: InsertUserAccess): Promise<UserAccess>;
+  updateUserAccess(id: string, data: Partial<InsertUserAccess>): Promise<UserAccess | undefined>;
+  deleteUserAccess(id: string): Promise<void>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -145,6 +152,28 @@ export class DatabaseStorage implements IStorage {
       .where(eq(positions.id, id))
       .returning();
     return p;
+  }
+  async getUserAccessList(): Promise<UserAccess[]> {
+    return db.select().from(userAccess).orderBy(userAccess.createdAt);
+  }
+
+  async getUserAccess(id: string): Promise<UserAccess | undefined> {
+    const [u] = await db.select().from(userAccess).where(eq(userAccess.id, id));
+    return u;
+  }
+
+  async createUserAccess(data: InsertUserAccess): Promise<UserAccess> {
+    const [u] = await db.insert(userAccess).values(data).returning();
+    return u;
+  }
+
+  async updateUserAccess(id: string, data: Partial<InsertUserAccess>): Promise<UserAccess | undefined> {
+    const [u] = await db.update(userAccess).set(data).where(eq(userAccess.id, id)).returning();
+    return u;
+  }
+
+  async deleteUserAccess(id: string): Promise<void> {
+    await db.delete(userAccess).where(eq(userAccess.id, id));
   }
 }
 

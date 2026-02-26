@@ -4,6 +4,16 @@ import { Sidebar } from '@/components/layout/Sidebar';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Progress } from '@/components/ui/progress';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+  DialogFooter,
+} from '@/components/ui/dialog';
 import { 
   PieChart, 
   Wallet, 
@@ -11,7 +21,9 @@ import {
   ArrowDownRight, 
   History,
   Download,
-  Loader2
+  Loader2,
+  Plus,
+  DollarSign,
 } from 'lucide-react';
 import { fetch24hTicker } from '@/lib/binance';
 import { apiRequest, queryClient } from '@/lib/queryClient';
@@ -21,6 +33,8 @@ import type { Position } from '@shared/schema';
 export default function Portfolio() {
   const [prices, setPrices] = useState<Record<string, number>>({});
   const [pricesLoading, setPricesLoading] = useState(true);
+  const [depositOpen, setDepositOpen] = useState(false);
+  const [depositAmount, setDepositAmount] = useState('');
 
   const { data: positions = [], isLoading: positionsLoading } = useQuery<Position[]>({
     queryKey: ['/api/positions'],
@@ -40,6 +54,22 @@ export default function Portfolio() {
     },
     onError: (error: Error) => {
       toast({ title: 'Error', description: error.message, variant: 'destructive' });
+    },
+  });
+
+  const depositMutation = useMutation({
+    mutationFn: async (amount: number) => {
+      const res = await apiRequest('POST', '/api/wallet/deposit', { amount });
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['/api/wallet'] });
+      toast({ title: 'Deposit successful', description: `$${depositAmount} has been added to your wallet.` });
+      setDepositOpen(false);
+      setDepositAmount('');
+    },
+    onError: (error: Error) => {
+      toast({ title: 'Deposit failed', description: error.message, variant: 'destructive' });
     },
   });
 
@@ -85,6 +115,15 @@ export default function Portfolio() {
     closePositionMutation.mutate({ id: position.id, pnl });
   };
 
+  const handleDeposit = () => {
+    const amount = parseFloat(depositAmount);
+    if (isNaN(amount) || amount <= 0) {
+      toast({ title: 'Invalid amount', description: 'Please enter a valid positive number.', variant: 'destructive' });
+      return;
+    }
+    depositMutation.mutate(amount);
+  };
+
   return (
     <div className="min-h-screen bg-background text-foreground font-sans flex">
       <Sidebar />
@@ -95,9 +134,14 @@ export default function Portfolio() {
               <h1 className="text-3xl font-display font-bold text-primary mb-2">Portfolio Overview</h1>
               <p className="text-muted-foreground">Track your performance and asset allocation.</p>
             </div>
-            <Button variant="outline" className="gap-2" data-testid="button-download-report">
-              <Download className="w-4 h-4" /> Report
-            </Button>
+            <div className="flex gap-2">
+              <Button className="gap-2" onClick={() => setDepositOpen(true)} data-testid="button-deposit">
+                <Plus className="w-4 h-4" /> Deposit
+              </Button>
+              <Button variant="outline" className="gap-2" data-testid="button-download-report">
+                <Download className="w-4 h-4" /> Report
+              </Button>
+            </div>
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
@@ -110,8 +154,8 @@ export default function Portfolio() {
                   {isLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : (
                     <div className="text-2xl font-bold font-mono" data-testid="text-total-balance">${totalBalance.toLocaleString(undefined, { maximumFractionDigits: 2 })}</div>
                   )}
-                  <p className="text-xs text-green-500 mt-1 flex items-center">
-                     <ArrowUpRight className="w-3 h-3 mr-1" /> +12.5% this month
+                  <p className="text-xs text-muted-foreground mt-1">
+                    Wallet: ${(walletData?.balance || 0).toLocaleString(undefined, { maximumFractionDigits: 2 })}
                   </p>
                </CardContent>
             </Card>
@@ -243,6 +287,64 @@ export default function Portfolio() {
           </div>
         </div>
       </div>
+
+      <Dialog open={depositOpen} onOpenChange={setDepositOpen}>
+        <DialogContent className="sm:max-w-sm bg-card border-border" data-testid="dialog-deposit">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <DollarSign className="w-5 h-5 text-primary" />
+              Deposit Funds
+            </DialogTitle>
+            <DialogDescription>
+              Add funds to your trading wallet.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-2">
+            <div className="text-sm text-muted-foreground">
+              Current Balance: <span className="font-mono font-bold text-foreground">${(walletData?.balance || 0).toLocaleString(undefined, { maximumFractionDigits: 2 })}</span>
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="deposit-amount">Amount (USD)</Label>
+              <Input
+                id="deposit-amount"
+                data-testid="input-deposit-amount"
+                type="number"
+                min="0"
+                step="0.01"
+                placeholder="Enter amount"
+                value={depositAmount}
+                onChange={(e) => setDepositAmount(e.target.value)}
+                className="bg-muted/20 font-mono"
+              />
+            </div>
+            <div className="flex gap-2">
+              {[100, 500, 1000, 5000].map(amt => (
+                <Button
+                  key={amt}
+                  variant="outline"
+                  size="sm"
+                  className="flex-1 text-xs font-mono"
+                  onClick={() => setDepositAmount(String(amt))}
+                  data-testid={`button-preset-${amt}`}
+                >
+                  ${amt.toLocaleString()}
+                </Button>
+              ))}
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setDepositOpen(false)} data-testid="button-cancel-deposit">Cancel</Button>
+            <Button
+              onClick={handleDeposit}
+              disabled={depositMutation.isPending || !depositAmount}
+              data-testid="button-confirm-deposit"
+            >
+              {depositMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
+              Deposit
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

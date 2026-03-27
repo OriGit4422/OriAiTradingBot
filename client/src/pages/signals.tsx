@@ -9,6 +9,7 @@ import { Search, Filter, ArrowRight, Clock, Zap, Flame, Send, Loader2, RefreshCw
 import { cn } from '@/lib/utils';
 import { fetchKlines } from '@/lib/binance';
 import { getQuantumSignal, calculateMultiTFConfluence } from '@/lib/strategies';
+import { enhanceSignalsWithAI } from '@/lib/signal-ai';
 import { toast } from '@/hooks/use-toast';
 import type { Signal } from '@shared/schema';
 import { ScrollArea } from '@/components/ui/scroll-area';
@@ -22,6 +23,11 @@ export default function Signals() {
 
   const { data: dbSignals = [], isLoading: isLoadingDb } = useQuery<Signal[]>({
     queryKey: ['/api/signals'],
+  });
+
+  const { data: performanceData } = useQuery<any>({
+    queryKey: ['/api/signals/performance?hours=24'],
+    refetchInterval: 60000,
   });
 
   const bulkSaveMutation = useMutation({
@@ -75,7 +81,8 @@ export default function Signals() {
         return s.confidence > 75 || ALWAYS_INCLUDE.includes(s.coin);
       });
 
-    const sorted = newSignals.sort((a, b) => b.confidence - a.confidence);
+    const aiConfirmed = await enhanceSignalsWithAI(newSignals, 14);
+    const sorted = aiConfirmed.sort((a, b) => b.confidence - a.confidence);
     setLiveSignals(sorted);
 
     const confluence = calculateMultiTFConfluence(sorted);
@@ -300,6 +307,23 @@ export default function Signals() {
                           </div>
                           <div className="text-xs text-muted-foreground flex items-center gap-2 mt-1 flex-wrap">
                             <span className="text-primary font-medium">{signal.strategy} Strategy</span>
+                            {signal.aiConfirmation?.verdict && (
+                              <>
+                                <span>|</span>
+                                <span
+                                  className={cn(
+                                    "font-semibold",
+                                    signal.aiConfirmation.verdict.includes('BUY')
+                                      ? 'text-green-500'
+                                      : signal.aiConfirmation.verdict.includes('SELL')
+                                        ? 'text-red-500'
+                                        : 'text-yellow-500'
+                                  )}
+                                >
+                                  AI {signal.aiConfirmation.verdict}
+                                </span>
+                              </>
+                            )}
                             <span>|</span>
                             <span className="flex items-center gap-1" data-testid={`text-timestamp-${signal.coin}`}>
                               <Clock className="w-3 h-3" /> {formatTimestamp(signal)}
@@ -362,6 +386,12 @@ export default function Signals() {
                           </div>
                         </div>
                         <div className="bg-muted/20 rounded p-2 text-center">
+                          <div className="text-[9px] text-muted-foreground uppercase">AI Risk</div>
+                          <div className={cn("text-sm font-bold", signal.aiConfirmation?.riskLevel === 'LOW' ? 'text-green-400' : signal.aiConfirmation?.riskLevel === 'HIGH' ? 'text-red-400' : 'text-yellow-400')}>
+                            {signal.aiConfirmation?.riskLevel || 'N/A'}
+                          </div>
+                        </div>
+                        <div className="bg-muted/20 rounded p-2 text-center">
                           <div className="text-[9px] text-muted-foreground uppercase">Structure</div>
                           <div className={cn("text-sm font-bold", signal.indicators.marketStructure === 'BULLISH' ? 'text-green-400' : signal.indicators.marketStructure === 'BEARISH' ? 'text-red-400' : 'text-muted-foreground')}>
                             {signal.indicators.marketStructure === 'BULLISH' ? 'HH/HL' : signal.indicators.marketStructure === 'BEARISH' ? 'LH/LL' : 'RANGE'}
@@ -409,6 +439,35 @@ export default function Signals() {
                   </div>
                 ))
               )}
+            </div>
+          )}
+
+          {performanceData?.items?.length > 0 && (
+            <div className="bg-card border border-border rounded-lg p-4 mt-6" data-testid="card-signal-performance">
+              <div className="flex items-center justify-between mb-3">
+                <h2 className="font-display font-bold text-lg">24h Signal Performance</h2>
+                <div className="text-xs text-muted-foreground">
+                  TP: <span className="text-green-500 font-bold">{performanceData.summary?.tpHit ?? 0}</span>{' '}
+                  | SL: <span className="text-red-500 font-bold">{performanceData.summary?.slHit ?? 0}</span>{' '}
+                  | Running: <span className="text-primary font-bold">{performanceData.summary?.running ?? 0}</span>
+                </div>
+              </div>
+              <ScrollArea className="max-h-72">
+                <div className="space-y-2">
+                  {performanceData.items.slice(0, 40).map((p: any) => (
+                    <div key={p.id} className="grid grid-cols-2 md:grid-cols-8 gap-2 bg-muted/20 rounded p-2 text-xs font-mono">
+                      <div className="font-bold">{p.coin}</div>
+                      <div>{p.type}</div>
+                      <div>{p.timeframe}</div>
+                      <div>{p.confidence}%</div>
+                      <div className={cn(p.outcome === 'TP_HIT' ? 'text-green-500' : p.outcome === 'SL_HIT' ? 'text-red-500' : 'text-yellow-500')}>{p.outcome}</div>
+                      <div>Entry {Number(p.entry).toFixed(2)}</div>
+                      <div>TP {Number(p.tp).toFixed(2)}</div>
+                      <div>SL {Number(p.sl).toFixed(2)}</div>
+                    </div>
+                  ))}
+                </div>
+              </ScrollArea>
             </div>
           )}
         </div>

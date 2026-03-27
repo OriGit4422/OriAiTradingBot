@@ -89,6 +89,36 @@ export async function registerRoutes(
     res.status(result.ok ? 200 : 503).json(result);
   });
 
+  app.get("/api/system/requirements-status", async (_req, res) => {
+    try {
+      const s = await storage.getSettings();
+      const hasTelegramConfig = !!(s?.telegramEnabled && s?.telegramBotToken && s?.telegramChatId);
+      const hasDiscordConfig = !!(s?.discordEnabled && s?.discordWebhookUrl);
+      res.json({
+        status: "ok",
+        features: {
+          aiSignalConfirmation: true,
+          signalBestPracticeValidation: true,
+          exchangeConnectivityChecks: true,
+          signalPerformance24h: true,
+          notifications: {
+            telegramReady: hasTelegramConfig,
+            discordReady: hasDiscordConfig,
+            notifyOnSignal: !!s?.notifyOnSignal,
+            highConfidenceOnly: !!s?.notifyOnHighConfidence,
+            minNotifyConfidence: s?.minNotifyConfidence ?? 80,
+          },
+          exchanges: {
+            binanceConnected: !!s?.binanceConnected,
+            bybitConnected: !!s?.bybitConnected,
+          },
+        },
+      });
+    } catch (e: any) {
+      res.status(500).json({ message: e.message });
+    }
+  });
+
   // ─── Strategies ─────────────────────────────────────────────
   app.get("/api/strategies", async (_req, res) => {
     try {

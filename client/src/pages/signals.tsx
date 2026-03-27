@@ -9,6 +9,7 @@ import { Search, Filter, ArrowRight, Clock, Zap, Flame, Send, Loader2, RefreshCw
 import { cn } from '@/lib/utils';
 import { fetchKlines } from '@/lib/binance';
 import { getQuantumSignal, calculateMultiTFConfluence } from '@/lib/strategies';
+import { enhanceSignalsWithAI } from '@/lib/signal-ai';
 import { toast } from '@/hooks/use-toast';
 import type { Signal } from '@shared/schema';
 import { ScrollArea } from '@/components/ui/scroll-area';
@@ -75,7 +76,8 @@ export default function Signals() {
         return s.confidence > 75 || ALWAYS_INCLUDE.includes(s.coin);
       });
 
-    const sorted = newSignals.sort((a, b) => b.confidence - a.confidence);
+    const aiConfirmed = await enhanceSignalsWithAI(newSignals, 14);
+    const sorted = aiConfirmed.sort((a, b) => b.confidence - a.confidence);
     setLiveSignals(sorted);
 
     const confluence = calculateMultiTFConfluence(sorted);
@@ -300,6 +302,23 @@ export default function Signals() {
                           </div>
                           <div className="text-xs text-muted-foreground flex items-center gap-2 mt-1 flex-wrap">
                             <span className="text-primary font-medium">{signal.strategy} Strategy</span>
+                            {signal.aiConfirmation?.verdict && (
+                              <>
+                                <span>|</span>
+                                <span
+                                  className={cn(
+                                    "font-semibold",
+                                    signal.aiConfirmation.verdict.includes('BUY')
+                                      ? 'text-green-500'
+                                      : signal.aiConfirmation.verdict.includes('SELL')
+                                        ? 'text-red-500'
+                                        : 'text-yellow-500'
+                                  )}
+                                >
+                                  AI {signal.aiConfirmation.verdict}
+                                </span>
+                              </>
+                            )}
                             <span>|</span>
                             <span className="flex items-center gap-1" data-testid={`text-timestamp-${signal.coin}`}>
                               <Clock className="w-3 h-3" /> {formatTimestamp(signal)}
@@ -359,6 +378,12 @@ export default function Signals() {
                           <div className="text-[9px] text-muted-foreground uppercase">Volume</div>
                           <div className={cn("text-sm font-bold", signal.indicators.volumeProfile === 'HIGH' ? 'text-green-400' : signal.indicators.volumeProfile === 'LOW' ? 'text-red-400' : 'text-foreground')}>
                             {signal.indicators.volumeProfile}
+                          </div>
+                        </div>
+                        <div className="bg-muted/20 rounded p-2 text-center">
+                          <div className="text-[9px] text-muted-foreground uppercase">AI Risk</div>
+                          <div className={cn("text-sm font-bold", signal.aiConfirmation?.riskLevel === 'LOW' ? 'text-green-400' : signal.aiConfirmation?.riskLevel === 'HIGH' ? 'text-red-400' : 'text-yellow-400')}>
+                            {signal.aiConfirmation?.riskLevel || 'N/A'}
                           </div>
                         </div>
                         <div className="bg-muted/20 rounded p-2 text-center">

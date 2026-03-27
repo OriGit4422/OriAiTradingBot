@@ -3,6 +3,7 @@ import { Badge } from '@/components/ui/badge';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { getQuantumSignal, calculateMultiTFConfluence } from '@/lib/strategies';
 import { fetchKlines } from '@/lib/binance';
+import { enhanceSignalsWithAI } from '@/lib/signal-ai';
 import { cn } from '@/lib/utils';
 import { Clock, Loader2, BrainCircuit, Zap, Flame, Send, TrendingUp, TrendingDown, BarChart3, RefreshCw, ChevronDown, ChevronRight, Activity, X, Target, Shield } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -62,8 +63,9 @@ export function SignalFeed({ compact = false, onSelectCoin }: SignalFeedProps) {
       .filter((r): r is PromiseFulfilledResult<any> => r.status === 'fulfilled' && r.value !== null)
       .map(r => r.value);
 
-    setAllSignals(newSignals);
-    const confluence = calculateMultiTFConfluence(newSignals);
+    const aiConfirmed = await enhanceSignalsWithAI(newSignals, 10);
+    setAllSignals(aiConfirmed);
+    const confluence = calculateMultiTFConfluence(aiConfirmed);
     setConfluenceData(confluence);
     setIsLoading(false);
   }, []);
@@ -206,15 +208,30 @@ export function SignalFeed({ compact = false, onSelectCoin }: SignalFeedProps) {
                     </div>
                   </div>
 
-                  <div className="flex items-center gap-1 mb-1.5">
-                    <Badge variant="outline" className="text-[8px] h-4 px-1 border-primary/30 bg-primary/5 text-primary font-bold">
-                      {signal.strategy}
-                    </Badge>
-                    {signal.indicators?.rsiDivergence !== 'NONE' && (
-                      <Badge variant="outline" className={cn("text-[8px] h-4 px-1", signal.indicators.rsiDivergence === 'BULLISH' ? 'text-green-500 border-green-500/30' : 'text-red-500 border-red-500/30')}>
-                        RSI DIV
+                    <div className="flex items-center gap-1 mb-1.5">
+                      <Badge variant="outline" className="text-[8px] h-4 px-1 border-primary/30 bg-primary/5 text-primary font-bold">
+                        {signal.strategy}
                       </Badge>
-                    )}
+                      {signal.aiConfirmation?.verdict && (
+                        <Badge
+                          variant="outline"
+                          className={cn(
+                            "text-[8px] h-4 px-1",
+                            signal.aiConfirmation.verdict.includes('BUY')
+                              ? 'text-green-500 border-green-500/30'
+                              : signal.aiConfirmation.verdict.includes('SELL')
+                                ? 'text-red-500 border-red-500/30'
+                                : 'text-yellow-500 border-yellow-500/30'
+                          )}
+                        >
+                          AI {signal.aiConfirmation.verdict.replace('STRONG_', 'S_')}
+                        </Badge>
+                      )}
+                      {signal.indicators?.rsiDivergence !== 'NONE' && (
+                        <Badge variant="outline" className={cn("text-[8px] h-4 px-1", signal.indicators.rsiDivergence === 'BULLISH' ? 'text-green-500 border-green-500/30' : 'text-red-500 border-red-500/30')}>
+                          RSI DIV
+                        </Badge>
+                      )}
                     {signal.indicators?.marketStructure !== 'RANGING' && (
                       <Badge variant="outline" className={cn("text-[8px] h-4 px-1", signal.indicators.marketStructure === 'BULLISH' ? 'text-green-500 border-green-500/30' : 'text-red-500 border-red-500/30')}>
                         {signal.indicators.marketStructure === 'BULLISH' ? 'HH/HL' : 'LH/LL'}

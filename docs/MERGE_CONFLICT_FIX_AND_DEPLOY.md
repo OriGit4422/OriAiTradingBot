@@ -2,6 +2,14 @@
 
 If your PR merges but app still shows old behavior, use this exact flow.
 
+Optional helper script in this repo:
+
+```bash
+./scripts/resolve_pr_conflict.sh main
+```
+
+It rebases your current branch on `origin/main` and checks for unresolved conflict markers.
+
 ## 1) Resolve conflict markers first
 
 You likely have unresolved markers in `server/routes.ts` like:
@@ -61,4 +69,3 @@ If backend is updated but UI appears old:
 - Hard refresh browser (`Ctrl/Cmd + Shift + R`)
 - Restart dev server
 - Ensure you are on the same branch that contains the merged commit
-

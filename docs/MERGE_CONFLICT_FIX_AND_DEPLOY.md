@@ -69,3 +69,36 @@ If backend is updated but UI appears old:
 - Hard refresh browser (`Ctrl/Cmd + Shift + R`)
 - Restart dev server
 - Ensure you are on the same branch that contains the merged commit
+
+## 6) If Git says: "Unsupported state: you are in the middle of a rebase"
+
+This means a previous rebase did not finish.
+
+### Option A (recommended): finish the rebase
+
+```bash
+git status
+# resolve conflicted files
+git add <resolved-files>
+git rebase --continue
+```
+
+Repeat until rebase completes.
+
+### Option B: cancel and restart cleanly
+
+```bash
+git rebase --abort
+git fetch origin
+git checkout <your-pr-branch>
+./scripts/resolve_pr_conflict.sh main
+```
+
+### If there are no conflicts but Git still blocks
+
+```bash
+git rebase --continue || true
+git rebase --abort || true
+```
+
+Then start again with Option B.

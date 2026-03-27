@@ -4,6 +4,7 @@ import { storage } from "./storage";
 import { insertSettingsSchema, insertStrategySchema, insertSignalSchema, insertPositionSchema, insertUserAccessSchema } from "@shared/schema";
 import { z } from "zod";
 import { analyzeSignalWithAI, getMarketInsight } from "./ai-analysis";
+import { notifySignal, validateSignalBestPractice } from "./notifications";
 
 export async function registerRoutes(
   httpServer: Server,
@@ -116,7 +117,16 @@ export async function registerRoutes(
   app.post("/api/signals", async (req, res) => {
     try {
       const data = insertSignalSchema.parse(req.body);
+      const quality = validateSignalBestPractice(data);
+      if (!quality.isValid) {
+        return res.status(422).json({
+          message: "Signal failed best-practice checks",
+          issues: quality.issues,
+          riskReward: Number(quality.riskReward.toFixed(2)),
+        });
+      }
       const s = await storage.createSignal(data);
+      await notifySignal(s);
       res.status(201).json(s);
     } catch (e: any) {
       res.status(400).json({ message: e.message });
@@ -127,10 +137,24 @@ export async function registerRoutes(
     try {
       const signalsData = z.array(insertSignalSchema).parse(req.body);
       const results = [];
+      const rejected: Array<{ coin: string; timeframe: string; issues: string[]; riskReward: number }> = [];
       for (const s of signalsData) {
-        results.push(await storage.createSignal(s));
+        const quality = validateSignalBestPractice(s);
+        if (!quality.isValid) {
+          rejected.push({
+            coin: s.coin,
+            timeframe: s.timeframe,
+            issues: quality.issues,
+            riskReward: Number(quality.riskReward.toFixed(2)),
+          });
+          continue;
+        }
+
+        const created = await storage.createSignal(s);
+        results.push(created);
+        await notifySignal(created);
       }
-      res.status(201).json(results);
+      res.status(201).json({ created: results, rejected, summary: { created: results.length, rejected: rejected.length } });
     } catch (e: any) {
       res.status(400).json({ message: e.message });
     }

@@ -25,6 +25,11 @@ export default function Signals() {
     queryKey: ['/api/signals'],
   });
 
+  const { data: performanceData } = useQuery<any>({
+    queryKey: ['/api/signals/performance?hours=24'],
+    refetchInterval: 60000,
+  });
+
   const bulkSaveMutation = useMutation({
     mutationFn: async (signals: any[]) => {
       const payload = signals.map(s => ({
@@ -434,6 +439,35 @@ export default function Signals() {
                   </div>
                 ))
               )}
+            </div>
+          )}
+
+          {performanceData?.items?.length > 0 && (
+            <div className="bg-card border border-border rounded-lg p-4 mt-6" data-testid="card-signal-performance">
+              <div className="flex items-center justify-between mb-3">
+                <h2 className="font-display font-bold text-lg">24h Signal Performance</h2>
+                <div className="text-xs text-muted-foreground">
+                  TP: <span className="text-green-500 font-bold">{performanceData.summary?.tpHit ?? 0}</span>{' '}
+                  | SL: <span className="text-red-500 font-bold">{performanceData.summary?.slHit ?? 0}</span>{' '}
+                  | Running: <span className="text-primary font-bold">{performanceData.summary?.running ?? 0}</span>
+                </div>
+              </div>
+              <ScrollArea className="max-h-72">
+                <div className="space-y-2">
+                  {performanceData.items.slice(0, 40).map((p: any) => (
+                    <div key={p.id} className="grid grid-cols-2 md:grid-cols-8 gap-2 bg-muted/20 rounded p-2 text-xs font-mono">
+                      <div className="font-bold">{p.coin}</div>
+                      <div>{p.type}</div>
+                      <div>{p.timeframe}</div>
+                      <div>{p.confidence}%</div>
+                      <div className={cn(p.outcome === 'TP_HIT' ? 'text-green-500' : p.outcome === 'SL_HIT' ? 'text-red-500' : 'text-yellow-500')}>{p.outcome}</div>
+                      <div>Entry {Number(p.entry).toFixed(2)}</div>
+                      <div>TP {Number(p.tp).toFixed(2)}</div>
+                      <div>SL {Number(p.sl).toFixed(2)}</div>
+                    </div>
+                  ))}
+                </div>
+              </ScrollArea>
             </div>
           )}
         </div>

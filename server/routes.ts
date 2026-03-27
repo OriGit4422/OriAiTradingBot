@@ -5,6 +5,8 @@ import { insertSettingsSchema, insertStrategySchema, insertSignalSchema, insertP
 import { z } from "zod";
 import { analyzeSignalWithAI, getMarketInsight } from "./ai-analysis";
 import { notifySignal, validateSignalBestPractice } from "./notifications";
+import { testBinanceConnectivity, testBybitConnectivity } from "./exchange-connectivity";
+import { evaluateSignalsPerformance } from "./signal-performance";
 
 export async function registerRoutes(
   httpServer: Server,
@@ -58,8 +60,60 @@ export async function registerRoutes(
 
   app.patch("/api/settings", async (req, res) => {
     try {
-      const updated = await storage.upsertSettings(req.body);
+      const patch = { ...req.body };
+
+      if (typeof patch.binanceApiKey === "string") {
+        const test = await testBinanceConnectivity(patch.binanceApiKey);
+        patch.binanceConnected = test.ok;
+      }
+
+      if (typeof patch.bybitApiKey === "string") {
+        const test = await testBybitConnectivity(patch.bybitApiKey);
+        patch.bybitConnected = test.ok;
+      }
+
+      const updated = await storage.upsertSettings(patch);
       res.json(updated);
+    } catch (e: any) {
+      res.status(500).json({ message: e.message });
+    }
+  });
+
+  app.post("/api/exchange/binance/test", async (req, res) => {
+    const result = await testBinanceConnectivity(req.body?.apiKey);
+    res.status(result.ok ? 200 : 503).json(result);
+  });
+
+  app.post("/api/exchange/bybit/test", async (req, res) => {
+    const result = await testBybitConnectivity(req.body?.apiKey);
+    res.status(result.ok ? 200 : 503).json(result);
+  });
+
+  app.get("/api/system/requirements-status", async (_req, res) => {
+    try {
+      const s = await storage.getSettings();
+      const hasTelegramConfig = !!(s?.telegramEnabled && s?.telegramBotToken && s?.telegramChatId);
+      const hasDiscordConfig = !!(s?.discordEnabled && s?.discordWebhookUrl);
+      res.json({
+        status: "ok",
+        features: {
+          aiSignalConfirmation: true,
+          signalBestPracticeValidation: true,
+          exchangeConnectivityChecks: true,
+          signalPerformance24h: true,
+          notifications: {
+            telegramReady: hasTelegramConfig,
+            discordReady: hasDiscordConfig,
+            notifyOnSignal: !!s?.notifyOnSignal,
+            highConfidenceOnly: !!s?.notifyOnHighConfidence,
+            minNotifyConfidence: s?.minNotifyConfidence ?? 80,
+          },
+          exchanges: {
+            binanceConnected: !!s?.binanceConnected,
+            bybitConnected: !!s?.bybitConnected,
+          },
+        },
+      });
     } catch (e: any) {
       res.status(500).json({ message: e.message });
     }
@@ -109,6 +163,27 @@ export async function registerRoutes(
     try {
       const sigs = await storage.getSignals();
       res.json(sigs);
+    } catch (e: any) {
+      res.status(500).json({ message: e.message });
+    }
+  });
+
+  app.get("/api/signals/performance", async (req, res) => {
+    try {
+      const hours = Math.max(1, Math.min(240, Number(req.query.hours || 24)));
+      const allSignals = await storage.getSignals();
+      const performance = await evaluateSignalsPerformance(allSignals, hours);
+      res.json({
+        hoursWindow: hours,
+        total: performance.length,
+        summary: {
+          tpHit: performance.filter((p) => p.outcome === "TP_HIT").length,
+          slHit: performance.filter((p) => p.outcome === "SL_HIT").length,
+          running: performance.filter((p) => p.outcome === "RUNNING").length,
+          noData: performance.filter((p) => p.outcome === "NO_DATA").length,
+        },
+        items: performance,
+      });
     } catch (e: any) {
       res.status(500).json({ message: e.message });
     }

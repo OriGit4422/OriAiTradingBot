@@ -54,12 +54,33 @@ npm run dev
 ```
 
 4. Hard refresh browser (`Ctrl/Cmd + Shift + R`).
+5. Verify latest commit is present locally:
+
+```bash
+git log --oneline -n 5
+```
+
+### Important
+
+If your PR is **not merged yet**, running `git checkout main && git pull origin main` will show the **old app** (expected).
+
+In that case run your PR branch instead:
+
+```bash
+git fetch origin
+git checkout <your-pr-branch>
+git pull origin <your-pr-branch>
+npm install
+npm run dev
+```
 
 ## E) Verify new backend features are live
 
 ```bash
 curl http://localhost:5000/api/system/requirements-status
+curl http://localhost:5000/api/system/diagnostics
 curl http://localhost:5000/api/signals/performance?hours=24
 curl -X POST http://localhost:5000/api/exchange/binance/test -H 'Content-Type: application/json' -d '{"apiKey":"YOUR_BINANCE_KEY"}'
 curl -X POST http://localhost:5000/api/exchange/bybit/test -H 'Content-Type: application/json' -d '{"apiKey":"YOUR_BYBIT_KEY"}'
+curl -X POST http://localhost:5000/api/notifications/test
 ```

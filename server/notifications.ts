@@ -24,7 +24,7 @@ function buildSignalMessage(signal: Signal): { text: string; markdown: string } 
 
 async function pushTelegram(markdown: string, botToken: string, chatId: string) {
   const url = `https://api.telegram.org/bot${botToken}/sendMessage`;
-  await fetch(url, {
+  const res = await fetch(url, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
@@ -34,10 +34,14 @@ async function pushTelegram(markdown: string, botToken: string, chatId: string) 
       disable_web_page_preview: true,
     }),
   });
+  if (!res.ok) {
+    const text = await res.text();
+    throw new Error(`Telegram error ${res.status}: ${text}`);
+  }
 }
 
 async function pushDiscord(text: string, webhookUrl: string) {
-  await fetch(webhookUrl, {
+  const res = await fetch(webhookUrl, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
@@ -45,6 +49,10 @@ async function pushDiscord(text: string, webhookUrl: string) {
       username: 'WINM Signals Bot',
     }),
   });
+  if (!res.ok) {
+    const body = await res.text();
+    throw new Error(`Discord error ${res.status}: ${body}`);
+  }
 }
 
 export async function notifySignal(signal: Signal): Promise<void> {
@@ -73,6 +81,55 @@ export async function notifySignal(signal: Signal): Promise<void> {
   } catch (error) {
     console.error('Signal notification failed:', error);
   }
+}
+
+export async function sendTestNotifications() {
+  const settings = await storage.getSettings();
+  if (!settings) {
+    return { ok: false, message: 'Settings not found', telegram: null, discord: null };
+  }
+
+  const telegramState: any = {
+    enabled: settings.telegramEnabled,
+    configured: !!(settings.telegramBotToken && settings.telegramChatId),
+    sent: false,
+    error: null as string | null,
+  };
+  const discordState: any = {
+    enabled: settings.discordEnabled,
+    configured: !!settings.discordWebhookUrl,
+    sent: false,
+    error: null as string | null,
+  };
+
+  const testText = '🧪 WINM test notification: channel connectivity verified.';
+  const testMarkdown = '*🧪 WINM test notification*: channel connectivity verified.';
+
+  if (telegramState.enabled && telegramState.configured) {
+    try {
+      await pushTelegram(testMarkdown, settings.telegramBotToken!, settings.telegramChatId!);
+      telegramState.sent = true;
+    } catch (e: any) {
+      telegramState.error = e?.message || 'Unknown telegram error';
+    }
+  }
+
+  if (discordState.enabled && discordState.configured) {
+    try {
+      await pushDiscord(testText, settings.discordWebhookUrl!);
+      discordState.sent = true;
+    } catch (e: any) {
+      discordState.error = e?.message || 'Unknown discord error';
+    }
+  }
+
+  const ok = (!!telegramState.sent || !telegramState.enabled) && (!!discordState.sent || !discordState.enabled);
+  return {
+    ok,
+    message: ok ? 'Notification test completed' : 'Notification test failed for one or more channels',
+    telegram: telegramState,
+    discord: discordState,
+  };
 }
 
 export function validateSignalBestPractice(signal: {

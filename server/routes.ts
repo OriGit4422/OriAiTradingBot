@@ -4,7 +4,7 @@ import { storage } from "./storage";
 import { insertSettingsSchema, insertStrategySchema, insertSignalSchema, insertPositionSchema, insertUserAccessSchema } from "@shared/schema";
 import { z } from "zod";
 import { analyzeSignalWithAI, getMarketInsight } from "./ai-analysis";
-import { notifySignal, validateSignalBestPractice } from "./notifications";
+import { notifySignal, sendTestNotifications, validateSignalBestPractice } from "./notifications";
 import { testBinanceConnectivity, testBybitConnectivity } from "./exchange-connectivity";
 import { evaluateSignalsPerformance } from "./signal-performance";
 
@@ -89,6 +89,15 @@ export async function registerRoutes(
     res.status(result.ok ? 200 : 503).json(result);
   });
 
+  app.post("/api/notifications/test", async (_req, res) => {
+    try {
+      const result = await sendTestNotifications();
+      res.status(result.ok ? 200 : 503).json(result);
+    } catch (e: any) {
+      res.status(500).json({ message: e.message });
+    }
+  });
+
   app.get("/api/system/requirements-status", async (_req, res) => {
     try {
       const s = await storage.getSettings();
@@ -111,6 +120,35 @@ export async function registerRoutes(
           exchanges: {
             binanceConnected: !!s?.binanceConnected,
             bybitConnected: !!s?.bybitConnected,
+          },
+        },
+      });
+    } catch (e: any) {
+      res.status(500).json({ message: e.message });
+    }
+  });
+
+  app.get("/api/system/diagnostics", async (_req, res) => {
+    try {
+      const s = await storage.getSettings();
+      const [binance, bybit] = await Promise.all([
+        testBinanceConnectivity(s?.binanceApiKey || undefined),
+        testBybitConnectivity(s?.bybitApiKey || undefined),
+      ]);
+
+      const notificationCheck = await sendTestNotifications();
+      const strategyCount = (await storage.getStrategies()).length;
+
+      res.json({
+        status: "ok",
+        diagnostics: {
+          exchanges: { binance, bybit },
+          notifications: notificationCheck,
+          strategies: { count: strategyCount, seededFallback: strategyCount > 0 },
+          endpoints: {
+            aiAnalyzeSignal: "/api/ai/analyze-signal",
+            signalPerformance: "/api/signals/performance?hours=24",
+            requirements: "/api/system/requirements-status",
           },
         },
       });

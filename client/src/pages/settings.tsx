@@ -59,50 +59,20 @@ export default function SettingsPage() {
   const { data: userAccessList = [], isLoading: accessLoading } = useQuery<UserAccess[]>({
     queryKey: ['/api/user-access'],
   });
+  const { data: goldStatus } = useQuery<any>({
+    queryKey: ['/api/gold/status'],
+    refetchInterval: 10000,
+  });
 
   const [displayName, setDisplayName] = useState('');
   const [maxRiskPercent, setMaxRiskPercent] = useState('2.0');
   const [binanceApiKey, setBinanceApiKey] = useState('');
   const [bybitApiKey, setBybitApiKey] = useState('');
   const [telegramChatId, setTelegramChatId] = useState('');
-  const [discordWebhookUrl, setDiscordWebhookUrl] = useState('');
-  const [coinglassApiKey, setCoinglassApiKey] = useState('');
-  const [perplexityApiKey, setPerplexityApiKey] = useState('');
-  const [arkhamApiKey, setArkhamApiKey] = useState('');
-
-  // ── Theme state ──────────────────────────────────────────────────────────
-  const [activeThemeId, setActiveThemeId] = useState(getActiveThemeId);
-  const [customThemes, setCustomThemes] = useState(getCustomThemes);
-  const [customName, setCustomName] = useState('');
-  const [customBase, setCustomBase] = useState<'light' | 'dark'>('dark');
-  const [customPrimary, setCustomPrimary] = useState('#0ea5e9');
-
-  const handleApplyTheme = (theme: Theme) => {
-    applyTheme(theme);
-    setActiveThemeId(theme.id);
-  };
-
-  const handleSaveCustom = () => {
-    const name = customName.trim() || `Custom ${customThemes.length + 1}`;
-    const id = `custom-${Date.now()}`;
-    const vars = buildCustomVars(customPrimary, customBase);
-    const newTheme: CustomTheme = {
-      id, name, type: customBase, primaryHex: customPrimary, custom: true,
-      preview: { bg: customBase === 'light' ? '#f4f6f8' : '#0f172a', card: '#ffffff', primary: customPrimary, accent2: customPrimary },
-      vars,
-    };
-    saveCustomTheme(newTheme);
-    setCustomThemes(getCustomThemes());
-    handleApplyTheme(newTheme);
-    setCustomName('');
-    toast({ title: `Theme "${name}" saved and applied` });
-  };
-
-  const handleDeleteCustom = (id: string) => {
-    deleteCustomTheme(id);
-    setCustomThemes(getCustomThemes());
-    if (activeThemeId === id) handleApplyTheme(PRESET_THEMES[0]);
-  };
+  const [mt5Login, setMt5Login] = useState('');
+  const [mt5Password, setMt5Password] = useState('');
+  const [mt5Server, setMt5Server] = useState('');
+  const [goldRisk, setGoldRisk] = useState('1.0');
 
   const [addUserOpen, setAddUserOpen] = useState(false);
   const [editUser, setEditUser] = useState<UserAccess | null>(null);
@@ -178,6 +148,51 @@ export default function SettingsPage() {
     },
     onError: (error: Error) => {
       toast({ title: 'Failed to remove user', description: error.message, variant: 'destructive' });
+    },
+  });
+
+  const testGoldSignalMutation = useMutation({
+    mutationFn: async () => {
+      const res = await apiRequest('POST', '/api/gold/signal', { timeframe: '15m' });
+      return res.json();
+    },
+    onSuccess: (data) => {
+      toast({ title: 'Gold signal generated', description: `${data.type} XAUUSD | conf ${data.confidence}%` });
+    },
+    onError: (error: Error) => {
+      toast({ title: 'Gold signal failed', description: error.message, variant: 'destructive' });
+    },
+  });
+
+  const connectMt5Mutation = useMutation({
+    mutationFn: async () => {
+      const res = await apiRequest('POST', '/api/gold/mt5/connect', { login: mt5Login, password: mt5Password, server: mt5Server });
+      return res.json();
+    },
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ['/api/gold/status'] });
+      toast({ title: data.ok ? 'MT5 connected' : 'MT5 failed', description: data.message, variant: data.ok ? 'default' : 'destructive' as any });
+    },
+  });
+
+  const autoGoldMutation = useMutation({
+    mutationFn: async (enabled: boolean) => {
+      const res = await apiRequest('PATCH', '/api/gold/auto-trading', { enabled, maxRiskPercent: parseFloat(goldRisk) || 1.0 });
+      return res.json();
+    },
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ['/api/gold/status'] });
+      toast({ title: data.message });
+    },
+  });
+
+  const runAutoGoldMutation = useMutation({
+    mutationFn: async () => {
+      const res = await apiRequest('POST', '/api/gold/auto-trade/run');
+      return res.json();
+    },
+    onSuccess: (data) => {
+      toast({ title: data.ok ? 'Gold auto trade executed' : 'Gold auto trade blocked', description: data.message, variant: data.ok ? 'default' : 'destructive' as any });
     },
   });
 
@@ -392,7 +407,7 @@ export default function SettingsPage() {
             </TabsContent>
 
             <TabsContent value="trading">
-              <Card className="bg-card border-border">
+              <Card className="bg-card border-border mb-6">
                 <CardHeader>
                   <CardTitle>Risk Management</CardTitle>
                   <CardDescription>Set global safety parameters for your strategies.</CardDescription>
@@ -445,6 +460,37 @@ export default function SettingsPage() {
                       checked={settings.autoStopLoss}
                       onCheckedChange={(checked) => updateMutation.mutate({ autoStopLoss: checked })}
                     />
+                  </div>
+                </CardContent>
+              </Card>
+
+              <Card className="bg-card border-border">
+                <CardHeader>
+                  <CardTitle>Gold (XAUUSD) + MT5 Auto Trading</CardTitle>
+                  <CardDescription>Connect MT5 bridge (paper mode), generate gold signals, and toggle auto trading.</CardDescription>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-2">
+                    <Input placeholder="MT5 Login" value={mt5Login} onChange={(e) => setMt5Login(e.target.value)} />
+                    <Input placeholder="MT5 Password" type="password" value={mt5Password} onChange={(e) => setMt5Password(e.target.value)} />
+                    <Input placeholder="MT5 Server" value={mt5Server} onChange={(e) => setMt5Server(e.target.value)} />
+                  </div>
+                  <div className="flex flex-wrap gap-2">
+                    <Button onClick={() => connectMt5Mutation.mutate()} disabled={connectMt5Mutation.isPending}>Connect MT5</Button>
+                    <Button variant="outline" onClick={() => autoGoldMutation.mutate(!(goldStatus?.auto?.enabled))} disabled={autoGoldMutation.isPending}>
+                      {goldStatus?.auto?.enabled ? 'Disable' : 'Enable'} Auto Trading
+                    </Button>
+                    <Button variant="outline" onClick={() => testGoldSignalMutation.mutate()} disabled={testGoldSignalMutation.isPending}>Generate Gold Signal</Button>
+                    <Button variant="secondary" onClick={() => runAutoGoldMutation.mutate()} disabled={runAutoGoldMutation.isPending}>Run Auto Trade</Button>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <Label>Gold Risk %</Label>
+                    <Input className="max-w-32" value={goldRisk} onChange={(e) => setGoldRisk(e.target.value)} />
+                  </div>
+                  <div className="text-xs text-muted-foreground">
+                    MT5: <span className={goldStatus?.mt5?.connected ? 'text-green-500' : 'text-red-500'}>{goldStatus?.mt5?.connected ? 'Connected' : 'Disconnected'}</span>
+                    {' '}| Auto: <span className={goldStatus?.auto?.enabled ? 'text-green-500' : 'text-red-500'}>{goldStatus?.auto?.enabled ? 'Enabled' : 'Disabled'}</span>
+                    {' '}| Mode: Paper
                   </div>
                 </CardContent>
               </Card>

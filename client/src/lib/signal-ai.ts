@@ -49,16 +49,9 @@ export async function enhanceSignalsWithAI(signals: any[], limit = 12): Promise<
       const blended = Math.round(signal.confidence * 0.55 + ai.adjustedConfidence * 0.45);
       const adjusted = Math.max(45, Math.min(98, blended - directionPenalty - riskPenalty));
 
-      // Recalculate composite signalScore with updated confidence
-      const rrRatio = Math.abs(signal.tp - signal.entry) / Math.max(0.0001, Math.abs(signal.entry - signal.sl));
-      const rrQuality = Math.min(100, Math.max(0, ((rrRatio - 1.5) / 2.5) * 100));
-      const signalScore = Math.round(adjusted * 0.65 + rrQuality * 0.35);
-
       enhancedSignals[index] = {
         ...signal,
         confidence: adjusted,
-        signalScore,
-        rrRatio: Math.round(rrRatio * 100) / 100,
         aiConfirmation: {
           verdict: ai.verdict,
           reasoning: ai.reasoning,

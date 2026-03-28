@@ -358,8 +358,15 @@ function calculateAdaptiveRisk(data: BinanceKline[], atr: number, rsi: number, a
   const optimalSize = kellyFraction * sizeFactor;
 
   const trendStrength = adx > 30 ? 1.2 : adx > 20 ? 1 : 0.8;
-  const dynamicSL = atr * 1.5 * (1 / trendStrength);
-  const dynamicTP = atr * 3 * trendStrength;
+
+  // SL: tight ATR-based stop — no penalty for weak trends (keeps SL precise)
+  const dynamicSL = atr * 1.2;
+
+  // TP: scale with trend strength, always ≥ 3.0× ATR so minimum R:R is 2.5
+  const rawTP = atr * Math.max(3.0, 3.6 * trendStrength);
+  // Hard floor: TP must be at least 2.5× the SL distance
+  const dynamicTP = Math.max(rawTP, dynamicSL * 2.5);
+
   const riskReward = dynamicTP / Math.max(0.0001, dynamicSL);
 
   return { kellyFraction, optimalSize, dynamicSL, dynamicTP, riskReward: Math.round(riskReward * 100) / 100 };
@@ -714,6 +721,11 @@ export function getQuantumSignal(symbol: string, price: number, data: BinanceKli
   const tp = type === 'LONG' ? entryPrice + dynamicTP : entryPrice - dynamicTP;
   const sl = type === 'LONG' ? entryPrice - dynamicSL : entryPrice + dynamicSL;
 
+  // Composite signal score: 65% AI confidence + 35% R:R quality
+  // R:R quality: 0 at 1.5, 100 at 4.0+ (normalized)
+  const rrQuality = Math.min(100, Math.max(0, ((riskReward - 1.5) / 2.5) * 100));
+  const signalScore = Math.round(confidence * 0.65 + rrQuality * 0.35);
+
   return {
     id: Math.random().toString(36).substr(2, 9),
     coin: symbol,
@@ -724,6 +736,7 @@ export function getQuantumSignal(symbol: string, price: number, data: BinanceKli
     tp, sl,
     timeframe: '15m',
     confidence,
+    signalScore,
     timestamp: 'Just now',
     status: 'PENDING',
     indicators: {

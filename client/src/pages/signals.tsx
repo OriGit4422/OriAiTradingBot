@@ -13,8 +13,10 @@ import { enhanceSignalsWithAI } from '@/lib/signal-ai';
 import { toast } from '@/hooks/use-toast';
 import type { Signal } from '@shared/schema';
 import { ScrollArea } from '@/components/ui/scroll-area';
+import { useIsMobile } from '@/hooks/use-mobile';
 
 export default function Signals() {
+  const isMobile = useIsMobile();
   const [liveSignals, setLiveSignals] = useState<any[]>([]);
   const [confluenceData, setConfluenceData] = useState<any[]>([]);
   const [isAnalyzing, setIsAnalyzing] = useState(true);
@@ -54,8 +56,11 @@ export default function Signals() {
 
   const generateSignals = useCallback(async () => {
     setIsAnalyzing(true);
-    const coins = ['BTC', 'ETH', 'SOL', 'BNB', 'XRP', 'ADA', 'DOGE', 'AVAX', 'DOT', 'LINK'];
-    const timeframes = ['5m', '15m', '1h', '4h'];
+    const coins = isMobile
+      ? ['BTC', 'ETH', 'SOL', 'BNB', 'XRP', 'DOGE']
+      : ['BTC', 'ETH', 'SOL', 'BNB', 'XRP', 'ADA', 'DOGE', 'AVAX', 'DOT', 'LINK'];
+    const timeframes = isMobile ? ['15m', '1h', '4h'] : ['5m', '15m', '1h', '4h'];
+    const candleLimit = isMobile ? 120 : 180;
 
     const tasks = coins.flatMap(coin =>
       timeframes.map(tf => ({ coin, tf }))
@@ -63,7 +68,7 @@ export default function Signals() {
 
     const results = await Promise.allSettled(
       tasks.map(async ({ coin, tf }) => {
-        const data = await fetchKlines(coin, tf, 200);
+        const data = await fetchKlines(coin, tf, candleLimit);
         if (data.length > 50) {
           const signal = getQuantumSignal(coin, data[data.length - 1].close, data);
           signal.timeframe = tf;
@@ -81,6 +86,7 @@ export default function Signals() {
         return s.confidence > 75 || ALWAYS_INCLUDE.includes(s.coin);
       });
 
+    const aiConfirmed = await enhanceSignalsWithAI(newSignals, isMobile ? 8 : 14);
     const aiConfirmed = await enhanceSignalsWithAI(newSignals, 14);
     const sorted = aiConfirmed.sort((a, b) => b.confidence - a.confidence);
     setLiveSignals(sorted);
@@ -92,7 +98,7 @@ export default function Signals() {
     if (sorted.length > 0) {
       bulkSaveMutation.mutate(sorted);
     }
-  }, []);
+  }, [isMobile]);
 
   useEffect(() => {
     generateSignals();
@@ -454,6 +460,7 @@ export default function Signals() {
               </div>
               <ScrollArea className="max-h-72">
                 <div className="space-y-2">
+                  {performanceData.items.slice(0, isMobile ? 16 : 40).map((p: any) => (
                   {performanceData.items.slice(0, 40).map((p: any) => (
                     <div key={p.id} className="grid grid-cols-2 md:grid-cols-8 gap-2 bg-muted/20 rounded p-2 text-xs font-mono">
                       <div className="font-bold">{p.coin}</div>

@@ -24,6 +24,7 @@ import {
   TabsList,
   TabsTrigger
 } from '@/components/ui/tabs';
+import { useIsMobile } from '@/hooks/use-mobile';
 
 const SIGNAL_COINS = ['BTC', 'ETH', 'SOL', 'BNB', 'XRP', 'ADA', 'DOGE', 'AVAX'];
 const TIMEFRAMES = ['5m', '15m', '1h', '4h'];
@@ -34,6 +35,7 @@ interface SignalFeedProps {
 }
 
 export function SignalFeed({ compact = false, onSelectCoin }: SignalFeedProps) {
+  const isMobile = useIsMobile();
   const [allSignals, setAllSignals] = useState<any[]>([]);
   const [confluenceData, setConfluenceData] = useState<any[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -42,14 +44,17 @@ export function SignalFeed({ compact = false, onSelectCoin }: SignalFeedProps) {
 
   const generateAllSignals = useCallback(async () => {
     setIsLoading(true);
+    const coins = isMobile ? SIGNAL_COINS.slice(0, 6) : SIGNAL_COINS;
+    const tfs = isMobile ? ['15m', '1h', '4h'] : TIMEFRAMES;
+    const candleLimit = isMobile ? 120 : 180;
 
-    const tasks = SIGNAL_COINS.flatMap(coin =>
-      TIMEFRAMES.map(tf => ({ coin, tf }))
+    const tasks = coins.flatMap(coin =>
+      tfs.map(tf => ({ coin, tf }))
     );
 
     const results = await Promise.allSettled(
       tasks.map(async ({ coin, tf }) => {
-        const data = await fetchKlines(coin, tf, 200);
+        const data = await fetchKlines(coin, tf, candleLimit);
         if (data.length > 50) {
           const signal = getQuantumSignal(coin, data[data.length - 1].close, data);
           signal.timeframe = tf;
@@ -63,12 +68,13 @@ export function SignalFeed({ compact = false, onSelectCoin }: SignalFeedProps) {
       .filter((r): r is PromiseFulfilledResult<any> => r.status === 'fulfilled' && r.value !== null)
       .map(r => r.value);
 
+    const aiConfirmed = await enhanceSignalsWithAI(newSignals, isMobile ? 6 : 10);
     const aiConfirmed = await enhanceSignalsWithAI(newSignals, 10);
     setAllSignals(aiConfirmed);
     const confluence = calculateMultiTFConfluence(aiConfirmed);
     setConfluenceData(confluence);
     setIsLoading(false);
-  }, []);
+  }, [isMobile]);
 
   useEffect(() => {
     generateAllSignals();
@@ -79,6 +85,7 @@ export function SignalFeed({ compact = false, onSelectCoin }: SignalFeedProps) {
   const filteredSignals = selectedTF === 'ALL'
     ? allSignals.sort((a, b) => b.confidence - a.confidence)
     : allSignals.filter(s => s.timeframe === selectedTF).sort((a, b) => b.confidence - a.confidence);
+  const visibleSignals = isMobile ? filteredSignals.slice(0, 12) : filteredSignals;
 
   const handleExecuteTrade = async (signal: any) => {
     try {
@@ -178,7 +185,7 @@ export function SignalFeed({ compact = false, onSelectCoin }: SignalFeedProps) {
             ) : filteredSignals.length === 0 ? (
               <div className="flex justify-center py-12 text-muted-foreground text-xs">No signals found</div>
             ) : (
-              filteredSignals.map((signal) => (
+              visibleSignals.map((signal) => (
                 <div
                   key={`${signal.coin}-${signal.timeframe}-${signal.id}`}
                   className="px-3 py-2.5 hover:bg-primary/5 transition-all cursor-pointer group relative overflow-hidden"

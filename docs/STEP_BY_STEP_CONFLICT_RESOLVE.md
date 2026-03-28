@@ -54,6 +54,11 @@ npm run dev
 ```
 
 4. Hard refresh browser (`Ctrl/Cmd + Shift + R`).
+5. Verify latest commit is present locally:
+
+```bash
+git log --oneline -n 5
+```
 
 ## E) Verify new backend features are live
 

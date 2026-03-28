@@ -76,6 +76,12 @@ export default function SettingsPage() {
   const [arkhamApiKey, setArkhamApiKey] = useState('');
 
   // ── MT5 / Gold state ─────────────────────────────────────────────────────
+  // Legacy simple MT5 login fields (used by built-in gold-trading module)
+  const [mt5Login, setMt5Login] = useState('');
+  const [mt5Password, setMt5Password] = useState('');
+  const [mt5Server, setMt5Server] = useState('');
+  const [goldRisk, setGoldRisk] = useState('1.0');
+  // MetaApi advanced fields
   const [metaApiToken, setMetaApiToken] = useState('');
   const [metaApiAccountId, setMetaApiAccountId] = useState('');
   const [goldLotSize, setGoldLotSize] = useState('0.01');

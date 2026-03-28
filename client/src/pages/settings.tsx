@@ -26,7 +26,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { Bell, Lock, Key, Globe, Shield, Loader2, Users, UserPlus, Trash2, Edit, Mail, Check, X } from 'lucide-react';
+import { Bell, Lock, Key, Globe, Shield, Loader2, Users, UserPlus, Trash2, Edit, Mail, Check, X, Brain, Activity, Zap } from 'lucide-react';
 import type { Settings, UserAccess } from '@shared/schema';
 
 const ROLES = [
@@ -60,6 +60,9 @@ export default function SettingsPage() {
   const [bybitApiKey, setBybitApiKey] = useState('');
   const [telegramChatId, setTelegramChatId] = useState('');
   const [discordWebhookUrl, setDiscordWebhookUrl] = useState('');
+  const [coinglassApiKey, setCoinglassApiKey] = useState('');
+  const [perplexityApiKey, setPerplexityApiKey] = useState('');
+  const [arkhamApiKey, setArkhamApiKey] = useState('');
 
   const [addUserOpen, setAddUserOpen] = useState(false);
   const [editUser, setEditUser] = useState<UserAccess | null>(null);
@@ -75,6 +78,9 @@ export default function SettingsPage() {
       setBybitApiKey(settings.bybitApiKey ?? '');
       setTelegramChatId(settings.telegramChatId ?? '');
       setDiscordWebhookUrl(settings.discordWebhookUrl ?? '');
+      setCoinglassApiKey(settings.coinglassApiKey ?? '');
+      setPerplexityApiKey(settings.perplexityApiKey ?? '');
+      setArkhamApiKey(settings.arkhamApiKey ?? '');
     }
   }, [settings]);
 
@@ -192,6 +198,10 @@ export default function SettingsPage() {
               <TabsTrigger value="api" data-testid="tab-api">API Keys</TabsTrigger>
               <TabsTrigger value="trading" data-testid="tab-trading">Trading</TabsTrigger>
               <TabsTrigger value="notifications" data-testid="tab-notifications">Notifications</TabsTrigger>
+              <TabsTrigger value="ai-agents" data-testid="tab-ai-agents">
+                <Brain className="w-3.5 h-3.5 mr-1.5" />
+                AI Agents
+              </TabsTrigger>
               <TabsTrigger value="users" data-testid="tab-users">
                 <Users className="w-3.5 h-3.5 mr-1.5" />
                 User Access
@@ -512,6 +522,191 @@ export default function SettingsPage() {
                   </div>
                 </CardContent>
               </Card>
+            </TabsContent>
+
+            <TabsContent value="ai-agents">
+              <div className="space-y-4">
+                {/* Overview card */}
+                <Card className="bg-card border-border">
+                  <CardHeader>
+                    <div className="flex items-center gap-3">
+                      <div className="w-10 h-10 bg-violet-500/10 rounded-lg flex items-center justify-center">
+                        <Brain className="w-5 h-5 text-violet-400" />
+                      </div>
+                      <div>
+                        <CardTitle>AI Intelligence Agents</CardTitle>
+                        <CardDescription>Add API keys to activate agents that sharpen signal accuracy through multi-source validation.</CardDescription>
+                      </div>
+                    </div>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mb-2">
+                      {[
+                        { label: 'Claude AI', desc: 'Always active — primary analysis', color: 'text-violet-400', bg: 'bg-violet-500/10', Icon: Brain, active: true },
+                        { label: 'Coinglass', desc: 'Funding rates & long/short data', color: 'text-orange-400', bg: 'bg-orange-500/10', Icon: Activity, active: !!settings.coinglassApiKey },
+                        { label: 'Perplexity', desc: 'Real-time news sentiment', color: 'text-sky-400', bg: 'bg-sky-500/10', Icon: Globe, active: !!settings.perplexityApiKey },
+                        { label: 'Arkham', desc: 'Whale & smart money tracking', color: 'text-cyan-400', bg: 'bg-cyan-500/10', Icon: Zap, active: !!settings.arkhamApiKey },
+                      ].map(({ label, desc, color, bg, Icon, active }) => (
+                        <div key={label} className={`flex items-center gap-3 p-3 rounded-lg border ${active ? 'border-green-500/30 bg-green-500/5' : 'border-border bg-muted/10'}`}>
+                          <div className={`w-8 h-8 rounded ${bg} flex items-center justify-center flex-shrink-0`}>
+                            <Icon className={`w-4 h-4 ${color}`} />
+                          </div>
+                          <div className="min-w-0">
+                            <div className="text-sm font-medium">{label}</div>
+                            <div className="text-[11px] text-muted-foreground">{desc}</div>
+                          </div>
+                          <div className={`ml-auto text-[10px] font-semibold flex-shrink-0 ${active ? 'text-green-500' : 'text-muted-foreground'}`}>
+                            {active ? '● ON' : '○ OFF'}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </CardContent>
+                </Card>
+
+                {/* Coinglass */}
+                <Card className="bg-card border-border">
+                  <CardHeader>
+                    <div className="flex items-center gap-3">
+                      <div className="w-10 h-10 bg-orange-500/10 rounded-lg flex items-center justify-center">
+                        <Activity className="w-5 h-5 text-orange-400" />
+                      </div>
+                      <div>
+                        <CardTitle className="text-base">Coinglass</CardTitle>
+                        <CardDescription>Derivatives data: funding rates, long/short ratios, open interest. Adds ±8% confidence weight.</CardDescription>
+                      </div>
+                      <div className={`ml-auto text-xs font-semibold px-2 py-1 rounded-full ${settings.coinglassApiKey ? 'bg-green-500/10 text-green-500' : 'bg-muted/30 text-muted-foreground'}`}>
+                        {settings.coinglassApiKey ? 'Active' : 'Inactive'}
+                      </div>
+                    </div>
+                  </CardHeader>
+                  <CardContent className="space-y-3">
+                    <div className="space-y-1">
+                      <Label className="text-xs">API Key (coinglassSecret)</Label>
+                      <div className="flex gap-2">
+                        <Input
+                          type="password"
+                          value={coinglassApiKey}
+                          onChange={(e) => setCoinglassApiKey(e.target.value)}
+                          placeholder="Enter Coinglass API key"
+                          className="bg-muted/30 font-mono text-xs"
+                        />
+                        <Button
+                          size="sm"
+                          onClick={() => updateMutation.mutate({ coinglassApiKey: coinglassApiKey || null } as any)}
+                          disabled={updateMutation.isPending || coinglassApiKey === (settings.coinglassApiKey ?? '')}
+                        >
+                          Save
+                        </Button>
+                      </div>
+                    </div>
+                    <div className="rounded-lg bg-orange-500/5 border border-orange-500/20 p-3 space-y-1">
+                      <p className="text-[11px] font-semibold text-orange-400">How to get your Coinglass API key:</p>
+                      <ol className="text-[11px] text-muted-foreground space-y-0.5 list-decimal list-inside">
+                        <li>Sign up at coinglass.com and go to your account settings</li>
+                        <li>Navigate to API section and generate a key</li>
+                        <li>Copy the key labeled "coinglassSecret" and paste above</li>
+                      </ol>
+                    </div>
+                  </CardContent>
+                </Card>
+
+                {/* Perplexity */}
+                <Card className="bg-card border-border">
+                  <CardHeader>
+                    <div className="flex items-center gap-3">
+                      <div className="w-10 h-10 bg-sky-500/10 rounded-lg flex items-center justify-center">
+                        <Globe className="w-5 h-5 text-sky-400" />
+                      </div>
+                      <div>
+                        <CardTitle className="text-base">Perplexity AI</CardTitle>
+                        <CardDescription>Real-time news sentiment filter. Detects regulatory/hack risk events. Adds ±10% confidence weight.</CardDescription>
+                      </div>
+                      <div className={`ml-auto text-xs font-semibold px-2 py-1 rounded-full ${settings.perplexityApiKey ? 'bg-green-500/10 text-green-500' : 'bg-muted/30 text-muted-foreground'}`}>
+                        {settings.perplexityApiKey ? 'Active' : 'Inactive'}
+                      </div>
+                    </div>
+                  </CardHeader>
+                  <CardContent className="space-y-3">
+                    <div className="space-y-1">
+                      <Label className="text-xs">API Key</Label>
+                      <div className="flex gap-2">
+                        <Input
+                          type="password"
+                          value={perplexityApiKey}
+                          onChange={(e) => setPerplexityApiKey(e.target.value)}
+                          placeholder="pplx-..."
+                          className="bg-muted/30 font-mono text-xs"
+                        />
+                        <Button
+                          size="sm"
+                          onClick={() => updateMutation.mutate({ perplexityApiKey: perplexityApiKey || null } as any)}
+                          disabled={updateMutation.isPending || perplexityApiKey === (settings.perplexityApiKey ?? '')}
+                        >
+                          Save
+                        </Button>
+                      </div>
+                    </div>
+                    <div className="rounded-lg bg-sky-500/5 border border-sky-500/20 p-3 space-y-1">
+                      <p className="text-[11px] font-semibold text-sky-400">How to get your Perplexity API key:</p>
+                      <ol className="text-[11px] text-muted-foreground space-y-0.5 list-decimal list-inside">
+                        <li>Go to perplexity.ai and create an account</li>
+                        <li>Navigate to Settings → API</li>
+                        <li>Generate a new API key (starts with "pplx-")</li>
+                        <li>Paste above and Save</li>
+                      </ol>
+                    </div>
+                  </CardContent>
+                </Card>
+
+                {/* Arkham */}
+                <Card className="bg-card border-border">
+                  <CardHeader>
+                    <div className="flex items-center gap-3">
+                      <div className="w-10 h-10 bg-cyan-500/10 rounded-lg flex items-center justify-center">
+                        <Zap className="w-5 h-5 text-cyan-400" />
+                      </div>
+                      <div>
+                        <CardTitle className="text-base">Arkham Intelligence</CardTitle>
+                        <CardDescription>On-chain whale tracking. Detects large exchange inflows/outflows from smart money. Adds ±7% confidence weight.</CardDescription>
+                      </div>
+                      <div className={`ml-auto text-xs font-semibold px-2 py-1 rounded-full ${settings.arkhamApiKey ? 'bg-green-500/10 text-green-500' : 'bg-muted/30 text-muted-foreground'}`}>
+                        {settings.arkhamApiKey ? 'Active' : 'Inactive'}
+                      </div>
+                    </div>
+                  </CardHeader>
+                  <CardContent className="space-y-3">
+                    <div className="space-y-1">
+                      <Label className="text-xs">API Key</Label>
+                      <div className="flex gap-2">
+                        <Input
+                          type="password"
+                          value={arkhamApiKey}
+                          onChange={(e) => setArkhamApiKey(e.target.value)}
+                          placeholder="Enter Arkham API key"
+                          className="bg-muted/30 font-mono text-xs"
+                        />
+                        <Button
+                          size="sm"
+                          onClick={() => updateMutation.mutate({ arkhamApiKey: arkhamApiKey || null } as any)}
+                          disabled={updateMutation.isPending || arkhamApiKey === (settings.arkhamApiKey ?? '')}
+                        >
+                          Save
+                        </Button>
+                      </div>
+                    </div>
+                    <div className="rounded-lg bg-cyan-500/5 border border-cyan-500/20 p-3 space-y-1">
+                      <p className="text-[11px] font-semibold text-cyan-400">How to get your Arkham API key:</p>
+                      <ol className="text-[11px] text-muted-foreground space-y-0.5 list-decimal list-inside">
+                        <li>Sign up at arkhamintelligence.com</li>
+                        <li>Go to your profile → API Keys</li>
+                        <li>Create a new key and copy it</li>
+                        <li>Paste above and Save</li>
+                      </ol>
+                    </div>
+                  </CardContent>
+                </Card>
+              </div>
             </TabsContent>
 
             <TabsContent value="users">

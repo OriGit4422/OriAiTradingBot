@@ -7,6 +7,10 @@ import { analyzeSignalWithAI, getMarketInsight } from "./ai-analysis";
 import { notifySignal, sendTestNotifications, validateSignalBestPractice } from "./notifications";
 import { testBinanceConnectivity, testBybitConnectivity } from "./exchange-connectivity";
 import { evaluateSignalsPerformance } from "./signal-performance";
+import { getCoinglassData } from "./coinglass";
+import { getNewsSentiment } from "./perplexity";
+import { getWhaleActivity } from "./arkham";
+import { runMultiAgentValidation } from "./signal-validator";
 
 export async function registerRoutes(
   httpServer: Server,
@@ -392,6 +396,66 @@ export async function registerRoutes(
     try {
       await storage.deleteUserAccess(req.params.id);
       res.status(204).send();
+    } catch (e: any) {
+      res.status(500).json({ message: e.message });
+    }
+  });
+
+  // ─── AI Intelligence Endpoints ────────────────────────────────────────────
+
+  // GET /api/intelligence/status — which agents are configured
+  app.get("/api/intelligence/status", async (_req, res) => {
+    try {
+      const s = await storage.getSettings();
+      res.json({
+        agents: {
+          claude:     { name: "Claude AI",    active: true,              role: "Primary signal analysis & cross-validation" },
+          coinglass:  { name: "Coinglass",    active: !!s?.coinglassApiKey,  role: "Derivatives: funding rates, long/short ratios" },
+          perplexity: { name: "Perplexity",   active: !!s?.perplexityApiKey, role: "Real-time news sentiment filter" },
+          arkham:     { name: "Arkham",       active: !!s?.arkhamApiKey,     role: "Whale & smart money on-chain tracking" },
+        },
+        totalActive: 1 + [s?.coinglassApiKey, s?.perplexityApiKey, s?.arkhamApiKey].filter(Boolean).length,
+      });
+    } catch (e: any) {
+      res.status(500).json({ message: e.message });
+    }
+  });
+
+  // GET /api/intelligence/coinglass/:coin
+  app.get("/api/intelligence/coinglass/:coin", async (req, res) => {
+    try {
+      const data = await getCoinglassData(req.params.coin.toUpperCase());
+      res.json(data);
+    } catch (e: any) {
+      res.status(500).json({ message: e.message });
+    }
+  });
+
+  // GET /api/intelligence/news/:coin
+  app.get("/api/intelligence/news/:coin", async (req, res) => {
+    try {
+      const data = await getNewsSentiment(req.params.coin.toUpperCase());
+      res.json(data);
+    } catch (e: any) {
+      res.status(500).json({ message: e.message });
+    }
+  });
+
+  // GET /api/intelligence/whale/:coin
+  app.get("/api/intelligence/whale/:coin", async (req, res) => {
+    try {
+      const data = await getWhaleActivity(req.params.coin.toUpperCase());
+      res.json(data);
+    } catch (e: any) {
+      res.status(500).json({ message: e.message });
+    }
+  });
+
+  // POST /api/intelligence/validate — full multi-agent signal validation
+  app.post("/api/intelligence/validate", async (req, res) => {
+    try {
+      const result = await runMultiAgentValidation(req.body);
+      res.json(result);
     } catch (e: any) {
       res.status(500).json({ message: e.message });
     }

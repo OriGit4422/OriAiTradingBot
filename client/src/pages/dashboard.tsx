@@ -7,6 +7,7 @@ import { MarketOverview } from '@/components/dashboard/MarketOverview';
 import { TradeEntry } from '@/components/dashboard/TradeEntry';
 import { OrderBook } from '@/components/dashboard/OrderBook';
 import { TopSignalsPanel } from '@/components/dashboard/TopSignalsPanel';
+import { AIAgentsPanel } from '@/components/dashboard/AIAgentsPanel';
 import { Button } from '@/components/ui/button';
 import {
   Bell,
@@ -726,6 +727,11 @@ export default function Dashboard() {
                 ))}
               </div>
             </div>
+          </div>
+
+          {/* AI Agents Status */}
+          <div className="mt-2 md:mt-3">
+            <AIAgentsPanel />
           </div>
 
         </div>

@@ -10,7 +10,8 @@ import {
   LogOut,
   Brain,
   Menu,
-  X
+  X,
+  CheckCircle2,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
@@ -41,74 +42,86 @@ export function Sidebar() {
   return (
     <>
       <button
-        className="md:hidden fixed top-3 left-3 z-50 p-2 rounded-lg bg-card border border-border"
+        className="md:hidden fixed top-3 left-3 z-50 p-2 rounded-lg bg-white border border-border shadow-sm"
         onClick={() => setMobileOpen(!mobileOpen)}
         data-testid="button-mobile-menu"
       >
-        {mobileOpen ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}
+        {mobileOpen ? <X className="h-5 w-5 text-foreground" /> : <Menu className="h-5 w-5 text-foreground" />}
       </button>
 
       {mobileOpen && (
         <div
-          className="md:hidden fixed inset-0 bg-black/50 z-30"
+          className="md:hidden fixed inset-0 bg-black/30 z-30"
           onClick={() => setMobileOpen(false)}
         />
       )}
 
       <div className={cn(
-        "w-64 border-r border-sidebar-border bg-sidebar h-screen flex flex-col fixed left-0 top-0 z-40 transition-transform duration-200",
+        "w-64 border-r border-sidebar-border bg-sidebar h-screen flex flex-col fixed left-0 top-0 z-40 transition-transform duration-200 shadow-sm",
         mobileOpen ? "translate-x-0" : "-translate-x-full md:translate-x-0"
       )}>
-        <div className="p-6 flex items-center gap-3">
-          <div className="h-10 w-10 rounded-xl bg-gradient-to-br from-primary to-purple-600 flex items-center justify-center shadow-lg shadow-primary/20">
-            <Zap className="h-6 w-6 text-white" />
+        {/* Logo */}
+        <div className="p-5 flex items-center gap-3 border-b border-sidebar-border">
+          <div className="h-9 w-9 rounded-lg bg-primary flex items-center justify-center shadow-sm">
+            <Zap className="h-5 w-5 text-white" />
           </div>
           <div>
-            <span className="text-lg font-display font-bold text-sidebar-foreground tracking-wider block leading-tight">
+            <span className="text-base font-display font-bold text-foreground tracking-wider block leading-tight">
               WinM <span className="text-primary">AI</span>
             </span>
-            <span className="text-[10px] font-mono text-muted-foreground tracking-widest">QUANTUM TRADING</span>
+            <span className="text-[9px] font-mono text-muted-foreground tracking-widest uppercase">Quantum Trading</span>
           </div>
         </div>
 
-        <nav className="flex-1 px-4 space-y-1 mt-4" data-testid="nav-sidebar">
-          {navItems.map((item) => (
-            <Button
-              key={item.path}
-              variant="ghost"
-              className={cn(
-                "w-full justify-start gap-3 h-11 text-sidebar-foreground/70 hover:text-sidebar-foreground hover:bg-sidebar-accent/50 transition-all",
-                location === item.path && "bg-sidebar-accent text-primary border-r-2 border-primary rounded-r-none font-semibold"
-              )}
-              onClick={() => handleNav(item.path)}
-              data-testid={`nav-${item.label.toLowerCase()}`}
-            >
-              <item.icon className="h-5 w-5" />
-              <span className="font-medium">{item.label}</span>
-            </Button>
-          ))}
+        {/* Navigation */}
+        <nav className="flex-1 px-3 py-4 space-y-0.5" data-testid="nav-sidebar">
+          {navItems.map((item) => {
+            const isActive = location === item.path;
+            return (
+              <Button
+                key={item.path}
+                variant="ghost"
+                className={cn(
+                  "w-full justify-start gap-3 h-10 text-sm font-medium transition-all rounded-lg",
+                  isActive
+                    ? "bg-primary/8 text-primary font-semibold"
+                    : "text-muted-foreground hover:text-foreground hover:bg-secondary/80"
+                )}
+                onClick={() => handleNav(item.path)}
+                data-testid={`nav-${item.label.toLowerCase()}`}
+              >
+                <item.icon className={cn("h-4 w-4 flex-shrink-0", isActive && "text-primary")} />
+                <span>{item.label}</span>
+                {isActive && (
+                  <div className="ml-auto w-1.5 h-1.5 rounded-full bg-primary" />
+                )}
+              </Button>
+            );
+          })}
         </nav>
 
-        <div className="p-4 border-t border-sidebar-border">
-          <div className="bg-sidebar-accent/50 rounded-lg p-4 mb-4">
-            <div className="text-xs text-muted-foreground uppercase mb-2 font-mono">System Status</div>
-            <div className="flex items-center gap-2 text-sm text-green-400">
-              <div className="w-2 h-2 rounded-full bg-green-500 animate-pulse" />
+        {/* Footer */}
+        <div className="p-4 border-t border-sidebar-border space-y-3">
+          {/* Status */}
+          <div className="rounded-lg bg-secondary/60 border border-border/50 p-3 space-y-1.5">
+            <p className="text-[10px] text-muted-foreground uppercase font-mono font-semibold tracking-wider">System Status</p>
+            <div className="flex items-center gap-2 text-xs text-green-600 font-medium">
+              <CheckCircle2 className="w-3.5 h-3.5" />
               <span>Operational</span>
             </div>
-            <div className="flex items-center gap-2 text-sm text-primary mt-1">
-              <div className="w-2 h-2 rounded-full bg-primary/50" />
+            <div className="flex items-center gap-2 text-xs text-primary font-medium">
+              <div className="w-2 h-2 rounded-full bg-primary animate-pulse" />
               <span>AI Engine Active</span>
             </div>
           </div>
 
           <Button
             variant="ghost"
-            className="w-full justify-start gap-3 text-destructive hover:text-destructive hover:bg-destructive/10"
+            className="w-full justify-start gap-3 text-sm text-muted-foreground hover:text-destructive hover:bg-destructive/8"
             onClick={handleLogout}
             data-testid="button-logout"
           >
-            <LogOut className="h-5 w-5" />
+            <LogOut className="h-4 w-4" />
             <span>Logout</span>
           </Button>
         </div>

@@ -193,7 +193,7 @@ export default function SettingsPage() {
           <p className="text-muted-foreground mb-8">Manage your account, API connections, and preferences.</p>
 
           <Tabs defaultValue="general" className="w-full">
-            <TabsList className="mb-6 bg-muted/30">
+            <TabsList className="mb-6 bg-secondary">
               <TabsTrigger value="general" data-testid="tab-general">General</TabsTrigger>
               <TabsTrigger value="api" data-testid="tab-api">API Keys</TabsTrigger>
               <TabsTrigger value="trading" data-testid="tab-trading">Trading</TabsTrigger>
@@ -222,7 +222,7 @@ export default function SettingsPage() {
                         data-testid="input-display-name"
                         value={displayName}
                         onChange={(e) => setDisplayName(e.target.value)}
-                        className="bg-muted/20"
+                        className="bg-secondary/50"
                       />
                       <Button
                         data-testid="button-save-display-name"
@@ -266,7 +266,7 @@ export default function SettingsPage() {
                   <CardDescription>Securely manage your API keys.</CardDescription>
                 </CardHeader>
                 <CardContent className="space-y-6">
-                  <div className="p-4 border border-border rounded-lg bg-muted/10">
+                  <div className="p-4 border border-border rounded-lg bg-secondary/40">
                     <div className="flex justify-between items-start mb-4">
                       <div className="flex items-center gap-3">
                         <div className="w-10 h-10 bg-yellow-500/10 rounded flex items-center justify-center">
@@ -290,7 +290,7 @@ export default function SettingsPage() {
                             value={binanceApiKey}
                             onChange={(e) => setBinanceApiKey(e.target.value)}
                             placeholder="Enter Binance API key"
-                            className="bg-muted/30"
+                            className="bg-secondary"
                           />
                           <Button
                             data-testid="button-save-binance"
@@ -305,7 +305,7 @@ export default function SettingsPage() {
                     </div>
                   </div>
 
-                  <div className="p-4 border border-border rounded-lg bg-muted/10">
+                  <div className="p-4 border border-border rounded-lg bg-secondary/40">
                     <div className="flex justify-between items-start mb-4">
                       <div className="flex items-center gap-3">
                         <div className="w-10 h-10 bg-orange-500/10 rounded flex items-center justify-center">
@@ -329,7 +329,7 @@ export default function SettingsPage() {
                             value={bybitApiKey}
                             onChange={(e) => setBybitApiKey(e.target.value)}
                             placeholder="Enter Bybit API key"
-                            className="bg-muted/30"
+                            className="bg-secondary"
                           />
                           <Button
                             data-testid="button-save-bybit"
@@ -380,7 +380,7 @@ export default function SettingsPage() {
                         type="number"
                         value={maxRiskPercent}
                         onChange={(e) => setMaxRiskPercent(e.target.value)}
-                        className="bg-muted/20"
+                        className="bg-secondary/50"
                       />
                       <Button
                         data-testid="button-save-max-risk"
@@ -433,7 +433,7 @@ export default function SettingsPage() {
                           value={telegramChatId}
                           onChange={(e) => setTelegramChatId(e.target.value)}
                           placeholder="Enter your Telegram chat ID"
-                          className="bg-muted/20"
+                          className="bg-secondary/50"
                         />
                         <Button
                           data-testid="button-save-telegram-chat-id"
@@ -473,7 +473,7 @@ export default function SettingsPage() {
                             value={discordWebhookUrl}
                             onChange={(e) => setDiscordWebhookUrl(e.target.value)}
                             placeholder="https://discord.com/api/webhooks/..."
-                            className="bg-muted/20 font-mono text-xs"
+                            className="bg-secondary/50 font-mono text-xs"
                           />
                           <Button
                             data-testid="button-save-discord"
@@ -547,7 +547,7 @@ export default function SettingsPage() {
                         { label: 'Perplexity', desc: 'Real-time news sentiment', color: 'text-sky-400', bg: 'bg-sky-500/10', Icon: Globe, active: !!settings.perplexityApiKey },
                         { label: 'Arkham', desc: 'Whale & smart money tracking', color: 'text-cyan-400', bg: 'bg-cyan-500/10', Icon: Zap, active: !!settings.arkhamApiKey },
                       ].map(({ label, desc, color, bg, Icon, active }) => (
-                        <div key={label} className={`flex items-center gap-3 p-3 rounded-lg border ${active ? 'border-green-500/30 bg-green-500/5' : 'border-border bg-muted/10'}`}>
+                        <div key={label} className={`flex items-center gap-3 p-3 rounded-lg border ${active ? 'border-green-500/30 bg-green-500/5' : 'border-border bg-secondary/40'}`}>
                           <div className={`w-8 h-8 rounded ${bg} flex items-center justify-center flex-shrink-0`}>
                             <Icon className={`w-4 h-4 ${color}`} />
                           </div>
@@ -575,7 +575,7 @@ export default function SettingsPage() {
                         <CardTitle className="text-base">Coinglass</CardTitle>
                         <CardDescription>Derivatives data: funding rates, long/short ratios, open interest. Adds ±8% confidence weight.</CardDescription>
                       </div>
-                      <div className={`ml-auto text-xs font-semibold px-2 py-1 rounded-full ${settings.coinglassApiKey ? 'bg-green-500/10 text-green-500' : 'bg-muted/30 text-muted-foreground'}`}>
+                      <div className={`ml-auto text-xs font-semibold px-2 py-1 rounded-full ${settings.coinglassApiKey ? 'bg-green-500/10 text-green-500' : 'bg-secondary text-muted-foreground'}`}>
                         {settings.coinglassApiKey ? 'Active' : 'Inactive'}
                       </div>
                     </div>
@@ -589,7 +589,7 @@ export default function SettingsPage() {
                           value={coinglassApiKey}
                           onChange={(e) => setCoinglassApiKey(e.target.value)}
                           placeholder="Enter Coinglass API key"
-                          className="bg-muted/30 font-mono text-xs"
+                          className="bg-secondary font-mono text-xs"
                         />
                         <Button
                           size="sm"
@@ -622,7 +622,7 @@ export default function SettingsPage() {
                         <CardTitle className="text-base">Perplexity AI</CardTitle>
                         <CardDescription>Real-time news sentiment filter. Detects regulatory/hack risk events. Adds ±10% confidence weight.</CardDescription>
                       </div>
-                      <div className={`ml-auto text-xs font-semibold px-2 py-1 rounded-full ${settings.perplexityApiKey ? 'bg-green-500/10 text-green-500' : 'bg-muted/30 text-muted-foreground'}`}>
+                      <div className={`ml-auto text-xs font-semibold px-2 py-1 rounded-full ${settings.perplexityApiKey ? 'bg-green-500/10 text-green-500' : 'bg-secondary text-muted-foreground'}`}>
                         {settings.perplexityApiKey ? 'Active' : 'Inactive'}
                       </div>
                     </div>
@@ -636,7 +636,7 @@ export default function SettingsPage() {
                           value={perplexityApiKey}
                           onChange={(e) => setPerplexityApiKey(e.target.value)}
                           placeholder="pplx-..."
-                          className="bg-muted/30 font-mono text-xs"
+                          className="bg-secondary font-mono text-xs"
                         />
                         <Button
                           size="sm"
@@ -670,7 +670,7 @@ export default function SettingsPage() {
                         <CardTitle className="text-base">Arkham Intelligence</CardTitle>
                         <CardDescription>On-chain whale tracking. Detects large exchange inflows/outflows from smart money. Adds ±7% confidence weight.</CardDescription>
                       </div>
-                      <div className={`ml-auto text-xs font-semibold px-2 py-1 rounded-full ${settings.arkhamApiKey ? 'bg-green-500/10 text-green-500' : 'bg-muted/30 text-muted-foreground'}`}>
+                      <div className={`ml-auto text-xs font-semibold px-2 py-1 rounded-full ${settings.arkhamApiKey ? 'bg-green-500/10 text-green-500' : 'bg-secondary text-muted-foreground'}`}>
                         {settings.arkhamApiKey ? 'Active' : 'Inactive'}
                       </div>
                     </div>
@@ -684,7 +684,7 @@ export default function SettingsPage() {
                           value={arkhamApiKey}
                           onChange={(e) => setArkhamApiKey(e.target.value)}
                           placeholder="Enter Arkham API key"
-                          className="bg-muted/30 font-mono text-xs"
+                          className="bg-secondary font-mono text-xs"
                         />
                         <Button
                           size="sm"
@@ -737,7 +737,7 @@ export default function SettingsPage() {
                       {userAccessList.map(user => (
                         <div
                           key={user.id}
-                          className="flex items-center justify-between p-4 rounded-lg border border-border bg-muted/10 hover:bg-muted/20 transition-colors"
+                          className="flex items-center justify-between p-4 rounded-lg border border-border bg-secondary/40 hover:bg-secondary/50 transition-colors"
                           data-testid={`user-row-${user.id}`}
                         >
                           <div className="flex items-center gap-3">
@@ -830,7 +830,7 @@ export default function SettingsPage() {
                 placeholder="user@example.com"
                 value={newEmail}
                 onChange={(e) => setNewEmail(e.target.value)}
-                className="bg-muted/20"
+                className="bg-secondary/50"
                 disabled={!!editUser}
               />
             </div>
@@ -838,7 +838,7 @@ export default function SettingsPage() {
             <div className="space-y-2">
               <Label>Role</Label>
               <Select value={newRole} onValueChange={setNewRole}>
-                <SelectTrigger className="bg-muted/20" data-testid="select-role">
+                <SelectTrigger className="bg-secondary/50" data-testid="select-role">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
@@ -863,7 +863,7 @@ export default function SettingsPage() {
                     className={`flex items-center gap-2 p-2 rounded-lg border cursor-pointer transition-colors ${
                       newPermissions.includes(p.value)
                         ? 'border-primary/50 bg-primary/10'
-                        : 'border-border bg-muted/10 hover:bg-muted/20'
+                        : 'border-border bg-secondary/40 hover:bg-secondary/50'
                     }`}
                     onClick={() => togglePermission(p.value)}
                     data-testid={`perm-${p.value}`}

@@ -123,7 +123,7 @@ export function SignalFeed({ compact = false, onSelectCoin }: SignalFeedProps) {
 
   return (
     <div className="h-full flex flex-col">
-      <div className="p-3 border-b border-border flex justify-between items-center bg-muted/10">
+      <div className="p-3 border-b border-border flex justify-between items-center bg-secondary/40">
         <div className="flex items-center gap-2">
           <BrainCircuit className="w-4 h-4 text-primary" />
           <h3 className="font-display font-semibold text-sm">Quantum Signals</h3>
@@ -136,7 +136,7 @@ export function SignalFeed({ compact = false, onSelectCoin }: SignalFeedProps) {
       </div>
 
       <Tabs value={selectedTF} onValueChange={setSelectedTF} className="flex flex-col flex-1 min-h-0">
-        <TabsList className="grid grid-cols-5 mx-2 mt-2 mb-1 h-7 bg-muted/30">
+        <TabsList className="grid grid-cols-5 mx-2 mt-2 mb-1 h-7 bg-secondary">
           <TabsTrigger value="ALL" className="text-[10px] h-5 px-1 data-[state=active]:text-primary">ALL</TabsTrigger>
           {TIMEFRAMES.map(tf => (
             <TabsTrigger key={tf} value={tf} className="text-[10px] h-5 px-1 data-[state=active]:text-primary">{tf}</TabsTrigger>
@@ -152,7 +152,7 @@ export function SignalFeed({ compact = false, onSelectCoin }: SignalFeedProps) {
               {confluenceData.slice(0, 3).map(c => (
                 <div
                   key={c.coin}
-                  className="flex items-center justify-between text-[10px] px-1 py-0.5 rounded hover:bg-muted/20 cursor-pointer"
+                  className="flex items-center justify-between text-[10px] px-1 py-0.5 rounded hover:bg-secondary/60 cursor-pointer"
                   onClick={() => onSelectCoin?.(c.coin)}
                   data-testid={`confluence-${c.coin}`}
                 >
@@ -215,7 +215,7 @@ export function SignalFeed({ compact = false, onSelectCoin }: SignalFeedProps) {
                   </div>
 
                     <div className="flex items-center gap-1 mb-1.5">
-                      <Badge variant="outline" className="text-[8px] h-4 px-1 border-primary/30 bg-primary/5 text-primary font-bold">
+                      <Badge variant="outline" className="text-[8px] h-4 px-1 border-primary/20 bg-primary/8 text-primary font-bold">
                         {signal.strategy}
                       </Badge>
                       {signal.aiConfirmation?.verdict && (
@@ -245,7 +245,7 @@ export function SignalFeed({ compact = false, onSelectCoin }: SignalFeedProps) {
                     )}
                   </div>
 
-                  <div className="grid grid-cols-3 gap-1 text-[10px] font-mono bg-muted/20 p-1.5 rounded">
+                  <div className="grid grid-cols-3 gap-1 text-[10px] font-mono bg-secondary/60 p-1.5 rounded">
                     <div>
                       <span className="text-muted-foreground">Entry </span>
                       <span className="font-bold">{signal.entry.toLocaleString(undefined, { maximumFractionDigits: 2 })}</span>
@@ -274,7 +274,7 @@ export function SignalFeed({ compact = false, onSelectCoin }: SignalFeedProps) {
       </Tabs>
 
       <Dialog open={!!selectedSignal} onOpenChange={(open) => { if (!open) setSelectedSignal(null); }}>
-        <DialogContent className="sm:max-w-md bg-card border-border" data-testid="dialog-signal-detail">
+        <DialogContent className="sm:max-w-md bg-white border-border" data-testid="dialog-signal-detail">
           {selectedSignal && (
             <>
               <DialogHeader>
@@ -288,7 +288,7 @@ export function SignalFeed({ compact = false, onSelectCoin }: SignalFeedProps) {
                 </DialogTitle>
                 <DialogDescription className="flex items-center gap-2">
                   <Badge variant="outline" className="font-mono text-xs">{selectedSignal.timeframe}</Badge>
-                  <Badge variant="outline" className="text-xs border-primary/30 bg-primary/5 text-primary">{selectedSignal.strategy}</Badge>
+                  <Badge variant="outline" className="text-xs border-primary/20 bg-primary/8 text-primary">{selectedSignal.strategy}</Badge>
                   {selectedSignal.confidence >= 90 && <Flame className="w-4 h-4 text-orange-500 fill-orange-500/50" />}
                 </DialogDescription>
               </DialogHeader>
@@ -307,7 +307,7 @@ export function SignalFeed({ compact = false, onSelectCoin }: SignalFeedProps) {
                 </div>
 
                 <div className="grid grid-cols-3 gap-3">
-                  <div className="bg-muted/20 rounded-lg p-3 text-center">
+                  <div className="bg-secondary/60 rounded-lg p-3 text-center">
                     <div className="text-[10px] text-muted-foreground uppercase font-mono mb-1">Entry</div>
                     <div className="text-sm font-bold font-mono" data-testid="text-signal-entry">${selectedSignal.entry.toLocaleString(undefined, { maximumFractionDigits: 4 })}</div>
                   </div>
@@ -322,25 +322,25 @@ export function SignalFeed({ compact = false, onSelectCoin }: SignalFeedProps) {
                 </div>
 
                 <div className="grid grid-cols-2 gap-2">
-                  <div className="bg-muted/20 rounded-lg p-2.5">
+                  <div className="bg-secondary/60 rounded-lg p-2.5">
                     <div className="text-[10px] text-muted-foreground uppercase font-mono mb-1">RSI</div>
                     <div className={cn("text-sm font-bold font-mono", selectedSignal.indicators?.rsi > 70 ? 'text-red-400' : selectedSignal.indicators?.rsi < 30 ? 'text-green-400' : 'text-foreground')}>
                       {selectedSignal.indicators?.rsi ?? '-'}
                     </div>
                   </div>
-                  <div className="bg-muted/20 rounded-lg p-2.5">
+                  <div className="bg-secondary/60 rounded-lg p-2.5">
                     <div className="text-[10px] text-muted-foreground uppercase font-mono mb-1">MACD</div>
                     <div className={cn("text-sm font-bold", selectedSignal.indicators?.macdSignal === 'BULLISH' ? 'text-green-400' : 'text-red-400')}>
                       {selectedSignal.indicators?.macdSignal ?? '-'}
                     </div>
                   </div>
-                  <div className="bg-muted/20 rounded-lg p-2.5">
+                  <div className="bg-secondary/60 rounded-lg p-2.5">
                     <div className="text-[10px] text-muted-foreground uppercase font-mono mb-1">EMA Trend</div>
                     <div className={cn("text-sm font-bold", selectedSignal.indicators?.emaTrend === 'ABOVE' ? 'text-green-400' : 'text-red-400')}>
                       {selectedSignal.indicators?.emaTrend ?? '-'}
                     </div>
                   </div>
-                  <div className="bg-muted/20 rounded-lg p-2.5">
+                  <div className="bg-secondary/60 rounded-lg p-2.5">
                     <div className="text-[10px] text-muted-foreground uppercase font-mono mb-1">Volume</div>
                     <div className={cn("text-sm font-bold", selectedSignal.indicators?.volumeProfile === 'HIGH' ? 'text-green-400' : selectedSignal.indicators?.volumeProfile === 'LOW' ? 'text-red-400' : 'text-foreground')}>
                       {selectedSignal.indicators?.volumeProfile ?? '-'}
@@ -349,13 +349,13 @@ export function SignalFeed({ compact = false, onSelectCoin }: SignalFeedProps) {
                 </div>
 
                 <div className="grid grid-cols-2 gap-2">
-                  <div className="bg-muted/20 rounded-lg p-2.5">
+                  <div className="bg-secondary/60 rounded-lg p-2.5">
                     <div className="text-[10px] text-muted-foreground uppercase font-mono mb-1">RSI Divergence</div>
                     <div className={cn("text-sm font-bold", selectedSignal.indicators?.rsiDivergence === 'BULLISH' ? 'text-green-400' : selectedSignal.indicators?.rsiDivergence === 'BEARISH' ? 'text-red-400' : 'text-muted-foreground')}>
                       {selectedSignal.indicators?.rsiDivergence || 'NONE'}
                     </div>
                   </div>
-                  <div className="bg-muted/20 rounded-lg p-2.5">
+                  <div className="bg-secondary/60 rounded-lg p-2.5">
                     <div className="text-[10px] text-muted-foreground uppercase font-mono mb-1">Market Structure</div>
                     <div className={cn("text-sm font-bold", selectedSignal.indicators?.marketStructure === 'BULLISH' ? 'text-green-400' : selectedSignal.indicators?.marketStructure === 'BEARISH' ? 'text-red-400' : 'text-muted-foreground')}>
                       {selectedSignal.indicators?.marketStructure || 'RANGING'}
@@ -363,7 +363,7 @@ export function SignalFeed({ compact = false, onSelectCoin }: SignalFeedProps) {
                   </div>
                 </div>
 
-                <div className="bg-muted/20 rounded-lg p-2.5">
+                <div className="bg-secondary/60 rounded-lg p-2.5">
                   <div className="flex items-center justify-between">
                     <span className="text-[10px] text-muted-foreground uppercase font-mono">Trend Strength</span>
                     <span className="text-sm font-bold font-mono">{selectedSignal.indicators?.trendStrength ?? 0}%</span>
@@ -373,7 +373,7 @@ export function SignalFeed({ compact = false, onSelectCoin }: SignalFeedProps) {
                   </div>
                 </div>
 
-                <div className="text-[10px] text-muted-foreground bg-muted/10 rounded-lg p-2.5 border border-border/50">
+                <div className="text-[10px] text-muted-foreground bg-secondary/40 rounded-lg p-2.5 border border-border/50">
                   <div className="flex items-center gap-1.5 mb-1">
                     <Shield className="w-3 h-3 text-primary" />
                     <span className="uppercase font-mono font-bold text-primary">Risk/Reward</span>
@@ -388,12 +388,17 @@ export function SignalFeed({ compact = false, onSelectCoin }: SignalFeedProps) {
                 <Button
                   variant="outline"
                   className="gap-1"
-                  onClick={() => {
-                    toast({ title: "Sent to Telegram", description: `${selectedSignal.coin} signal forwarded.`, duration: 2000 });
+                  onClick={async () => {
+                    try {
+                      await apiRequest('POST', '/api/notifications/test', {});
+                      toast({ title: "Test notification sent", description: "Check your Telegram / Discord channel.", duration: 3000 });
+                    } catch {
+                      toast({ title: "Notification failed", description: "Configure Telegram or Discord in Settings first.", variant: "destructive", duration: 3000 });
+                    }
                   }}
                   data-testid="button-dialog-send"
                 >
-                  <Send className="w-3.5 h-3.5" /> Share
+                  <Send className="w-3.5 h-3.5" /> Test Notify
                 </Button>
                 <Button
                   className="gap-1"

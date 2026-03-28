@@ -36,7 +36,7 @@ export function AIAgentsPanel() {
     : [];
 
   return (
-    <div className="rounded-xl border border-border bg-card/60 backdrop-blur-sm p-4">
+    <div className="rounded-xl border border-border bg-white shadow-sm p-4">
       <div className="flex items-center justify-between mb-3">
         <div className="flex items-center gap-2">
           <Brain className="h-4 w-4 text-violet-400" />

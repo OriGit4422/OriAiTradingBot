@@ -715,7 +715,16 @@ export function getQuantumSignal(symbol: string, price: number, data: BinanceKli
   confidence = Math.min(98, confidence + confluenceBonus);
 
   const marketPrice = data[data.length - 1].close;
-  if (Math.abs(entryPrice - marketPrice) / marketPrice > 0.1) entryPrice = marketPrice;
+
+  // Hard clamp: entry must be within 1.5% of current market price.
+  // Historical indicator levels (CHoCH, OB, FVG) can be far away — snap them.
+  const MAX_ENTRY_DEVIATION = 0.015; // 1.5%
+  if (Math.abs(entryPrice - marketPrice) / marketPrice > MAX_ENTRY_DEVIATION) {
+    // Keep directional intent but put entry just inside current price
+    entryPrice = type === 'LONG'
+      ? marketPrice * (1 - 0.003)  // 0.3% below market for LONG entries
+      : marketPrice * (1 + 0.003); // 0.3% above market for SHORT entries
+  }
 
   const { dynamicSL, dynamicTP, riskReward, kellyFraction } = analysis.adaptiveRisk;
   const tp = type === 'LONG' ? entryPrice + dynamicTP : entryPrice - dynamicTP;

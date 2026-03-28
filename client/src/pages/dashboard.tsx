@@ -371,20 +371,27 @@ export default function Dashboard() {
             })}
           </div>
 
-          <div className="bg-gradient-to-r from-primary/10 via-purple-500/10 to-cyan-500/10 rounded-xl border border-primary/30 p-3 shadow-[0_0_30px_rgba(14,165,233,0.05)]" data-testid="card-ai-insight">
-            <div className="flex items-center justify-between mb-2">
-              <div className="flex items-center gap-2">
-                <div className="h-6 w-6 rounded-full bg-primary/20 flex items-center justify-center">
-                  <Brain className="w-3.5 h-3.5 text-primary" />
+          <div className="bg-gradient-to-r from-primary/10 via-purple-500/10 to-cyan-500/10 rounded-xl border border-primary/30 p-4 shadow-[0_0_40px_rgba(14,165,233,0.08)]" data-testid="card-ai-insight">
+            <div className="flex items-center justify-between mb-4">
+              <div className="flex items-center gap-3">
+                <div className="h-9 w-9 rounded-xl bg-primary/20 border border-primary/40 flex items-center justify-center shadow-[0_0_16px_rgba(14,165,233,0.35)]">
+                  <Brain className="w-5 h-5 text-primary" />
                 </div>
-                <span className="text-[10px] font-bold text-primary uppercase font-mono tracking-wider">AI Market Insight</span>
-                {aiInsight?.marketMood && (
-                  <Badge variant="outline" className="text-[9px] font-mono bg-primary/10 border-primary/30">{aiInsight.marketMood}</Badge>
-                )}
+                <div>
+                  <div className="flex items-center gap-2">
+                    <span className="text-sm font-black text-primary uppercase font-mono tracking-widest">Claude AI Market Intelligence</span>
+                    {aiInsight?.marketMood && (
+                      <Badge variant="outline" className="text-[9px] font-mono bg-primary/10 border-primary/30">{aiInsight.marketMood}</Badge>
+                    )}
+                  </div>
+                  <div className="text-[10px] text-muted-foreground font-mono mt-0.5">
+                    Real-time analysis across 8 assets · {aiInsight ? `Updated ${new Date(aiInsight.timestamp).toLocaleTimeString()}` : 'Initializing...'}
+                  </div>
+                </div>
               </div>
-              <Button variant="ghost" size="sm" className="h-6 text-[10px] text-muted-foreground hover:text-primary" onClick={() => fetchInsight(topMovers)} disabled={aiInsightLoading} data-testid="button-refresh-insight">
+              <Button variant="ghost" size="sm" className="h-7 text-[10px] text-muted-foreground hover:text-primary border border-border/40 hover:border-primary/30 px-3" onClick={() => fetchInsight(topMovers)} disabled={aiInsightLoading} data-testid="button-refresh-insight">
                 {aiInsightLoading ? <Activity className="w-3 h-3 animate-spin" /> : <Zap className="w-3 h-3" />}
-                <span className="ml-1">{aiInsightLoading ? 'Analyzing...' : 'Refresh'}</span>
+                <span className="ml-1.5">{aiInsightLoading ? 'Analyzing...' : 'Refresh AI'}</span>
               </Button>
             </div>
 
@@ -395,35 +402,68 @@ export default function Dashboard() {
               </div>
             ) : aiInsight ? (
               <div className="space-y-3">
-                <p className="text-xs text-foreground/80 leading-relaxed">{aiInsight.overview}</p>
+                <p className="text-xs text-foreground/90 leading-relaxed bg-background/30 rounded-lg p-3 border border-border/40">{aiInsight.overview}</p>
 
-                <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-8 gap-1.5">
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
                   {(aiInsight.coins || []).map((c: any) => {
                     const sentColors: Record<string, string> = {
-                      BULLISH: 'border-green-500/30 bg-green-500/5',
-                      BEARISH: 'border-red-500/30 bg-red-500/5',
-                      NEUTRAL: 'border-yellow-500/30 bg-yellow-500/5',
+                      BULLISH: 'border-green-500/40 bg-green-500/5 hover:border-green-500/60 shadow-[0_2px_12px_rgba(16,185,129,0.06)]',
+                      BEARISH: 'border-red-500/40 bg-red-500/5 hover:border-red-500/60 shadow-[0_2px_12px_rgba(239,68,68,0.06)]',
+                      NEUTRAL: 'border-yellow-500/40 bg-yellow-500/5 hover:border-yellow-500/60',
                     };
                     const sentTextColors: Record<string, string> = {
-                      BULLISH: 'text-green-500',
-                      BEARISH: 'text-red-500',
-                      NEUTRAL: 'text-yellow-500',
+                      BULLISH: 'text-green-400',
+                      BEARISH: 'text-red-400',
+                      NEUTRAL: 'text-yellow-400',
+                    };
+                    const sentBgColors: Record<string, string> = {
+                      BULLISH: 'bg-green-500/15 text-green-400',
+                      BEARISH: 'bg-red-500/15 text-red-400',
+                      NEUTRAL: 'bg-yellow-500/15 text-yellow-400',
                     };
                     const actionColors: Record<string, string> = {
-                      BUY: 'bg-green-500/20 text-green-400',
-                      SELL: 'bg-red-500/20 text-red-400',
-                      HOLD: 'bg-yellow-500/20 text-yellow-400',
-                      WATCH: 'bg-blue-500/20 text-blue-400',
+                      BUY: 'bg-green-500 text-white shadow-[0_0_8px_rgba(16,185,129,0.4)]',
+                      SELL: 'bg-red-500 text-white shadow-[0_0_8px_rgba(239,68,68,0.4)]',
+                      HOLD: 'bg-yellow-500/20 text-yellow-400 border border-yellow-500/30',
+                      WATCH: 'bg-blue-500/20 text-blue-400 border border-blue-500/30',
+                    };
+                    const fomoColors: Record<string, string> = {
+                      HIGH: 'text-red-400 bg-red-500/15',
+                      MEDIUM: 'text-yellow-400 bg-yellow-500/15',
+                      LOW: 'text-green-400 bg-green-500/15',
                     };
                     return (
-                      <div key={c.coin} className={cn("rounded-lg border p-2 cursor-pointer hover:scale-[1.02] transition-all", sentColors[c.sentiment] || sentColors.NEUTRAL)} onClick={() => setSelectedCoin(c.coin)} data-testid={`insight-coin-${c.coin}`}>
-                        <div className="flex items-center justify-between mb-1">
-                          <span className="text-[10px] font-bold font-mono">{c.coin}</span>
-                          <span className={cn("text-[8px] font-bold px-1.5 py-0.5 rounded-full", actionColors[c.action] || actionColors.WATCH)}>{c.action}</span>
+                      <div key={c.coin} className={cn("rounded-xl border p-3 cursor-pointer hover:scale-[1.01] transition-all", sentColors[c.sentiment] || sentColors.NEUTRAL)} onClick={() => setSelectedCoin(c.coin)} data-testid={`insight-coin-${c.coin}`}>
+                        <div className="flex items-center justify-between mb-2">
+                          <div className="flex items-center gap-1.5">
+                            <span className="text-sm font-black font-mono">{c.coin}</span>
+                            <span className={cn("text-[8px] font-bold px-1.5 py-0.5 rounded-full uppercase", sentBgColors[c.sentiment] || sentBgColors.NEUTRAL)}>{c.sentiment}</span>
+                          </div>
+                          <span className={cn("text-[9px] font-bold px-2 py-0.5 rounded-full", actionColors[c.action] || actionColors.WATCH)}>{c.action}</span>
                         </div>
-                        <div className={cn("text-[8px] font-bold uppercase mb-0.5", sentTextColors[c.sentiment] || sentTextColors.NEUTRAL)}>{c.sentiment}</div>
-                        <p className="text-[8px] text-muted-foreground leading-tight line-clamp-2">{c.shortAnalysis}</p>
-                        <div className="text-[7px] text-muted-foreground/70 mt-1 font-mono truncate">{c.keyLevel}</div>
+                        <p className="text-[10px] text-foreground/80 leading-relaxed mb-2 line-clamp-2">{c.shortAnalysis}</p>
+                        <div className="space-y-1">
+                          <div className="flex items-center gap-1 min-w-0">
+                            <span className="text-[9px] text-muted-foreground/60 shrink-0">Key:</span>
+                            <span className="text-[9px] font-mono text-primary/90 truncate">{c.keyLevel}</span>
+                          </div>
+                          {c.xSentiment && (
+                            <div className="flex items-center gap-1 min-w-0">
+                              <span className="text-[9px] text-muted-foreground/60 shrink-0">Social:</span>
+                              <span className="text-[9px] text-foreground/70 truncate">{c.xSentiment}</span>
+                            </div>
+                          )}
+                          <div className="flex items-center gap-1.5 flex-wrap mt-0.5">
+                            {c.fomoLevel && (
+                              <span className={cn("text-[8px] font-bold px-1.5 py-0.5 rounded", fomoColors[c.fomoLevel] || fomoColors.MEDIUM)}>
+                                FOMO: {c.fomoLevel}
+                              </span>
+                            )}
+                            {c.newsBias && (
+                              <span className="text-[8px] text-muted-foreground/60 truncate">{c.newsBias}</span>
+                            )}
+                          </div>
+                        </div>
                       </div>
                     );
                   })}
@@ -431,26 +471,32 @@ export default function Dashboard() {
 
                 {aiInsight.upcomingTrades?.length > 0 && (
                   <div>
-                    <div className="flex items-center gap-1.5 mb-1.5">
-                      <Target className="w-3 h-3 text-orange-500" />
-                      <span className="text-[9px] font-bold text-orange-500 uppercase font-mono tracking-wider">Upcoming Trade Ideas</span>
+                    <div className="flex items-center gap-2 mb-2">
+                      <Target className="w-3.5 h-3.5 text-orange-500" />
+                      <span className="text-xs font-black text-orange-500 uppercase font-mono tracking-widest">AI Trade Setups</span>
+                      <span className="text-[9px] text-muted-foreground">— click to load chart</span>
                     </div>
-                    <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-5 gap-1.5">
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-2">
                       {(aiInsight.upcomingTrades || []).map((t: any, i: number) => (
-                        <div key={i} className="rounded-lg border border-border/50 bg-background/30 p-2 hover:border-primary/30 transition-colors cursor-pointer" onClick={() => setSelectedCoin(t.coin)} data-testid={`upcoming-trade-${i}`}>
-                          <div className="flex items-center justify-between mb-1">
-                            <div className="flex items-center gap-1">
-                              <span className="text-[10px] font-bold font-mono">{t.coin}</span>
-                              <Badge variant={t.direction === 'LONG' ? 'default' : 'destructive'} className="text-[7px] h-3.5 px-1">{t.direction}</Badge>
+                        <div key={i} className={cn(
+                          "rounded-xl border p-3 cursor-pointer transition-all hover:scale-[1.01]",
+                          t.direction === 'LONG'
+                            ? 'border-green-500/30 bg-green-500/5 hover:border-green-500/50 hover:shadow-[0_0_12px_rgba(16,185,129,0.1)]'
+                            : 'border-red-500/30 bg-red-500/5 hover:border-red-500/50 hover:shadow-[0_0_12px_rgba(239,68,68,0.1)]'
+                        )} onClick={() => setSelectedCoin(t.coin)} data-testid={`upcoming-trade-${i}`}>
+                          <div className="flex items-center justify-between mb-2">
+                            <div className="flex items-center gap-2">
+                              <span className="text-sm font-black font-mono">{t.coin}</span>
+                              <Badge variant={t.direction === 'LONG' ? 'default' : 'destructive'} className="text-[8px] h-4 px-1.5 font-bold">{t.direction}</Badge>
                             </div>
-                            <span className="text-[8px] font-mono text-muted-foreground">{t.timeframe}</span>
+                            <span className="text-[9px] font-mono text-muted-foreground bg-muted/40 px-1.5 py-0.5 rounded">{t.timeframe}</span>
                           </div>
-                          <p className="text-[8px] text-muted-foreground leading-tight line-clamp-2">{t.reason}</p>
-                          <div className="flex items-center gap-1 mt-1">
-                            <div className="flex-1 h-1 bg-muted rounded-full overflow-hidden">
-                              <div className="h-full bg-primary rounded-full" style={{ width: `${t.confidence}%` }} />
+                          <p className="text-[10px] text-muted-foreground leading-relaxed mb-2">{t.reason}</p>
+                          <div className="flex items-center gap-2">
+                            <div className="flex-1 h-1.5 bg-muted rounded-full overflow-hidden">
+                              <div className={cn("h-full rounded-full transition-all", t.direction === 'LONG' ? 'bg-green-500' : 'bg-red-500')} style={{ width: `${t.confidence}%` }} />
                             </div>
-                            <span className="text-[8px] font-mono font-bold text-primary">{t.confidence}%</span>
+                            <span className={cn("text-[9px] font-mono font-bold", t.direction === 'LONG' ? 'text-green-500' : 'text-red-400')}>{t.confidence}%</span>
                           </div>
                         </div>
                       ))}
@@ -464,7 +510,7 @@ export default function Dashboard() {
           </div>
 
           <div className="grid grid-cols-12 gap-2 md:gap-3" style={{ minHeight: '440px' }}>
-            <div className="col-span-12 lg:col-span-8 bg-card rounded-xl border border-border overflow-hidden relative group">
+            <div className="col-span-12 lg:col-span-7 bg-card rounded-xl border border-border overflow-hidden relative group">
               <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-green-500 via-primary to-purple-500 opacity-60" />
               <div className="absolute top-3 right-12 z-10">
                 <Button size="icon" variant="ghost" className="h-7 w-7 hover:bg-background/50" data-testid="button-fullscreen">
@@ -474,13 +520,18 @@ export default function Dashboard() {
               <TradingChart symbol={selectedCoin} timeframe={timeframe} />
             </div>
 
-            <div className="col-span-12 md:col-span-6 lg:col-span-4 bg-card rounded-xl border border-border overflow-hidden flex flex-col" style={{ maxHeight: '480px' }} data-testid="card-signals">
-              <div className="p-3 border-b border-border bg-muted/20 flex items-center justify-between">
+            <div className="col-span-12 lg:col-span-5 bg-card rounded-xl border border-primary/20 overflow-hidden flex flex-col shadow-[0_0_20px_rgba(14,165,233,0.06)]" style={{ minHeight: '540px' }} data-testid="card-signals">
+              <div className="p-3 border-b border-border bg-gradient-to-r from-primary/10 to-purple-500/5 flex items-center justify-between">
                 <div className="flex items-center gap-2">
-                  <Zap className="w-4 h-4 text-primary" />
-                  <span className="text-xs font-bold uppercase tracking-wider">Quantum Signals</span>
+                  <div className="h-6 w-6 rounded-md bg-primary/20 flex items-center justify-center">
+                    <Zap className="w-3.5 h-3.5 text-primary" />
+                  </div>
+                  <div>
+                    <span className="text-xs font-black uppercase tracking-widest text-primary">Quantum Signals</span>
+                    <div className="text-[9px] text-muted-foreground font-mono">AI-confirmed entries</div>
+                  </div>
                 </div>
-                <Badge variant="outline" className="text-[10px] font-mono">{activeSignals} Active</Badge>
+                <Badge variant="outline" className="text-[10px] font-mono bg-primary/10 border-primary/30">{activeSignals} Active</Badge>
               </div>
               <div className="flex-1 overflow-hidden">
                 <SignalFeed onSelectCoin={setSelectedCoin} />

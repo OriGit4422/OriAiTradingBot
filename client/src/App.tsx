@@ -11,6 +11,7 @@ import Strategies from "@/pages/strategies";
 import Signals from "@/pages/signals";
 import Portfolio from "@/pages/portfolio";
 import Settings from "@/pages/settings";
+import Gold from "@/pages/gold";
 import NotFound from "@/pages/not-found";
 import { applyThemeById, getActiveThemeId } from "@/lib/themes";
 
@@ -26,6 +27,7 @@ function Router() {
       <Route path="/signals" component={Signals} />
       <Route path="/portfolio" component={Portfolio} />
       <Route path="/settings" component={Settings} />
+      <Route path="/gold" component={Gold} />
       <Route component={NotFound} />
     </Switch>
   );

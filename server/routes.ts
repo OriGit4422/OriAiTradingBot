@@ -11,6 +11,9 @@ import { getCoinglassData } from "./coinglass";
 import { getNewsSentiment } from "./perplexity";
 import { getWhaleActivity } from "./arkham";
 import { runMultiAgentValidation } from "./signal-validator";
+import { getGoldSpotPrice, getGoldCandles } from "./gold-data";
+import { analyzeGold } from "./gold-analysis";
+import { getMT5AccountInfo, placeMT5Order, getMT5OpenPositions } from "./mt5";
 
 export async function registerRoutes(
   httpServer: Server,
@@ -456,6 +459,100 @@ export async function registerRoutes(
     try {
       const result = await runMultiAgentValidation(req.body);
       res.json(result);
+    } catch (e: any) {
+      res.status(500).json({ message: e.message });
+    }
+  });
+
+  // ─── Gold Market Data ──────────────────────────────────────────────────────
+
+  // GET /api/gold/price
+  app.get("/api/gold/price", async (_req, res) => {
+    try {
+      const spot = await getGoldSpotPrice();
+      res.json(spot);
+    } catch (e: any) {
+      res.status(500).json({ message: e.message });
+    }
+  });
+
+  // GET /api/gold/candles/:interval  (1m | 5m | 15m | 30m | 1h | 4h | 1d)
+  app.get("/api/gold/candles/:interval", async (req, res) => {
+    try {
+      const interval = req.params.interval || '1h';
+      const limit = parseInt(req.query.limit as string) || 200;
+      const candles = await getGoldCandles(interval, limit);
+      res.json(candles);
+    } catch (e: any) {
+      res.status(500).json({ message: e.message });
+    }
+  });
+
+  // GET /api/gold/signal/:timeframe
+  app.get("/api/gold/signal/:timeframe", async (req, res) => {
+    try {
+      const signal = await analyzeGold(req.params.timeframe || '1h');
+      res.json(signal);
+    } catch (e: any) {
+      res.status(500).json({ message: e.message });
+    }
+  });
+
+  // POST /api/gold/trade  — place auto trade via MT5
+  app.post("/api/gold/trade", async (req, res) => {
+    try {
+      const s = await storage.getSettings();
+      if (!s?.metaApiToken || !s?.metaApiAccountId) {
+        return res.status(400).json({ message: "MT5 not connected. Add MetaApi token and account ID in Settings." });
+      }
+      if (!s.goldAutoTradingEnabled) {
+        return res.status(400).json({ message: "Auto trading is disabled. Enable it in Settings → MT5." });
+      }
+      const { type, entry, tp, sl, confidence, lotSize } = req.body;
+      if (!type || !entry || !tp || !sl) {
+        return res.status(400).json({ message: "Missing required trade fields (type, entry, tp, sl)" });
+      }
+      if (confidence < (s.goldMinConfidence ?? 75)) {
+        return res.status(400).json({ message: `Signal confidence ${confidence}% below minimum ${s.goldMinConfidence}%` });
+      }
+      const result = await placeMT5Order(s.metaApiToken, s.metaApiAccountId, {
+        symbol: 'XAUUSD',
+        type: type === 'BUY' ? 'ORDER_TYPE_BUY' : 'ORDER_TYPE_SELL',
+        volume: lotSize ?? s.goldLotSize ?? 0.01,
+        stopLoss: sl,
+        takeProfit: tp,
+      });
+      res.json(result);
+    } catch (e: any) {
+      res.status(500).json({ message: e.message });
+    }
+  });
+
+  // ─── MT5 Account ──────────────────────────────────────────────────────────
+
+  // GET /api/mt5/account
+  app.get("/api/mt5/account", async (_req, res) => {
+    try {
+      const s = await storage.getSettings();
+      if (!s?.metaApiToken || !s?.metaApiAccountId) {
+        return res.json({ connected: false, message: "MT5 credentials not configured" });
+      }
+      const info = await getMT5AccountInfo(s.metaApiToken, s.metaApiAccountId);
+      res.json(info);
+    } catch (e: any) {
+      res.status(500).json({ message: e.message, connected: false });
+    }
+  });
+
+  // GET /api/mt5/positions
+  app.get("/api/mt5/positions", async (_req, res) => {
+    try {
+      const s = await storage.getSettings();
+      if (!s?.metaApiToken || !s?.metaApiAccountId) {
+        return res.json([]);
+      }
+      const positions = await getMT5OpenPositions(s.metaApiToken, s.metaApiAccountId);
+      res.json(positions);
     } catch (e: any) {
       res.status(500).json({ message: e.message });
     }

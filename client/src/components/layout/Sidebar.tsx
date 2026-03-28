@@ -12,6 +12,7 @@ import {
   Menu,
   X,
   CheckCircle2,
+  Trophy,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
@@ -26,6 +27,7 @@ export function Sidebar() {
     { icon: Brain, label: 'Strategies', path: '/strategies' },
     { icon: Activity, label: 'Signals', path: '/signals' },
     { icon: Wallet, label: 'Portfolio', path: '/portfolio' },
+    { icon: Trophy, label: 'Gold Trading', path: '/gold', badge: 'NEW' },
     { icon: Settings, label: 'Settings', path: '/settings' },
   ];
 
@@ -90,8 +92,11 @@ export function Sidebar() {
                 onClick={() => handleNav(item.path)}
                 data-testid={`nav-${item.label.toLowerCase()}`}
               >
-                <item.icon className={cn("h-4 w-4 flex-shrink-0", isActive && "text-primary")} />
+                <item.icon className={cn("h-4 w-4 flex-shrink-0", isActive ? "text-primary" : item.path === '/gold' ? "text-amber-500" : "")} />
                 <span>{item.label}</span>
+                {(item as any).badge && !isActive && (
+                  <span className="ml-auto text-[9px] font-bold px-1.5 py-0.5 rounded-full bg-amber-100 text-amber-700 border border-amber-200">{(item as any).badge}</span>
+                )}
                 {isActive && (
                   <div className="ml-auto w-1.5 h-1.5 rounded-full bg-primary" />
                 )}

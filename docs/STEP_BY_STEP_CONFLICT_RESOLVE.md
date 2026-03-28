@@ -77,17 +77,10 @@ npm run dev
 ## E) Verify new backend features are live
 
 ```bash
-curl http://localhost:5000/api/system/version
 curl http://localhost:5000/api/system/requirements-status
 curl http://localhost:5000/api/system/diagnostics
 curl http://localhost:5000/api/signals/performance?hours=24
 curl -X POST http://localhost:5000/api/exchange/binance/test -H 'Content-Type: application/json' -d '{"apiKey":"YOUR_BINANCE_KEY"}'
 curl -X POST http://localhost:5000/api/exchange/bybit/test -H 'Content-Type: application/json' -d '{"apiKey":"YOUR_BYBIT_KEY"}'
 curl -X POST http://localhost:5000/api/notifications/test
-```
-
-Or run one command:
-
-```bash
-./scripts/verify_runtime_sync.sh http://localhost:5000
 ```

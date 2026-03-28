@@ -9,22 +9,6 @@ import { notifySignal, sendTestNotifications, validateSignalBestPractice } from 
 import { testBinanceConnectivity, testBybitConnectivity } from "./exchange-connectivity";
 import { evaluateSignalsPerformance } from "./signal-performance";
 
-function getAppVersionInfo() {
-  let version = "unknown";
-  try {
-    const pkgRaw = readFileSync(new URL("../package.json", import.meta.url), "utf-8");
-    const pkg = JSON.parse(pkgRaw);
-    version = pkg.version || "unknown";
-  } catch (_e) {}
-
-  return {
-    appVersion: version,
-    buildTime: process.env.BUILD_TIME || new Date().toISOString(),
-    gitBranch: process.env.GIT_BRANCH || "unknown",
-    gitCommit: process.env.GIT_COMMIT || "unknown",
-  };
-}
-
 export async function registerRoutes(
   httpServer: Server,
   app: Express
@@ -143,13 +127,6 @@ export async function registerRoutes(
     } catch (e: any) {
       res.status(500).json({ message: e.message });
     }
-  });
-
-  app.get("/api/system/version", (_req, res) => {
-    res.json({
-      status: "ok",
-      ...getAppVersionInfo(),
-    });
   });
 
   app.get("/api/system/diagnostics", async (_req, res) => {

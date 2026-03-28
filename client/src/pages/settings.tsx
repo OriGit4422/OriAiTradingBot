@@ -26,8 +26,14 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { Bell, Lock, Key, Globe, Shield, Loader2, Users, UserPlus, Trash2, Edit, Mail, Check, X, Brain, Activity, Zap } from 'lucide-react';
+import { Bell, Lock, Key, Globe, Shield, Loader2, Users, UserPlus, Trash2, Edit, Mail, Check, X, Brain, Activity, Zap, Palette, Sun, Moon, Plus, CheckCircle2 } from 'lucide-react';
 import type { Settings, UserAccess } from '@shared/schema';
+import {
+  PRESET_THEMES, ACCENT_PRESETS, getAllThemes, getActiveThemeId,
+  applyTheme, saveCustomTheme, deleteCustomTheme, getCustomThemes,
+  buildCustomVars, hexToHsl, type Theme, type CustomTheme,
+} from '@/lib/themes';
+import { cn } from '@/lib/utils';
 
 const ROLES = [
   { value: 'admin', label: 'Admin', description: 'Full access to all features' },
@@ -63,6 +69,40 @@ export default function SettingsPage() {
   const [coinglassApiKey, setCoinglassApiKey] = useState('');
   const [perplexityApiKey, setPerplexityApiKey] = useState('');
   const [arkhamApiKey, setArkhamApiKey] = useState('');
+
+  // ── Theme state ──────────────────────────────────────────────────────────
+  const [activeThemeId, setActiveThemeId] = useState(getActiveThemeId);
+  const [customThemes, setCustomThemes] = useState(getCustomThemes);
+  const [customName, setCustomName] = useState('');
+  const [customBase, setCustomBase] = useState<'light' | 'dark'>('dark');
+  const [customPrimary, setCustomPrimary] = useState('#0ea5e9');
+
+  const handleApplyTheme = (theme: Theme) => {
+    applyTheme(theme);
+    setActiveThemeId(theme.id);
+  };
+
+  const handleSaveCustom = () => {
+    const name = customName.trim() || `Custom ${customThemes.length + 1}`;
+    const id = `custom-${Date.now()}`;
+    const vars = buildCustomVars(customPrimary, customBase);
+    const newTheme: CustomTheme = {
+      id, name, type: customBase, primaryHex: customPrimary, custom: true,
+      preview: { bg: customBase === 'light' ? '#f4f6f8' : '#0f172a', card: '#ffffff', primary: customPrimary, accent2: customPrimary },
+      vars,
+    };
+    saveCustomTheme(newTheme);
+    setCustomThemes(getCustomThemes());
+    handleApplyTheme(newTheme);
+    setCustomName('');
+    toast({ title: `Theme "${name}" saved and applied` });
+  };
+
+  const handleDeleteCustom = (id: string) => {
+    deleteCustomTheme(id);
+    setCustomThemes(getCustomThemes());
+    if (activeThemeId === id) handleApplyTheme(PRESET_THEMES[0]);
+  };
 
   const [addUserOpen, setAddUserOpen] = useState(false);
   const [editUser, setEditUser] = useState<UserAccess | null>(null);
@@ -193,11 +233,15 @@ export default function SettingsPage() {
           <p className="text-muted-foreground mb-8">Manage your account, API connections, and preferences.</p>
 
           <Tabs defaultValue="general" className="w-full">
-            <TabsList className="mb-6 bg-secondary">
+            <TabsList className="mb-6 bg-secondary flex-wrap h-auto gap-0.5 p-1">
               <TabsTrigger value="general" data-testid="tab-general">General</TabsTrigger>
               <TabsTrigger value="api" data-testid="tab-api">API Keys</TabsTrigger>
               <TabsTrigger value="trading" data-testid="tab-trading">Trading</TabsTrigger>
               <TabsTrigger value="notifications" data-testid="tab-notifications">Notifications</TabsTrigger>
+              <TabsTrigger value="themes" data-testid="tab-themes">
+                <Palette className="w-3.5 h-3.5 mr-1.5" />
+                Themes
+              </TabsTrigger>
               <TabsTrigger value="ai-agents" data-testid="tab-ai-agents">
                 <Brain className="w-3.5 h-3.5 mr-1.5" />
                 AI Agents
@@ -522,6 +566,245 @@ export default function SettingsPage() {
                   </div>
                 </CardContent>
               </Card>
+            </TabsContent>
+
+            {/* ── THEMES TAB ──────────────────────────────────────────────── */}
+            <TabsContent value="themes">
+              <div className="space-y-6">
+
+                {/* Preset gallery */}
+                <Card className="bg-card border-border">
+                  <CardHeader>
+                    <div className="flex items-center gap-3">
+                      <div className="w-10 h-10 bg-primary/10 rounded-lg flex items-center justify-center">
+                        <Palette className="w-5 h-5 text-primary" />
+                      </div>
+                      <div>
+                        <CardTitle>Preset Themes</CardTitle>
+                        <CardDescription>Click any theme to apply it instantly across the entire app.</CardDescription>
+                      </div>
+                    </div>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">
+                      {PRESET_THEMES.map(theme => {
+                        const isActive = activeThemeId === theme.id;
+                        return (
+                          <button
+                            key={theme.id}
+                            onClick={() => handleApplyTheme(theme)}
+                            className={cn(
+                              'group relative rounded-xl border-2 overflow-hidden text-left transition-all hover:scale-[1.02]',
+                              isActive ? 'border-primary ring-2 ring-primary/30' : 'border-border hover:border-primary/40'
+                            )}
+                            data-testid={`theme-${theme.id}`}
+                          >
+                            {/* Preview swatch */}
+                            <div className="h-20 relative" style={{ background: theme.preview.bg }}>
+                              {/* Fake sidebar strip */}
+                              <div className="absolute left-0 top-0 bottom-0 w-8" style={{ background: theme.type === 'light' ? '#e8edf3' : `${theme.preview.bg}cc` }} />
+                              {/* Fake card */}
+                              <div className="absolute left-10 top-3 right-3 h-8 rounded-md shadow-sm" style={{ background: theme.preview.card, border: '1px solid rgba(0,0,0,0.08)' }}>
+                                {/* Primary accent bar */}
+                                <div className="h-1.5 rounded-t-md" style={{ background: theme.preview.primary }} />
+                                {/* Fake text lines */}
+                                <div className="flex gap-1 p-1.5">
+                                  <div className="h-1.5 w-8 rounded-full" style={{ background: theme.preview.primary + '80' }} />
+                                  <div className="h-1.5 w-12 rounded-full" style={{ background: theme.preview.accent2 + '40' }} />
+                                </div>
+                              </div>
+                              {/* Fake nav items */}
+                              {[0,1,2].map(i => (
+                                <div key={i} className="absolute left-1.5 rounded" style={{ top: `${12 + i * 14}px`, width: '18px', height: '8px', background: i === 0 ? theme.preview.primary + 'aa' : theme.preview.accent2 + '30' }} />
+                              ))}
+                              {/* Active check */}
+                              {isActive && (
+                                <div className="absolute top-1.5 right-1.5 w-5 h-5 rounded-full bg-primary flex items-center justify-center">
+                                  <Check className="w-3 h-3 text-white" />
+                                </div>
+                              )}
+                            </div>
+                            {/* Label */}
+                            <div className="px-2.5 py-2 bg-card border-t border-border/50 flex items-center justify-between">
+                              <span className="text-xs font-semibold text-foreground truncate">{theme.name}</span>
+                              <span className={cn('text-[9px] px-1.5 py-0.5 rounded-full font-bold uppercase flex items-center gap-0.5', theme.type === 'light' ? 'bg-yellow-100 text-yellow-700' : 'bg-slate-700 text-slate-200')}>
+                                {theme.type === 'light' ? <Sun className="w-2.5 h-2.5" /> : <Moon className="w-2.5 h-2.5" />}
+                                {theme.type}
+                              </span>
+                            </div>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </CardContent>
+                </Card>
+
+                {/* Custom themes list */}
+                {customThemes.length > 0 && (
+                  <Card className="bg-card border-border">
+                    <CardHeader>
+                      <CardTitle className="text-base">Your Custom Themes</CardTitle>
+                    </CardHeader>
+                    <CardContent>
+                      <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">
+                        {customThemes.map(theme => {
+                          const isActive = activeThemeId === theme.id;
+                          return (
+                            <div key={theme.id} className={cn('relative group rounded-xl border-2 overflow-hidden', isActive ? 'border-primary' : 'border-border')}>
+                              <button
+                                onClick={() => handleApplyTheme(theme)}
+                                className="w-full text-left"
+                              >
+                                <div className="h-16 flex items-center justify-center" style={{ background: theme.type === 'light' ? '#f4f6f8' : '#0f172a' }}>
+                                  <div className="w-8 h-8 rounded-full shadow-md" style={{ background: theme.primaryHex }} />
+                                  {isActive && (
+                                    <div className="absolute top-1.5 right-1.5 w-5 h-5 rounded-full bg-primary flex items-center justify-center">
+                                      <Check className="w-3 h-3 text-white" />
+                                    </div>
+                                  )}
+                                </div>
+                                <div className="px-2.5 py-1.5 bg-card border-t border-border/50">
+                                  <div className="text-xs font-semibold truncate">{theme.name}</div>
+                                  <div className="text-[9px] text-muted-foreground capitalize">{theme.type} · custom</div>
+                                </div>
+                              </button>
+                              <button
+                                onClick={() => handleDeleteCustom(theme.id)}
+                                className="absolute top-1 left-1 w-5 h-5 rounded-full bg-destructive/80 text-white flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
+                              >
+                                <X className="w-2.5 h-2.5" />
+                              </button>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </CardContent>
+                  </Card>
+                )}
+
+                {/* Custom theme builder */}
+                <Card className="bg-card border-border">
+                  <CardHeader>
+                    <div className="flex items-center gap-3">
+                      <div className="w-10 h-10 bg-primary/10 rounded-lg flex items-center justify-center">
+                        <Plus className="w-5 h-5 text-primary" />
+                      </div>
+                      <div>
+                        <CardTitle>Build Custom Theme</CardTitle>
+                        <CardDescription>Choose a base style and accent colour to create your own unique theme.</CardDescription>
+                      </div>
+                    </div>
+                  </CardHeader>
+                  <CardContent className="space-y-5">
+                    {/* Name */}
+                    <div className="space-y-1.5">
+                      <Label className="text-xs font-semibold">Theme Name</Label>
+                      <Input
+                        value={customName}
+                        onChange={e => setCustomName(e.target.value)}
+                        placeholder="My Custom Theme"
+                        className="bg-secondary/50 max-w-xs"
+                      />
+                    </div>
+
+                    {/* Base style */}
+                    <div className="space-y-2">
+                      <Label className="text-xs font-semibold">Base Style</Label>
+                      <div className="flex gap-3">
+                        {(['light', 'dark'] as const).map(type => (
+                          <button
+                            key={type}
+                            onClick={() => setCustomBase(type)}
+                            className={cn(
+                              'flex items-center gap-2 px-4 py-2.5 rounded-lg border-2 text-sm font-medium transition-all',
+                              customBase === type ? 'border-primary bg-primary/8 text-primary' : 'border-border hover:border-primary/40'
+                            )}
+                          >
+                            {type === 'light' ? <Sun className="w-4 h-4" /> : <Moon className="w-4 h-4" />}
+                            {type === 'light' ? 'Light' : 'Dark'}
+                            {customBase === type && <CheckCircle2 className="w-3.5 h-3.5" />}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+
+                    {/* Accent colour presets */}
+                    <div className="space-y-2">
+                      <Label className="text-xs font-semibold">Accent Colour</Label>
+                      <div className="flex flex-wrap gap-2">
+                        {ACCENT_PRESETS.map(ac => (
+                          <button
+                            key={ac.hex}
+                            title={ac.label}
+                            onClick={() => setCustomPrimary(ac.hex)}
+                            className={cn(
+                              'w-8 h-8 rounded-full border-2 transition-all hover:scale-110',
+                              customPrimary === ac.hex ? 'border-foreground scale-110 ring-2 ring-offset-1 ring-foreground/30' : 'border-transparent'
+                            )}
+                            style={{ background: ac.hex }}
+                          />
+                        ))}
+                      </div>
+                      {/* Manual hex input */}
+                      <div className="flex items-center gap-2 mt-1">
+                        <div className="w-7 h-7 rounded-lg border border-border" style={{ background: customPrimary }} />
+                        <Input
+                          type="color"
+                          value={customPrimary}
+                          onChange={e => setCustomPrimary(e.target.value)}
+                          className="w-10 h-7 p-0.5 rounded cursor-pointer border border-border"
+                          title="Pick any colour"
+                        />
+                        <Input
+                          value={customPrimary}
+                          onChange={e => {
+                            const v = e.target.value;
+                            if (/^#[0-9a-fA-F]{0,6}$/.test(v)) setCustomPrimary(v);
+                          }}
+                          className="bg-secondary/50 font-mono text-xs w-28"
+                          placeholder="#0ea5e9"
+                          maxLength={7}
+                        />
+                        <span className="text-[10px] text-muted-foreground font-mono">HSL: {hexToHsl(customPrimary.length === 7 ? customPrimary : '#0ea5e9')}</span>
+                      </div>
+                    </div>
+
+                    {/* Live preview */}
+                    <div className="space-y-1.5">
+                      <Label className="text-xs font-semibold">Preview</Label>
+                      <div className="rounded-xl border border-border overflow-hidden h-24 flex" style={{ background: customBase === 'light' ? '#f4f6f8' : '#0f172a' }}>
+                        {/* Fake sidebar */}
+                        <div className="w-14 border-r flex flex-col gap-1 p-2" style={{ background: customBase === 'light' ? '#eef1f6' : '#0a1020', borderColor: customBase === 'light' ? '#dce3ec' : '#1e2a40' }}>
+                          <div className="w-6 h-6 rounded-lg mb-1" style={{ background: customPrimary }} />
+                          {[0,1,2,3].map(i => (
+                            <div key={i} className="h-2 rounded-full" style={{ width: `${70 - i * 10}%`, background: i === 0 ? customPrimary + 'aa' : (customBase === 'light' ? '#cbd5e1' : '#334155') }} />
+                          ))}
+                        </div>
+                        {/* Fake content */}
+                        <div className="flex-1 p-3 space-y-2">
+                          <div className="h-4 rounded" style={{ width: '60%', background: customPrimary + '30' }} />
+                          <div className="flex gap-2">
+                            {[1,2,3].map(i => (
+                              <div key={i} className="flex-1 h-8 rounded-lg border" style={{ background: customBase === 'light' ? '#fff' : '#1e293b', borderColor: customBase === 'light' ? '#e2e8f0' : '#334155' }}>
+                                <div className="h-1 rounded-t-lg" style={{ background: i === 1 ? customPrimary : (customBase === 'light' ? '#e2e8f0' : '#334155') }} />
+                              </div>
+                            ))}
+                          </div>
+                          <div className="flex gap-1">
+                            <div className="h-2 rounded-full w-16" style={{ background: customPrimary }} />
+                            <div className="h-2 rounded-full w-10" style={{ background: customBase === 'light' ? '#cbd5e1' : '#475569' }} />
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+
+                    <Button onClick={handleSaveCustom} className="gap-2">
+                      <Plus className="w-4 h-4" />
+                      Save & Apply Custom Theme
+                    </Button>
+                  </CardContent>
+                </Card>
+              </div>
             </TabsContent>
 
             <TabsContent value="ai-agents">

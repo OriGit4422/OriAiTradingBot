@@ -73,8 +73,8 @@ export function TopSignalsPanel({ onSelectCoin }: TopSignalsPanelProps) {
       .slice(0, 10);
 
   const getConfidenceColor = (conf: number) => {
-    if (conf >= 90) return 'text-orange-500';
-    if (conf >= 80) return 'text-green-400';
+    if (conf >= 90) return 'text-orange-600';
+    if (conf >= 80) return 'text-green-600';
     if (conf >= 70) return 'text-primary';
     return 'text-muted-foreground';
   };
@@ -130,12 +130,12 @@ export function TopSignalsPanel({ onSelectCoin }: TopSignalsPanelProps) {
   };
 
   return (
-    <div className="bg-card rounded-xl border border-orange-500/20 overflow-hidden shadow-[0_0_20px_rgba(249,115,22,0.06)]">
+    <div className="bg-white rounded-xl border border-border overflow-hidden shadow-sm">
       {/* Header */}
-      <div className="p-3 border-b border-border bg-gradient-to-r from-orange-500/10 via-yellow-500/5 to-transparent flex items-center justify-between">
+      <div className="p-3 border-b border-border bg-secondary/40 flex items-center justify-between">
         <div className="flex items-center gap-2.5">
-          <div className="h-8 w-8 rounded-xl bg-orange-500/20 border border-orange-500/30 flex items-center justify-center shadow-[0_0_10px_rgba(249,115,22,0.3)]">
-            <Trophy className="w-4 h-4 text-orange-500" />
+          <div className="h-8 w-8 rounded-lg bg-orange-100 flex items-center justify-center">
+            <Trophy className="w-4 h-4 text-orange-600" />
           </div>
           <div>
             <span className="text-xs font-black uppercase tracking-widest text-orange-500">Top 10 Priority Signals</span>
@@ -240,12 +240,12 @@ export function TopSignalsPanel({ onSelectCoin }: TopSignalsPanelProps) {
                       <div
                         key={`${signal.coin}-${tf}-${idx}`}
                         className={cn(
-                          'group relative rounded-lg cursor-pointer transition-all hover:scale-[1.003]',
+                          'group relative rounded-lg cursor-pointer transition-all hover:shadow-sm',
                           'border',
                           signal.type === 'LONG'
-                            ? 'bg-green-500/4 border-green-500/20 hover:border-green-500/40 hover:bg-green-500/8'
-                            : 'bg-red-500/4 border-red-500/20 hover:border-red-500/40 hover:bg-red-500/8',
-                          isHot && 'shadow-[0_0_8px_rgba(249,115,22,0.15)]'
+                            ? 'bg-green-50 border-green-200 hover:border-green-400'
+                            : 'bg-red-50 border-red-200 hover:border-red-400',
+                          isHot && 'ring-1 ring-orange-300'
                         )}
                         onClick={() => onSelectCoin?.(signal.coin)}
                         data-testid={`top-signal-${tf}-${idx}`}

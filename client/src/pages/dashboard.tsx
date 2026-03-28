@@ -269,7 +269,7 @@ export default function Dashboard() {
       <Sidebar />
 
       <main className="md:pl-64 h-screen flex flex-col">
-        <header className="h-14 border-b border-border flex items-center justify-between px-3 md:px-6 bg-background/90 backdrop-blur-md z-20 sticky top-0 shadow-[0_1px_0_rgba(14,165,233,0.1)]">
+        <header className="h-14 border-b border-border flex items-center justify-between px-3 md:px-6 bg-white/95 backdrop-blur-md z-20 sticky top-0 shadow-sm">
           <div className="flex items-center gap-2 md:gap-4 overflow-x-auto">
             <div className="flex items-center gap-2 pl-10 md:pl-0">
               <span className="text-xl md:text-2xl font-display font-bold" data-testid="text-selected-coin">{selectedCoin}</span>
@@ -290,8 +290,8 @@ export default function Dashboard() {
                   className={cn(
                     "px-2 py-1 rounded text-xs font-mono transition-all",
                     timeframe === tf
-                      ? 'bg-primary text-primary-foreground font-bold shadow-[0_0_12px_rgba(14,165,233,0.4)]'
-                      : 'text-muted-foreground hover:bg-muted/50'
+                      ? 'bg-primary text-white font-bold'
+                      : 'text-muted-foreground hover:bg-secondary'
                   )}
                   data-testid={`button-timeframe-${tf}`}
                 >
@@ -353,14 +353,13 @@ export default function Dashboard() {
               { label: 'Sentiment', value: `${Math.round(fearGreed)}`, extra: fg.label, color: 'cyan', icon: Gauge, id: 'stat-fear-greed', extraColor: fg.color },
               { label: 'Range', value: `$${low24h.toLocaleString(undefined, { maximumFractionDigits: 0 })} - $${high24h.toLocaleString(undefined, { maximumFractionDigits: 0 })}`, color: 'yellow', icon: ArrowUpDown, id: 'stat-24h-range' },
             ].map(stat => {
-              const colorMap: Record<string, string> = { green: 'from-green-500/20 to-green-500/5 border-green-500/20', red: 'from-red-500/20 to-red-500/5 border-red-500/20', blue: 'from-primary/20 to-primary/5 border-primary/20', orange: 'from-orange-500/20 to-orange-500/5 border-orange-500/20', purple: 'from-purple-500/20 to-purple-500/5 border-purple-500/20', cyan: 'from-cyan-500/20 to-cyan-500/5 border-cyan-500/20', yellow: 'from-yellow-500/20 to-yellow-500/5 border-yellow-500/20' };
-              const iconColorMap: Record<string, string> = { green: 'text-green-500', red: 'text-red-500', blue: 'text-primary', orange: 'text-orange-500', purple: 'text-purple-500', cyan: 'text-cyan-500', yellow: 'text-yellow-500' };
+              const colorMap: Record<string, string> = { green: 'border-green-200 bg-white', red: 'border-red-200 bg-white', blue: 'border-blue-200 bg-white', orange: 'border-orange-200 bg-white', purple: 'border-purple-200 bg-white', cyan: 'border-cyan-200 bg-white', yellow: 'border-yellow-200 bg-white' };
+              const iconBgMap: Record<string, string> = { green: 'bg-green-100 text-green-600', red: 'bg-red-100 text-red-600', blue: 'bg-blue-100 text-primary', orange: 'bg-orange-100 text-orange-600', purple: 'bg-purple-100 text-purple-600', cyan: 'bg-cyan-100 text-cyan-600', yellow: 'bg-yellow-100 text-yellow-600' };
               const Icon = stat.icon;
               return (
-                <div key={stat.id} className={cn("rounded-xl border p-3 flex items-center gap-2 bg-gradient-to-br relative overflow-hidden hover:scale-[1.02] transition-transform cursor-default", colorMap[stat.color])} data-testid={stat.id}>
-                  <div className="absolute top-0 left-0 right-0 h-0.5 bg-gradient-to-r from-transparent via-current to-transparent opacity-30" />
-                  <div className={cn("h-9 w-9 rounded-lg flex items-center justify-center shrink-0 bg-background/50 backdrop-blur-sm")}>
-                    <Icon className={cn("w-4 h-4", iconColorMap[stat.color])} />
+                <div key={stat.id} className={cn("rounded-xl border p-3 flex items-center gap-3 bg-white shadow-sm hover:shadow-md transition-shadow cursor-default", colorMap[stat.color])} data-testid={stat.id}>
+                  <div className={cn("h-9 w-9 rounded-lg flex items-center justify-center shrink-0", iconBgMap[stat.color])}>
+                    <Icon className="w-4 h-4" />
                   </div>
                   <div className="min-w-0">
                     <div className="text-[10px] text-muted-foreground uppercase font-mono">{stat.label}</div>
@@ -374,10 +373,10 @@ export default function Dashboard() {
             })}
           </div>
 
-          <div className="bg-gradient-to-r from-primary/10 via-purple-500/10 to-cyan-500/10 rounded-xl border border-primary/30 p-4 shadow-[0_0_40px_rgba(14,165,233,0.08)]" data-testid="card-ai-insight">
+          <div className="bg-white rounded-xl border border-border p-4 shadow-sm" data-testid="card-ai-insight">
             <div className="flex items-center justify-between mb-4">
               <div className="flex items-center gap-3">
-                <div className="h-9 w-9 rounded-xl bg-primary/20 border border-primary/40 flex items-center justify-center shadow-[0_0_16px_rgba(14,165,233,0.35)]">
+                <div className="h-9 w-9 rounded-lg bg-primary/10 border border-primary/20 flex items-center justify-center">
                   <Brain className="w-5 h-5 text-primary" />
                 </div>
                 <div>
@@ -405,30 +404,30 @@ export default function Dashboard() {
               </div>
             ) : aiInsight ? (
               <div className="space-y-3">
-                <p className="text-xs text-foreground/90 leading-relaxed bg-background/30 rounded-lg p-3 border border-border/40">{aiInsight.overview}</p>
+                <p className="text-xs text-foreground/90 leading-relaxed bg-secondary/50 rounded-lg p-3 border border-border">{aiInsight.overview}</p>
 
                 <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
                   {(aiInsight.coins || []).map((c: any) => {
                     const sentColors: Record<string, string> = {
-                      BULLISH: 'border-green-500/40 bg-green-500/5 hover:border-green-500/60 shadow-[0_2px_12px_rgba(16,185,129,0.06)]',
-                      BEARISH: 'border-red-500/40 bg-red-500/5 hover:border-red-500/60 shadow-[0_2px_12px_rgba(239,68,68,0.06)]',
-                      NEUTRAL: 'border-yellow-500/40 bg-yellow-500/5 hover:border-yellow-500/60',
+                      BULLISH: 'border-green-500/30 bg-green-50 hover:border-green-500/60',
+                      BEARISH: 'border-red-500/30 bg-red-50 hover:border-red-500/60',
+                      NEUTRAL: 'border-yellow-500/30 bg-yellow-50 hover:border-yellow-500/60',
                     };
                     const sentTextColors: Record<string, string> = {
-                      BULLISH: 'text-green-400',
-                      BEARISH: 'text-red-400',
-                      NEUTRAL: 'text-yellow-400',
+                      BULLISH: 'text-green-600',
+                      BEARISH: 'text-red-600',
+                      NEUTRAL: 'text-yellow-600',
                     };
                     const sentBgColors: Record<string, string> = {
-                      BULLISH: 'bg-green-500/15 text-green-400',
-                      BEARISH: 'bg-red-500/15 text-red-400',
-                      NEUTRAL: 'bg-yellow-500/15 text-yellow-400',
+                      BULLISH: 'bg-green-100 text-green-700',
+                      BEARISH: 'bg-red-100 text-red-700',
+                      NEUTRAL: 'bg-yellow-100 text-yellow-700',
                     };
                     const actionColors: Record<string, string> = {
-                      BUY: 'bg-green-500 text-white shadow-[0_0_8px_rgba(16,185,129,0.4)]',
-                      SELL: 'bg-red-500 text-white shadow-[0_0_8px_rgba(239,68,68,0.4)]',
-                      HOLD: 'bg-yellow-500/20 text-yellow-400 border border-yellow-500/30',
-                      WATCH: 'bg-blue-500/20 text-blue-400 border border-blue-500/30',
+                      BUY: 'bg-green-600 text-white',
+                      SELL: 'bg-red-600 text-white',
+                      HOLD: 'bg-yellow-100 text-yellow-700 border border-yellow-300',
+                      WATCH: 'bg-blue-100 text-blue-700 border border-blue-200',
                     };
                     const fomoColors: Record<string, string> = {
                       HIGH: 'text-red-400 bg-red-500/15',
@@ -515,7 +514,7 @@ export default function Dashboard() {
           <TopSignalsPanel onSelectCoin={setSelectedCoin} />
 
           <div className="grid grid-cols-12 gap-2 md:gap-3" style={{ minHeight: '440px' }}>
-            <div className="col-span-12 lg:col-span-7 bg-card rounded-xl border border-border overflow-hidden relative group">
+            <div className="col-span-12 lg:col-span-7 bg-white rounded-xl border border-border overflow-hidden relative group">
               <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-green-500 via-primary to-purple-500 opacity-60" />
               <div className="absolute top-3 right-12 z-10">
                 <Button size="icon" variant="ghost" className="h-7 w-7 hover:bg-background/50" data-testid="button-fullscreen">
@@ -525,7 +524,7 @@ export default function Dashboard() {
               <TradingChart symbol={selectedCoin} timeframe={timeframe} />
             </div>
 
-            <div className="col-span-12 lg:col-span-5 bg-card rounded-xl border border-primary/20 overflow-hidden flex flex-col shadow-[0_0_20px_rgba(14,165,233,0.06)]" style={{ minHeight: '540px' }} data-testid="card-signals">
+            <div className="col-span-12 lg:col-span-5 bg-white rounded-xl border border-border overflow-hidden flex flex-col shadow-sm" style={{ minHeight: '540px' }} data-testid="card-signals">
               <div className="p-3 border-b border-border bg-gradient-to-r from-primary/10 to-purple-500/5 flex items-center justify-between">
                 <div className="flex items-center gap-2">
                   <div className="h-6 w-6 rounded-md bg-primary/20 flex items-center justify-center">
@@ -543,17 +542,17 @@ export default function Dashboard() {
               </div>
             </div>
 
-            <div className="col-span-12 lg:col-span-8 bg-card rounded-xl border border-green-500/20 overflow-hidden shadow-[0_0_15px_rgba(16,185,129,0.05)]" data-testid="card-orderbook">
+            <div className="col-span-12 lg:col-span-8 bg-white rounded-xl border border-border overflow-hidden shadow-sm" data-testid="card-orderbook">
               <OrderBook symbol={selectedCoin} currentPrice={currentPrice} />
             </div>
 
-            <div className="col-span-12 lg:col-span-4 bg-card rounded-xl border border-border overflow-hidden" data-testid="card-trade-entry">
+            <div className="col-span-12 lg:col-span-4 bg-white rounded-xl border border-border overflow-hidden" data-testid="card-trade-entry">
               <TradeEntry symbol={selectedCoin} price={currentPrice} />
             </div>
           </div>
 
           <div className="grid grid-cols-12 gap-2 md:gap-3">
-            <div className="col-span-12 md:col-span-6 lg:col-span-5 bg-card rounded-xl border border-border overflow-hidden" data-testid="card-positions">
+            <div className="col-span-12 md:col-span-6 lg:col-span-5 bg-white rounded-xl border border-border overflow-hidden" data-testid="card-positions">
               <div className="p-3 border-b border-border flex items-center justify-between bg-gradient-to-r from-primary/5 to-transparent">
                 <div className="flex items-center gap-2">
                   <Activity className="w-4 h-4 text-primary" />
@@ -590,14 +589,14 @@ export default function Dashboard() {
               </ScrollArea>
             </div>
 
-            <div className="col-span-12 md:col-span-6 lg:col-span-4 bg-card rounded-xl border border-border overflow-hidden" style={{ maxHeight: '300px' }}>
+            <div className="col-span-12 md:col-span-6 lg:col-span-4 bg-white rounded-xl border border-border overflow-hidden" style={{ maxHeight: '300px' }}>
               <MarketOverview onSelectCoin={setSelectedCoin} selectedCoin={selectedCoin} />
             </div>
           </div>
 
           <div className="grid grid-cols-12 gap-2 md:gap-3">
 
-            <div className="col-span-12 md:col-span-6 lg:col-span-3 bg-card rounded-xl border border-border p-4" data-testid="chart-volume-pie">
+            <div className="col-span-12 md:col-span-6 lg:col-span-3 bg-white rounded-xl border border-border p-4" data-testid="chart-volume-pie">
               <div className="flex items-center gap-2 mb-3">
                 <div className="h-6 w-6 rounded-full bg-purple-500/20 flex items-center justify-center">
                   <PieChartIcon className="w-3 h-3 text-purple-500" />
@@ -635,7 +634,7 @@ export default function Dashboard() {
               </div>
             </div>
 
-            <div className="col-span-12 md:col-span-6 lg:col-span-3 bg-card rounded-xl border border-border p-4" data-testid="chart-daily-change">
+            <div className="col-span-12 md:col-span-6 lg:col-span-3 bg-white rounded-xl border border-border p-4" data-testid="chart-daily-change">
               <div className="flex items-center gap-2 mb-3">
                 <div className="h-6 w-6 rounded-full bg-green-500/20 flex items-center justify-center">
                   <BarChart3 className="w-3 h-3 text-green-500" />
@@ -659,7 +658,7 @@ export default function Dashboard() {
               </div>
             </div>
 
-            <div className="col-span-12 md:col-span-6 lg:col-span-3 bg-card rounded-xl border border-border p-4" data-testid="chart-volume-bars">
+            <div className="col-span-12 md:col-span-6 lg:col-span-3 bg-white rounded-xl border border-border p-4" data-testid="chart-volume-bars">
               <div className="flex items-center gap-2 mb-3">
                 <div className="h-6 w-6 rounded-full bg-cyan-500/20 flex items-center justify-center">
                   <LineChartIcon className="w-3 h-3 text-cyan-500" />
@@ -683,7 +682,7 @@ export default function Dashboard() {
               </div>
             </div>
 
-            <div className="col-span-12 md:col-span-6 lg:col-span-3 bg-card rounded-xl border border-border p-4" data-testid="chart-sentiment-movers">
+            <div className="col-span-12 md:col-span-6 lg:col-span-3 bg-white rounded-xl border border-border p-4" data-testid="chart-sentiment-movers">
               <div className="flex items-center gap-2 mb-3">
                 <div className="h-6 w-6 rounded-full bg-orange-500/20 flex items-center justify-center">
                   <Gauge className="w-3 h-3 text-orange-500" />

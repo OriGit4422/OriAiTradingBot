@@ -8,6 +8,7 @@ import { analyzeSignalWithAI, getMarketInsight } from "./ai-analysis";
 import { notifySignal, sendTestNotifications, validateSignalBestPractice } from "./notifications";
 import { testBinanceConnectivity, testBybitConnectivity } from "./exchange-connectivity";
 import { evaluateSignalsPerformance } from "./signal-performance";
+import { connectMt5, disconnectMt5, generateGoldSignal, getGoldTradingStatus, getLiveGoldPrice, runGoldAutoTradeOnce, setGoldAutoTrading } from "./gold-trading";
 
 function getAppVersionInfo() {
   let version = "unknown";
@@ -113,6 +114,45 @@ export async function registerRoutes(
     } catch (e: any) {
       res.status(500).json({ message: e.message });
     }
+  });
+
+  // ─── Gold + MT5 ─────────────────────────────────────────────
+  app.get("/api/gold/price", async (_req, res) => {
+    const result = await getLiveGoldPrice();
+    res.status(result.price ? 200 : 503).json(result);
+  });
+
+  app.get("/api/gold/status", (_req, res) => {
+    res.json(getGoldTradingStatus());
+  });
+
+  app.post("/api/gold/signal", async (req, res) => {
+    try {
+      const signal = await generateGoldSignal(req.body?.timeframe || "15m");
+      res.json(signal);
+    } catch (e: any) {
+      res.status(500).json({ message: e.message });
+    }
+  });
+
+  app.post("/api/gold/mt5/connect", (req, res) => {
+    const result = connectMt5(req.body || {});
+    res.status(result.ok ? 200 : 400).json(result);
+  });
+
+  app.post("/api/gold/mt5/disconnect", (_req, res) => {
+    const result = disconnectMt5();
+    res.json(result);
+  });
+
+  app.patch("/api/gold/auto-trading", (req, res) => {
+    const result = setGoldAutoTrading(req.body || { enabled: false });
+    res.json(result);
+  });
+
+  app.post("/api/gold/auto-trade/run", async (_req, res) => {
+    const result = await runGoldAutoTradeOnce();
+    res.status(result.ok ? 200 : 400).json(result);
   });
 
   app.get("/api/system/requirements-status", async (_req, res) => {

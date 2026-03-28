@@ -84,6 +84,9 @@ curl http://localhost:5000/api/signals/performance?hours=24
 curl -X POST http://localhost:5000/api/exchange/binance/test -H 'Content-Type: application/json' -d '{"apiKey":"YOUR_BINANCE_KEY"}'
 curl -X POST http://localhost:5000/api/exchange/bybit/test -H 'Content-Type: application/json' -d '{"apiKey":"YOUR_BYBIT_KEY"}'
 curl -X POST http://localhost:5000/api/notifications/test
+curl http://localhost:5000/api/gold/price
+curl http://localhost:5000/api/gold/status
+curl -X POST http://localhost:5000/api/gold/signal -H 'Content-Type: application/json' -d '{"timeframe":"15m"}'
 ```
 
 Or run one command:

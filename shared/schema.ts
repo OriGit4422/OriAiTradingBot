@@ -42,6 +42,13 @@ export const settings = pgTable("settings", {
   coinglassApiKey: text("coinglass_api_key"),
   perplexityApiKey: text("perplexity_api_key"),
   arkhamApiKey: text("arkham_api_key"),
+  // MT5 / Gold trading
+  metaApiToken: text("meta_api_token"),
+  metaApiAccountId: text("meta_api_account_id"),
+  goldAutoTradingEnabled: boolean("gold_auto_trading_enabled").notNull().default(false),
+  goldLotSize: real("gold_lot_size").notNull().default(0.01),
+  goldMaxDailyTrades: integer("gold_max_daily_trades").notNull().default(5),
+  goldMinConfidence: integer("gold_min_confidence").notNull().default(75),
 });
 
 export const insertSettingsSchema = createInsertSchema(settings).omit({ id: true });
@@ -128,6 +135,26 @@ export const userAccess = pgTable("user_access", {
 export const insertUserAccessSchema = createInsertSchema(userAccess).omit({ id: true, createdAt: true });
 export type InsertUserAccess = z.infer<typeof insertUserAccessSchema>;
 export type UserAccess = typeof userAccess.$inferSelect;
+
+// Gold Trades
+export const goldTrades = pgTable("gold_trades", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  type: text("type").notNull(), // BUY | SELL
+  lotSize: real("lot_size").notNull(),
+  entryPrice: real("entry_price").notNull(),
+  tp: real("tp").notNull(),
+  sl: real("sl").notNull(),
+  confidence: integer("confidence").notNull(),
+  status: text("status").notNull().default("OPEN"), // OPEN | CLOSED | CANCELLED
+  mt5OrderId: text("mt5_order_id"),
+  pnl: real("pnl"),
+  closedAt: timestamp("closed_at"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+});
+
+export const insertGoldTradeSchema = createInsertSchema(goldTrades).omit({ id: true, createdAt: true, closedAt: true, pnl: true });
+export type InsertGoldTrade = z.infer<typeof insertGoldTradeSchema>;
+export type GoldTrade = typeof goldTrades.$inferSelect;
 
 // AI Chat (for integration)
 export { conversations, messages } from "./models/chat";

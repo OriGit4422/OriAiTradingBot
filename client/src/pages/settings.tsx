@@ -52,8 +52,9 @@ const PERMISSIONS = [
 ];
 
 export default function SettingsPage() {
-  const { data: settings, isLoading } = useQuery<Settings>({
+  const { data: settings, isLoading, isError } = useQuery<Settings>({
     queryKey: ['/api/settings'],
+    retry: 3,
   });
 
   const { data: userAccessList = [], isLoading: accessLoading } = useQuery<UserAccess[]>({
@@ -69,10 +70,52 @@ export default function SettingsPage() {
   const [binanceApiKey, setBinanceApiKey] = useState('');
   const [bybitApiKey, setBybitApiKey] = useState('');
   const [telegramChatId, setTelegramChatId] = useState('');
-  const [mt5Login, setMt5Login] = useState('');
-  const [mt5Password, setMt5Password] = useState('');
-  const [mt5Server, setMt5Server] = useState('');
-  const [goldRisk, setGoldRisk] = useState('1.0');
+  const [discordWebhookUrl, setDiscordWebhookUrl] = useState('');
+  const [coinglassApiKey, setCoinglassApiKey] = useState('');
+  const [perplexityApiKey, setPerplexityApiKey] = useState('');
+  const [arkhamApiKey, setArkhamApiKey] = useState('');
+
+  // ── MT5 / Gold state ─────────────────────────────────────────────────────
+  const [metaApiToken, setMetaApiToken] = useState('');
+  const [metaApiAccountId, setMetaApiAccountId] = useState('');
+  const [goldLotSize, setGoldLotSize] = useState('0.01');
+  const [goldMaxDailyTrades, setGoldMaxDailyTrades] = useState('5');
+  const [goldMinConfidence, setGoldMinConfidence] = useState('75');
+  const [goldAutoTradingEnabled, setGoldAutoTradingEnabled] = useState(false);
+
+  // ── Theme state ──────────────────────────────────────────────────────────
+  const [activeThemeId, setActiveThemeId] = useState(getActiveThemeId);
+  const [customThemes, setCustomThemes] = useState(getCustomThemes);
+  const [customName, setCustomName] = useState('');
+  const [customBase, setCustomBase] = useState<'light' | 'dark'>('dark');
+  const [customPrimary, setCustomPrimary] = useState('#0ea5e9');
+
+  const handleApplyTheme = (theme: Theme) => {
+    applyTheme(theme);
+    setActiveThemeId(theme.id);
+  };
+
+  const handleSaveCustom = () => {
+    const name = customName.trim() || `Custom ${customThemes.length + 1}`;
+    const id = `custom-${Date.now()}`;
+    const vars = buildCustomVars(customPrimary, customBase);
+    const newTheme: CustomTheme = {
+      id, name, type: customBase, primaryHex: customPrimary, custom: true,
+      preview: { bg: customBase === 'light' ? '#f4f6f8' : '#0f172a', card: '#ffffff', primary: customPrimary, accent2: customPrimary },
+      vars,
+    };
+    saveCustomTheme(newTheme);
+    setCustomThemes(getCustomThemes());
+    handleApplyTheme(newTheme);
+    setCustomName('');
+    toast({ title: `Theme "${name}" saved and applied` });
+  };
+
+  const handleDeleteCustom = (id: string) => {
+    deleteCustomTheme(id);
+    setCustomThemes(getCustomThemes());
+    if (activeThemeId === id) handleApplyTheme(PRESET_THEMES[0]);
+  };
 
   const [addUserOpen, setAddUserOpen] = useState(false);
   const [editUser, setEditUser] = useState<UserAccess | null>(null);
@@ -91,6 +134,12 @@ export default function SettingsPage() {
       setCoinglassApiKey(settings.coinglassApiKey ?? '');
       setPerplexityApiKey(settings.perplexityApiKey ?? '');
       setArkhamApiKey(settings.arkhamApiKey ?? '');
+      setMetaApiToken(settings.metaApiToken ?? '');
+      setMetaApiAccountId(settings.metaApiAccountId ?? '');
+      setGoldLotSize(String(settings.goldLotSize ?? 0.01));
+      setGoldMaxDailyTrades(String(settings.goldMaxDailyTrades ?? 5));
+      setGoldMinConfidence(String(settings.goldMinConfidence ?? 75));
+      setGoldAutoTradingEnabled(settings.goldAutoTradingEnabled ?? false);
     }
   }, [settings]);
 
@@ -228,6 +277,19 @@ export default function SettingsPage() {
     setNewPermissions(prev => prev.includes(perm) ? prev.filter(p => p !== perm) : [...prev, perm]);
   };
 
+  if (isError) {
+    return (
+      <div className="min-h-screen bg-background text-foreground font-sans flex">
+        <Sidebar />
+        <div className="flex-1 md:pl-64 flex flex-col items-center justify-center gap-4">
+          <div className="text-destructive text-lg font-semibold">Failed to load settings</div>
+          <p className="text-muted-foreground text-sm">Check your database connection and try refreshing.</p>
+          <Button onClick={() => window.location.reload()} variant="outline">Retry</Button>
+        </div>
+      </div>
+    );
+  }
+
   if (isLoading || !settings) {
     return (
       <div className="min-h-screen bg-background text-foreground font-sans flex">
@@ -260,6 +322,10 @@ export default function SettingsPage() {
               <TabsTrigger value="ai-agents" data-testid="tab-ai-agents">
                 <Brain className="w-3.5 h-3.5 mr-1.5" />
                 AI Agents
+              </TabsTrigger>
+              <TabsTrigger value="mt5" data-testid="tab-mt5">
+                <Activity className="w-3.5 h-3.5 mr-1.5" />
+                MT5 / Gold
               </TabsTrigger>
               <TabsTrigger value="users" data-testid="tab-users">
                 <Users className="w-3.5 h-3.5 mr-1.5" />
@@ -1035,6 +1101,140 @@ export default function SettingsPage() {
                     </div>
                   </CardContent>
                 </Card>
+              </div>
+            </TabsContent>
+
+            {/* ── MT5 / GOLD TAB ─────────────────────────────────────────── */}
+            <TabsContent value="mt5">
+              <div className="space-y-4">
+
+                {/* MetaApi connection */}
+                <Card className="bg-card border-border">
+                  <CardHeader>
+                    <div className="flex items-center gap-3">
+                      <div className="w-10 h-10 bg-amber-500/10 rounded-lg flex items-center justify-center">
+                        <span className="text-xl leading-none">🥇</span>
+                      </div>
+                      <div>
+                        <CardTitle>MT5 Connection (MetaApi)</CardTitle>
+                        <CardDescription>Connect your MetaTrader 5 account via MetaApi cloud to enable gold auto-trading.</CardDescription>
+                      </div>
+                    </div>
+                  </CardHeader>
+                  <CardContent className="space-y-4">
+                    <div className="rounded-lg bg-amber-500/5 border border-amber-500/20 p-3 text-xs text-amber-800 space-y-1">
+                      <p className="font-semibold">How to connect:</p>
+                      <ol className="list-decimal list-inside space-y-0.5 text-muted-foreground">
+                        <li>Register free at <span className="font-medium text-amber-700">metaapi.cloud</span></li>
+                        <li>Add your MT5 account in MetaApi dashboard</li>
+                        <li>Install the MetaApi EA on your MT5 terminal</li>
+                        <li>Copy your API Token and Account ID below</li>
+                      </ol>
+                    </div>
+                    <div className="space-y-2">
+                      <Label>MetaApi Token</Label>
+                      <Input
+                        type="password"
+                        placeholder="Your MetaApi auth token..."
+                        value={metaApiToken}
+                        onChange={(e) => setMetaApiToken(e.target.value)}
+                        className="bg-secondary/50 font-mono text-xs"
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label>MetaApi Account ID</Label>
+                      <Input
+                        placeholder="e.g. abc123def456..."
+                        value={metaApiAccountId}
+                        onChange={(e) => setMetaApiAccountId(e.target.value)}
+                        className="bg-secondary/50 font-mono text-xs"
+                      />
+                    </div>
+                    <Button
+                      onClick={() => updateMutation.mutate({ metaApiToken, metaApiAccountId })}
+                      disabled={updateMutation.isPending}
+                      className="gap-2"
+                    >
+                      {updateMutation.isPending && <Loader2 className="h-4 w-4 animate-spin" />}
+                      Save MT5 Credentials
+                    </Button>
+                  </CardContent>
+                </Card>
+
+                {/* Gold trading settings */}
+                <Card className="bg-card border-border">
+                  <CardHeader>
+                    <CardTitle>Gold Auto-Trading Settings</CardTitle>
+                    <CardDescription>Configure how the bot trades XAUUSD (Gold) automatically.</CardDescription>
+                  </CardHeader>
+                  <CardContent className="space-y-5">
+                    <div className="flex items-center justify-between py-2 border-b border-border">
+                      <div>
+                        <Label className="font-semibold">Enable Auto Trading</Label>
+                        <p className="text-xs text-muted-foreground mt-0.5">Bot will automatically execute gold signals via MT5</p>
+                      </div>
+                      <Switch
+                        checked={goldAutoTradingEnabled}
+                        onCheckedChange={(v) => {
+                          setGoldAutoTradingEnabled(v);
+                          updateMutation.mutate({ goldAutoTradingEnabled: v });
+                        }}
+                      />
+                    </div>
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                      <div className="space-y-2">
+                        <Label>Lot Size</Label>
+                        <Input
+                          type="number"
+                          step="0.01"
+                          min="0.01"
+                          max="10"
+                          value={goldLotSize}
+                          onChange={(e) => setGoldLotSize(e.target.value)}
+                          className="bg-secondary/50"
+                        />
+                        <p className="text-[11px] text-muted-foreground">Standard lots (0.01 = micro)</p>
+                      </div>
+                      <div className="space-y-2">
+                        <Label>Max Daily Trades</Label>
+                        <Input
+                          type="number"
+                          min="1"
+                          max="20"
+                          value={goldMaxDailyTrades}
+                          onChange={(e) => setGoldMaxDailyTrades(e.target.value)}
+                          className="bg-secondary/50"
+                        />
+                        <p className="text-[11px] text-muted-foreground">Maximum trades per day</p>
+                      </div>
+                      <div className="space-y-2">
+                        <Label>Min AI Confidence (%)</Label>
+                        <Input
+                          type="number"
+                          min="50"
+                          max="95"
+                          value={goldMinConfidence}
+                          onChange={(e) => setGoldMinConfidence(e.target.value)}
+                          className="bg-secondary/50"
+                        />
+                        <p className="text-[11px] text-muted-foreground">Only trade above this threshold</p>
+                      </div>
+                    </div>
+                    <Button
+                      onClick={() => updateMutation.mutate({
+                        goldLotSize: parseFloat(goldLotSize) || 0.01,
+                        goldMaxDailyTrades: parseInt(goldMaxDailyTrades) || 5,
+                        goldMinConfidence: parseInt(goldMinConfidence) || 75,
+                      })}
+                      disabled={updateMutation.isPending}
+                      className="gap-2"
+                    >
+                      {updateMutation.isPending && <Loader2 className="h-4 w-4 animate-spin" />}
+                      Save Gold Settings
+                    </Button>
+                  </CardContent>
+                </Card>
+
               </div>
             </TabsContent>
 

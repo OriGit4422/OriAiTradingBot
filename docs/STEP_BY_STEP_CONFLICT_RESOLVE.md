@@ -60,6 +60,20 @@ npm run dev
 git log --oneline -n 5
 ```
 
+### Important
+
+If your PR is **not merged yet**, running `git checkout main && git pull origin main` will show the **old app** (expected).
+
+In that case run your PR branch instead:
+
+```bash
+git fetch origin
+git checkout <your-pr-branch>
+git pull origin <your-pr-branch>
+npm install
+npm run dev
+```
+
 ## E) Verify new backend features are live
 
 ```bash

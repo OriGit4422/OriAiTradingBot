@@ -92,6 +92,11 @@ export interface CoinInsight {
   shortAnalysis: string;
   keyLevel: string;
   action: "BUY" | "SELL" | "HOLD" | "WATCH";
+  xSentiment?: string;
+  fomoLevel?: "LOW" | "MEDIUM" | "HIGH";
+  liquidityView?: string;
+  psychologicalLevels?: string;
+  newsBias?: string;
 }
 
 export interface UpcomingTrade {
@@ -119,6 +124,11 @@ export async function getMarketInsight(coins: string[], marketData?: any[]): Pro
       shortAnalysis: "Consolidating near key levels. Watch for volume confirmation.",
       keyLevel: "Support/Resistance zone active",
       action: "WATCH" as const,
+      xSentiment: "Neutral social sentiment",
+      fomoLevel: "MEDIUM" as const,
+      liquidityView: "Balanced",
+      psychologicalLevels: "Near round-number pivots",
+      newsBias: "No strong catalyst",
     })),
     upcomingTrades: [
       { coin: "BTC", direction: "LONG", reason: "Holding above key support with increasing volume", confidence: 75, timeframe: "4h" },
@@ -150,7 +160,7 @@ Return this exact JSON structure:
 {
   "overview": "2-3 sentence market overview referencing actual prices and % changes from the data above",
   "coins": [
-    {"coin": "BTC", "sentiment": "BULLISH or BEARISH or NEUTRAL", "shortAnalysis": "1 sentence using actual price data", "keyLevel": "specific realistic price level near current price", "action": "BUY or SELL or HOLD or WATCH"}
+    {"coin": "BTC", "sentiment": "BULLISH or BEARISH or NEUTRAL", "shortAnalysis": "1 sentence using actual price data", "keyLevel": "specific realistic price level near current price", "action": "BUY or SELL or HOLD or WATCH", "xSentiment":"short social sentiment read", "fomoLevel":"LOW or MEDIUM or HIGH", "liquidityView":"where liquidity is clustered", "psychologicalLevels":"major round numbers", "newsBias":"bullish/bearish/neutral headline bias"}
   ],
   "upcomingTrades": [
     {"coin": "BTC", "direction": "LONG or SHORT", "reason": "1 sentence with specific price targets near current levels", "confidence": 75, "timeframe": "1h or 4h or 15m"}
@@ -191,6 +201,11 @@ RULES:
         shortAnalysis: c.shortAnalysis || "Analysis pending",
         keyLevel: c.keyLevel || "Key levels being calculated",
         action: (["BUY", "SELL", "HOLD", "WATCH"].includes(c.action) ? c.action : "WATCH") as "BUY" | "SELL" | "HOLD" | "WATCH",
+        xSentiment: c.xSentiment || "Neutral social sentiment",
+        fomoLevel: (["LOW", "MEDIUM", "HIGH"].includes(c.fomoLevel) ? c.fomoLevel : "MEDIUM") as "LOW" | "MEDIUM" | "HIGH",
+        liquidityView: c.liquidityView || "Liquidity balanced near VWAP",
+        psychologicalLevels: c.psychologicalLevels || "Round numbers and weekly pivots",
+        newsBias: c.newsBias || "No strong catalyst",
       })),
       upcomingTrades: (parsed.upcomingTrades || []).map((t: any) => ({
         coin: t.coin || "BTC",

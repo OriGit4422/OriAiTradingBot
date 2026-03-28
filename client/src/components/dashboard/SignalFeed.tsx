@@ -69,6 +69,7 @@ export function SignalFeed({ compact = false, onSelectCoin }: SignalFeedProps) {
       .map(r => r.value);
 
     const aiConfirmed = await enhanceSignalsWithAI(newSignals, isMobile ? 6 : 10);
+    const aiConfirmed = await enhanceSignalsWithAI(newSignals, 10);
     setAllSignals(aiConfirmed);
     const confluence = calculateMultiTFConfluence(aiConfirmed);
     setConfluenceData(confluence);

@@ -87,6 +87,7 @@ export default function Signals() {
       });
 
     const aiConfirmed = await enhanceSignalsWithAI(newSignals, isMobile ? 8 : 14);
+    const aiConfirmed = await enhanceSignalsWithAI(newSignals, 14);
     const sorted = aiConfirmed.sort((a, b) => b.confidence - a.confidence);
     setLiveSignals(sorted);
 
@@ -460,6 +461,7 @@ export default function Signals() {
               <ScrollArea className="max-h-72">
                 <div className="space-y-2">
                   {performanceData.items.slice(0, isMobile ? 16 : 40).map((p: any) => (
+                  {performanceData.items.slice(0, 40).map((p: any) => (
                     <div key={p.id} className="grid grid-cols-2 md:grid-cols-8 gap-2 bg-muted/20 rounded p-2 text-xs font-mono">
                       <div className="font-bold">{p.coin}</div>
                       <div>{p.type}</div>

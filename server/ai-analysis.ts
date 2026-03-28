@@ -64,9 +64,10 @@ Signal Data:
 ${agentBlock}
 Instructions:
 1. Evaluate the technical merit of Entry/TP/SL placement.
-2. If multi-agent context is provided, incorporate it — conflicting data should LOWER confidence, confirming data should RAISE it.
-3. Never exceed 95% or go below 10% for adjustedConfidence.
-4. Be concise and precise.
+2. R:R quality is critical: R:R < 1.5 = deduct 20 pts; 1.5-2.0 = deduct 10 pts; 2.0-2.5 = neutral; ≥2.5 = add 5 pts; ≥3.0 = add 10 pts.
+3. If multi-agent context is provided, incorporate it — conflicting data should LOWER confidence, confirming data should RAISE it.
+4. Never exceed 95% or go below 10% for adjustedConfidence.
+5. Be concise and precise.
 
 Respond in JSON only:
 {

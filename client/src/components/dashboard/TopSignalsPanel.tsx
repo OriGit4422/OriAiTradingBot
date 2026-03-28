@@ -58,10 +58,18 @@ export function TopSignalsPanel({ onSelectCoin }: TopSignalsPanelProps) {
     return () => clearInterval(interval);
   }, [fetchSignals]);
 
+  const calcRR = (s: any) =>
+    Math.abs(s.tp - s.entry) / (Math.abs(s.entry - s.sl) || 1);
+
   const getTop10 = (tf: string) =>
     allSignals
       .filter(s => s.timeframe === tf)
-      .sort((a, b) => b.confidence - a.confidence)
+      .filter(s => calcRR(s) >= 1.8)           // drop poor R:R signals
+      .sort((a, b) => {
+        const sa = a.signalScore ?? a.confidence;
+        const sb = b.signalScore ?? b.confidence;
+        return sb - sa;                          // highest composite score first
+      })
       .slice(0, 10);
 
   const getConfidenceColor = (conf: number) => {
@@ -76,6 +84,20 @@ export function TopSignalsPanel({ onSelectCoin }: TopSignalsPanelProps) {
     if (conf >= 80) return 'bg-green-500';
     if (conf >= 70) return 'bg-primary';
     return 'bg-muted-foreground';
+  };
+
+  const getRRColor = (rr: number) => {
+    if (rr >= 3.0) return 'text-emerald-400 font-black';
+    if (rr >= 2.5) return 'text-green-400 font-bold';
+    if (rr >= 2.0) return 'text-primary font-semibold';
+    return 'text-yellow-500';
+  };
+
+  const getRRBadge = (rr: number) => {
+    if (rr >= 3.0) return 'bg-emerald-500/15 border-emerald-500/30 text-emerald-400';
+    if (rr >= 2.5) return 'bg-green-500/15 border-green-500/30 text-green-400';
+    if (rr >= 2.0) return 'bg-primary/10 border-primary/30 text-primary';
+    return 'bg-yellow-500/10 border-yellow-500/30 text-yellow-400';
   };
 
   const handleExecute = async (signal: any, e: React.MouseEvent) => {
@@ -201,18 +223,18 @@ export function TopSignalsPanel({ onSelectCoin }: TopSignalsPanelProps) {
                     <div className="col-span-1">Dir</div>
                     <div className="col-span-2">Entry</div>
                     <div className="col-span-2">TP</div>
-                    <div className="col-span-2">SL</div>
+                    <div className="col-span-1">SL</div>
                     <div className="col-span-1">R:R</div>
-                    <div className="col-span-1 text-right">Conf</div>
+                    <div className="col-span-1 text-right">AI%</div>
+                    <div className="col-span-1 text-right">Score</div>
                   </div>
 
                   {top10.map((signal, idx) => {
-                    const rr = (
-                      Math.abs(signal.tp - signal.entry) /
-                      (Math.abs(signal.entry - signal.sl) || 1)
-                    ).toFixed(1);
-                    const isHot = signal.confidence >= 90;
-                    const isGood = signal.confidence >= 80;
+                    const rr = calcRR(signal);
+                    const rrLabel = rr.toFixed(2);
+                    const score = signal.signalScore ?? signal.confidence;
+                    const isHot = score >= 90;
+                    const isGood = score >= 80;
 
                     return (
                       <div
@@ -249,9 +271,14 @@ export function TopSignalsPanel({ onSelectCoin }: TopSignalsPanelProps) {
                               </Badge>
                               {isHot && <Flame className="w-3 h-3 text-orange-500 fill-orange-500/40" />}
                             </div>
-                            <span className={cn('text-sm font-black font-mono', getConfidenceColor(signal.confidence))}>
-                              {signal.confidence}%
-                            </span>
+                            <div className="flex items-center gap-1.5">
+                              <span className={cn('text-[9px] font-bold font-mono border rounded px-1', getRRBadge(rr))}>
+                                1:{rrLabel}
+                              </span>
+                              <span className={cn('text-sm font-black font-mono', getConfidenceColor(score))}>
+                                {score}
+                              </span>
+                            </div>
                           </div>
                           <div className="grid grid-cols-3 gap-1 text-[9px] font-mono">
                             <div><span className="text-muted-foreground">E </span><span className="font-bold">{signal.entry.toLocaleString(undefined, { maximumFractionDigits: 2 })}</span></div>
@@ -260,9 +287,9 @@ export function TopSignalsPanel({ onSelectCoin }: TopSignalsPanelProps) {
                           </div>
                           <div className="mt-1 flex items-center gap-2">
                             <div className="flex-1 h-1 bg-muted rounded-full overflow-hidden">
-                              <div className={cn('h-full rounded-full', getConfidenceBg(signal.confidence))} style={{ width: `${signal.confidence}%` }} />
+                              <div className={cn('h-full rounded-full', getConfidenceBg(score))} style={{ width: `${score}%` }} />
                             </div>
-                            <span className="text-[8px] text-muted-foreground font-mono">1:{rr}</span>
+                            <span className="text-[8px] text-muted-foreground font-mono">AI: {signal.confidence}%</span>
                           </div>
                         </div>
 
@@ -289,18 +316,22 @@ export function TopSignalsPanel({ onSelectCoin }: TopSignalsPanelProps) {
                           <div className="col-span-2 text-[10px] font-mono text-green-400 font-semibold">
                             {signal.tp.toLocaleString(undefined, { maximumFractionDigits: 2 })}
                           </div>
-                          <div className="col-span-2 text-[10px] font-mono text-red-400 font-semibold">
+                          <div className="col-span-1 text-[10px] font-mono text-red-400 font-semibold">
                             {signal.sl.toLocaleString(undefined, { maximumFractionDigits: 2 })}
                           </div>
-                          <div className="col-span-1 text-[9px] font-mono text-muted-foreground">
-                            1:{rr}
+                          {/* R:R — color coded */}
+                          <div className={cn('col-span-1 text-[9px] font-mono px-1 py-0.5 rounded border text-center', getRRBadge(rr))}>
+                            1:{rrLabel}
                           </div>
-                          <div className="col-span-1 flex items-center justify-end gap-1">
-                            <div className="w-8 h-1.5 bg-muted rounded-full overflow-hidden hidden lg:block">
-                              <div className={cn('h-full rounded-full', getConfidenceBg(signal.confidence))} style={{ width: `${signal.confidence}%` }} />
-                            </div>
-                            <span className={cn('text-[10px] font-black font-mono', getConfidenceColor(signal.confidence))}>
+                          <div className="col-span-1 flex items-center justify-end">
+                            <span className={cn('text-[10px] font-bold font-mono', getConfidenceColor(signal.confidence))}>
                               {signal.confidence}%
+                            </span>
+                          </div>
+                          {/* Composite score */}
+                          <div className="col-span-1 flex items-center justify-end">
+                            <span className={cn('text-[10px] font-black font-mono', getConfidenceColor(score))}>
+                              {score}
                             </span>
                           </div>
                         </div>

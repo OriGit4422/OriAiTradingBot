@@ -6,6 +6,7 @@ import { SignalFeed } from '@/components/dashboard/SignalFeed';
 import { MarketOverview } from '@/components/dashboard/MarketOverview';
 import { TradeEntry } from '@/components/dashboard/TradeEntry';
 import { OrderBook } from '@/components/dashboard/OrderBook';
+import { TopSignalsPanel } from '@/components/dashboard/TopSignalsPanel';
 import { Button } from '@/components/ui/button';
 import {
   Bell,
@@ -267,7 +268,7 @@ export default function Dashboard() {
       <Sidebar />
 
       <main className="md:pl-64 h-screen flex flex-col">
-        <header className="h-14 border-b border-border flex items-center justify-between px-3 md:px-6 bg-background/80 backdrop-blur z-20 sticky top-0">
+        <header className="h-14 border-b border-border flex items-center justify-between px-3 md:px-6 bg-background/90 backdrop-blur-md z-20 sticky top-0 shadow-[0_1px_0_rgba(14,165,233,0.1)]">
           <div className="flex items-center gap-2 md:gap-4 overflow-x-auto">
             <div className="flex items-center gap-2 pl-10 md:pl-0">
               <span className="text-xl md:text-2xl font-display font-bold" data-testid="text-selected-coin">{selectedCoin}</span>
@@ -355,7 +356,8 @@ export default function Dashboard() {
               const iconColorMap: Record<string, string> = { green: 'text-green-500', red: 'text-red-500', blue: 'text-primary', orange: 'text-orange-500', purple: 'text-purple-500', cyan: 'text-cyan-500', yellow: 'text-yellow-500' };
               const Icon = stat.icon;
               return (
-                <div key={stat.id} className={cn("rounded-xl border p-3 flex items-center gap-2 bg-gradient-to-br", colorMap[stat.color])} data-testid={stat.id}>
+                <div key={stat.id} className={cn("rounded-xl border p-3 flex items-center gap-2 bg-gradient-to-br relative overflow-hidden hover:scale-[1.02] transition-transform cursor-default", colorMap[stat.color])} data-testid={stat.id}>
+                  <div className="absolute top-0 left-0 right-0 h-0.5 bg-gradient-to-r from-transparent via-current to-transparent opacity-30" />
                   <div className={cn("h-9 w-9 rounded-lg flex items-center justify-center shrink-0 bg-background/50 backdrop-blur-sm")}>
                     <Icon className={cn("w-4 h-4", iconColorMap[stat.color])} />
                   </div>
@@ -508,6 +510,8 @@ export default function Dashboard() {
               <p className="text-xs text-muted-foreground">Unable to load AI insights. Click refresh to try again.</p>
             )}
           </div>
+
+          <TopSignalsPanel onSelectCoin={setSelectedCoin} />
 
           <div className="grid grid-cols-12 gap-2 md:gap-3" style={{ minHeight: '440px' }}>
             <div className="col-span-12 lg:col-span-7 bg-card rounded-xl border border-border overflow-hidden relative group">

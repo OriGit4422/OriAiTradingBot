@@ -2,6 +2,7 @@ import express, { type Request, Response, NextFunction } from "express";
 import { registerRoutes } from "./routes";
 import { serveStatic } from "./static";
 import { createServer } from "http";
+import { pool } from "./db";
 
 const app = express();
 const httpServer = createServer(app);
@@ -60,6 +61,19 @@ app.use((req, res, next) => {
 });
 
 (async () => {
+  // Auto-migrate: add new columns that may not exist in older DB deployments
+  try {
+    await pool.query(`
+      ALTER TABLE settings
+        ADD COLUMN IF NOT EXISTS coinglass_api_key TEXT,
+        ADD COLUMN IF NOT EXISTS perplexity_api_key TEXT,
+        ADD COLUMN IF NOT EXISTS arkham_api_key    TEXT;
+    `);
+  } catch (e: any) {
+    // Non-fatal: table may not exist yet on first boot (db:push handles full init)
+    console.warn("[migration] settings column check skipped:", e.message);
+  }
+
   await registerRoutes(httpServer, app);
 
   app.use((err: any, _req: Request, res: Response, next: NextFunction) => {

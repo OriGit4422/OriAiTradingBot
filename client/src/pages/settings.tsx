@@ -26,8 +26,14 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { Bell, Lock, Key, Globe, Shield, Loader2, Users, UserPlus, Trash2, Edit, Mail, Check, X } from 'lucide-react';
+import { Bell, Lock, Key, Globe, Shield, Loader2, Users, UserPlus, Trash2, Edit, Mail, Check, X, Brain, Activity, Zap, Palette, Sun, Moon, Plus, CheckCircle2 } from 'lucide-react';
 import type { Settings, UserAccess } from '@shared/schema';
+import {
+  PRESET_THEMES, ACCENT_PRESETS, getAllThemes, getActiveThemeId,
+  applyTheme, saveCustomTheme, deleteCustomTheme, getCustomThemes,
+  buildCustomVars, hexToHsl, type Theme, type CustomTheme,
+} from '@/lib/themes';
+import { cn } from '@/lib/utils';
 
 const ROLES = [
   { value: 'admin', label: 'Admin', description: 'Full access to all features' },
@@ -81,6 +87,10 @@ export default function SettingsPage() {
       setBinanceApiKey(settings.binanceApiKey ?? '');
       setBybitApiKey(settings.bybitApiKey ?? '');
       setTelegramChatId(settings.telegramChatId ?? '');
+      setDiscordWebhookUrl(settings.discordWebhookUrl ?? '');
+      setCoinglassApiKey(settings.coinglassApiKey ?? '');
+      setPerplexityApiKey(settings.perplexityApiKey ?? '');
+      setArkhamApiKey(settings.arkhamApiKey ?? '');
     }
   }, [settings]);
 
@@ -238,11 +248,19 @@ export default function SettingsPage() {
           <p className="text-muted-foreground mb-8">Manage your account, API connections, and preferences.</p>
 
           <Tabs defaultValue="general" className="w-full">
-            <TabsList className="mb-6 bg-muted/30">
+            <TabsList className="mb-6 bg-secondary flex-wrap h-auto gap-0.5 p-1">
               <TabsTrigger value="general" data-testid="tab-general">General</TabsTrigger>
               <TabsTrigger value="api" data-testid="tab-api">API Keys</TabsTrigger>
               <TabsTrigger value="trading" data-testid="tab-trading">Trading</TabsTrigger>
               <TabsTrigger value="notifications" data-testid="tab-notifications">Notifications</TabsTrigger>
+              <TabsTrigger value="themes" data-testid="tab-themes">
+                <Palette className="w-3.5 h-3.5 mr-1.5" />
+                Themes
+              </TabsTrigger>
+              <TabsTrigger value="ai-agents" data-testid="tab-ai-agents">
+                <Brain className="w-3.5 h-3.5 mr-1.5" />
+                AI Agents
+              </TabsTrigger>
               <TabsTrigger value="users" data-testid="tab-users">
                 <Users className="w-3.5 h-3.5 mr-1.5" />
                 User Access
@@ -263,7 +281,7 @@ export default function SettingsPage() {
                         data-testid="input-display-name"
                         value={displayName}
                         onChange={(e) => setDisplayName(e.target.value)}
-                        className="bg-muted/20"
+                        className="bg-secondary/50"
                       />
                       <Button
                         data-testid="button-save-display-name"
@@ -307,7 +325,7 @@ export default function SettingsPage() {
                   <CardDescription>Securely manage your API keys.</CardDescription>
                 </CardHeader>
                 <CardContent className="space-y-6">
-                  <div className="p-4 border border-border rounded-lg bg-muted/10">
+                  <div className="p-4 border border-border rounded-lg bg-secondary/40">
                     <div className="flex justify-between items-start mb-4">
                       <div className="flex items-center gap-3">
                         <div className="w-10 h-10 bg-yellow-500/10 rounded flex items-center justify-center">
@@ -331,7 +349,7 @@ export default function SettingsPage() {
                             value={binanceApiKey}
                             onChange={(e) => setBinanceApiKey(e.target.value)}
                             placeholder="Enter Binance API key"
-                            className="bg-muted/30"
+                            className="bg-secondary"
                           />
                           <Button
                             data-testid="button-save-binance"
@@ -346,7 +364,7 @@ export default function SettingsPage() {
                     </div>
                   </div>
 
-                  <div className="p-4 border border-border rounded-lg bg-muted/10">
+                  <div className="p-4 border border-border rounded-lg bg-secondary/40">
                     <div className="flex justify-between items-start mb-4">
                       <div className="flex items-center gap-3">
                         <div className="w-10 h-10 bg-orange-500/10 rounded flex items-center justify-center">
@@ -370,7 +388,7 @@ export default function SettingsPage() {
                             value={bybitApiKey}
                             onChange={(e) => setBybitApiKey(e.target.value)}
                             placeholder="Enter Bybit API key"
-                            className="bg-muted/30"
+                            className="bg-secondary"
                           />
                           <Button
                             data-testid="button-save-bybit"
@@ -421,7 +439,7 @@ export default function SettingsPage() {
                         type="number"
                         value={maxRiskPercent}
                         onChange={(e) => setMaxRiskPercent(e.target.value)}
-                        className="bg-muted/20"
+                        className="bg-secondary/50"
                       />
                       <Button
                         data-testid="button-save-max-risk"
@@ -505,7 +523,7 @@ export default function SettingsPage() {
                           value={telegramChatId}
                           onChange={(e) => setTelegramChatId(e.target.value)}
                           placeholder="Enter your Telegram chat ID"
-                          className="bg-muted/20"
+                          className="bg-secondary/50"
                         />
                         <Button
                           data-testid="button-save-telegram-chat-id"
@@ -517,8 +535,507 @@ export default function SettingsPage() {
                       </div>
                     </div>
                   )}
+
+                  <Separator />
+
+                  <div className="flex items-center justify-between">
+                    <div className="space-y-0.5">
+                      <div className="flex items-center gap-2">
+                        <svg className="w-4 h-4 text-indigo-400" viewBox="0 0 24 24" fill="currentColor"><path d="M20.317 4.37a19.791 19.791 0 0 0-4.885-1.515.074.074 0 0 0-.079.037c-.21.375-.444.864-.608 1.25a18.27 18.27 0 0 0-5.487 0 12.64 12.64 0 0 0-.617-1.25.077.077 0 0 0-.079-.037A19.736 19.736 0 0 0 3.677 4.37a.07.07 0 0 0-.032.027C.533 9.046-.32 13.58.099 18.057c.002.022.015.043.033.056a19.9 19.9 0 0 0 5.993 3.03.078.078 0 0 0 .084-.028 14.09 14.09 0 0 0 1.226-1.994.076.076 0 0 0-.041-.106 13.107 13.107 0 0 1-1.872-.892.077.077 0 0 1-.008-.128 10.2 10.2 0 0 0 .372-.292.074.074 0 0 1 .077-.01c3.928 1.793 8.18 1.793 12.062 0a.074.074 0 0 1 .078.01c.12.098.246.198.373.292a.077.077 0 0 1-.006.127 12.299 12.299 0 0 1-1.873.892.077.077 0 0 0-.041.107c.36.698.772 1.362 1.225 1.993a.076.076 0 0 0 .084.028 19.839 19.839 0 0 0 6.002-3.03.077.077 0 0 0 .032-.054c.5-5.177-.838-9.674-3.549-13.66a.061.061 0 0 0-.031-.03z"/></svg>
+                        <Label>Discord Notifications</Label>
+                      </div>
+                      <div className="text-xs text-muted-foreground">Send trade alerts to your Discord channel via webhook</div>
+                    </div>
+                    <Switch
+                      data-testid="switch-discord-enabled"
+                      checked={settings.discordEnabled}
+                      onCheckedChange={(checked) => updateMutation.mutate({ discordEnabled: checked })}
+                    />
+                  </div>
+
+                  {settings.discordEnabled && (
+                    <div className="space-y-3">
+                      <div className="space-y-2">
+                        <Label>Discord Webhook URL</Label>
+                        <div className="flex gap-2">
+                          <Input
+                            data-testid="input-discord-webhook"
+                            value={discordWebhookUrl}
+                            onChange={(e) => setDiscordWebhookUrl(e.target.value)}
+                            placeholder="https://discord.com/api/webhooks/..."
+                            className="bg-secondary/50 font-mono text-xs"
+                          />
+                          <Button
+                            data-testid="button-save-discord"
+                            size="sm"
+                            onClick={() => updateMutation.mutate({ discordWebhookUrl: discordWebhookUrl || null })}
+                            disabled={updateMutation.isPending || discordWebhookUrl === (settings.discordWebhookUrl ?? '')}
+                          >
+                            Save
+                          </Button>
+                        </div>
+                        <div className="rounded-lg bg-indigo-500/5 border border-indigo-500/20 p-3 space-y-1">
+                          <p className="text-[11px] font-semibold text-indigo-400">How to get your webhook URL:</p>
+                          <ol className="text-[11px] text-muted-foreground space-y-0.5 list-decimal list-inside">
+                            <li>Open Discord → go to your server</li>
+                            <li>Server Settings → Integrations → Webhooks</li>
+                            <li>Click <span className="font-semibold">New Webhook</span></li>
+                            <li>Choose channel, name it (e.g. "WINM Signals"), click <span className="font-semibold">Copy Webhook URL</span></li>
+                            <li>Paste the URL above and Save</li>
+                          </ol>
+                        </div>
+                      </div>
+                      {settings.discordWebhookUrl && (
+                        <div className={`flex items-center gap-2 text-xs ${settings.discordEnabled ? 'text-green-500' : 'text-muted-foreground'}`}>
+                          <Shield className="w-3 h-3" />
+                          <span>Webhook configured — signals will be posted to Discord when enabled</span>
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  <Separator />
+
+                  <div className="space-y-2">
+                    <Label>Notification Preferences</Label>
+                    <div className="flex items-center justify-between">
+                      <div className="space-y-0.5">
+                        <div className="text-sm">High Confidence Only</div>
+                        <div className="text-xs text-muted-foreground">Only notify for signals above confidence threshold</div>
+                      </div>
+                      <Switch
+                        data-testid="switch-high-confidence"
+                        checked={settings.notifyOnHighConfidence}
+                        onCheckedChange={(checked) => updateMutation.mutate({ notifyOnHighConfidence: checked })}
+                      />
+                    </div>
+                  </div>
                 </CardContent>
               </Card>
+            </TabsContent>
+
+            {/* ── THEMES TAB ──────────────────────────────────────────────── */}
+            <TabsContent value="themes">
+              <div className="space-y-6">
+
+                {/* Preset gallery */}
+                <Card className="bg-card border-border">
+                  <CardHeader>
+                    <div className="flex items-center gap-3">
+                      <div className="w-10 h-10 bg-primary/10 rounded-lg flex items-center justify-center">
+                        <Palette className="w-5 h-5 text-primary" />
+                      </div>
+                      <div>
+                        <CardTitle>Preset Themes</CardTitle>
+                        <CardDescription>Click any theme to apply it instantly across the entire app.</CardDescription>
+                      </div>
+                    </div>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">
+                      {PRESET_THEMES.map(theme => {
+                        const isActive = activeThemeId === theme.id;
+                        return (
+                          <button
+                            key={theme.id}
+                            onClick={() => handleApplyTheme(theme)}
+                            className={cn(
+                              'group relative rounded-xl border-2 overflow-hidden text-left transition-all hover:scale-[1.02]',
+                              isActive ? 'border-primary ring-2 ring-primary/30' : 'border-border hover:border-primary/40'
+                            )}
+                            data-testid={`theme-${theme.id}`}
+                          >
+                            {/* Preview swatch */}
+                            <div className="h-20 relative" style={{ background: theme.preview.bg }}>
+                              {/* Fake sidebar strip */}
+                              <div className="absolute left-0 top-0 bottom-0 w-8" style={{ background: theme.type === 'light' ? '#e8edf3' : `${theme.preview.bg}cc` }} />
+                              {/* Fake card */}
+                              <div className="absolute left-10 top-3 right-3 h-8 rounded-md shadow-sm" style={{ background: theme.preview.card, border: '1px solid rgba(0,0,0,0.08)' }}>
+                                {/* Primary accent bar */}
+                                <div className="h-1.5 rounded-t-md" style={{ background: theme.preview.primary }} />
+                                {/* Fake text lines */}
+                                <div className="flex gap-1 p-1.5">
+                                  <div className="h-1.5 w-8 rounded-full" style={{ background: theme.preview.primary + '80' }} />
+                                  <div className="h-1.5 w-12 rounded-full" style={{ background: theme.preview.accent2 + '40' }} />
+                                </div>
+                              </div>
+                              {/* Fake nav items */}
+                              {[0,1,2].map(i => (
+                                <div key={i} className="absolute left-1.5 rounded" style={{ top: `${12 + i * 14}px`, width: '18px', height: '8px', background: i === 0 ? theme.preview.primary + 'aa' : theme.preview.accent2 + '30' }} />
+                              ))}
+                              {/* Active check */}
+                              {isActive && (
+                                <div className="absolute top-1.5 right-1.5 w-5 h-5 rounded-full bg-primary flex items-center justify-center">
+                                  <Check className="w-3 h-3 text-white" />
+                                </div>
+                              )}
+                            </div>
+                            {/* Label */}
+                            <div className="px-2.5 py-2 bg-card border-t border-border/50 flex items-center justify-between">
+                              <span className="text-xs font-semibold text-foreground truncate">{theme.name}</span>
+                              <span className={cn('text-[9px] px-1.5 py-0.5 rounded-full font-bold uppercase flex items-center gap-0.5', theme.type === 'light' ? 'bg-yellow-100 text-yellow-700' : 'bg-slate-700 text-slate-200')}>
+                                {theme.type === 'light' ? <Sun className="w-2.5 h-2.5" /> : <Moon className="w-2.5 h-2.5" />}
+                                {theme.type}
+                              </span>
+                            </div>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </CardContent>
+                </Card>
+
+                {/* Custom themes list */}
+                {customThemes.length > 0 && (
+                  <Card className="bg-card border-border">
+                    <CardHeader>
+                      <CardTitle className="text-base">Your Custom Themes</CardTitle>
+                    </CardHeader>
+                    <CardContent>
+                      <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">
+                        {customThemes.map(theme => {
+                          const isActive = activeThemeId === theme.id;
+                          return (
+                            <div key={theme.id} className={cn('relative group rounded-xl border-2 overflow-hidden', isActive ? 'border-primary' : 'border-border')}>
+                              <button
+                                onClick={() => handleApplyTheme(theme)}
+                                className="w-full text-left"
+                              >
+                                <div className="h-16 flex items-center justify-center" style={{ background: theme.type === 'light' ? '#f4f6f8' : '#0f172a' }}>
+                                  <div className="w-8 h-8 rounded-full shadow-md" style={{ background: theme.primaryHex }} />
+                                  {isActive && (
+                                    <div className="absolute top-1.5 right-1.5 w-5 h-5 rounded-full bg-primary flex items-center justify-center">
+                                      <Check className="w-3 h-3 text-white" />
+                                    </div>
+                                  )}
+                                </div>
+                                <div className="px-2.5 py-1.5 bg-card border-t border-border/50">
+                                  <div className="text-xs font-semibold truncate">{theme.name}</div>
+                                  <div className="text-[9px] text-muted-foreground capitalize">{theme.type} · custom</div>
+                                </div>
+                              </button>
+                              <button
+                                onClick={() => handleDeleteCustom(theme.id)}
+                                className="absolute top-1 left-1 w-5 h-5 rounded-full bg-destructive/80 text-white flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
+                              >
+                                <X className="w-2.5 h-2.5" />
+                              </button>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </CardContent>
+                  </Card>
+                )}
+
+                {/* Custom theme builder */}
+                <Card className="bg-card border-border">
+                  <CardHeader>
+                    <div className="flex items-center gap-3">
+                      <div className="w-10 h-10 bg-primary/10 rounded-lg flex items-center justify-center">
+                        <Plus className="w-5 h-5 text-primary" />
+                      </div>
+                      <div>
+                        <CardTitle>Build Custom Theme</CardTitle>
+                        <CardDescription>Choose a base style and accent colour to create your own unique theme.</CardDescription>
+                      </div>
+                    </div>
+                  </CardHeader>
+                  <CardContent className="space-y-5">
+                    {/* Name */}
+                    <div className="space-y-1.5">
+                      <Label className="text-xs font-semibold">Theme Name</Label>
+                      <Input
+                        value={customName}
+                        onChange={e => setCustomName(e.target.value)}
+                        placeholder="My Custom Theme"
+                        className="bg-secondary/50 max-w-xs"
+                      />
+                    </div>
+
+                    {/* Base style */}
+                    <div className="space-y-2">
+                      <Label className="text-xs font-semibold">Base Style</Label>
+                      <div className="flex gap-3">
+                        {(['light', 'dark'] as const).map(type => (
+                          <button
+                            key={type}
+                            onClick={() => setCustomBase(type)}
+                            className={cn(
+                              'flex items-center gap-2 px-4 py-2.5 rounded-lg border-2 text-sm font-medium transition-all',
+                              customBase === type ? 'border-primary bg-primary/8 text-primary' : 'border-border hover:border-primary/40'
+                            )}
+                          >
+                            {type === 'light' ? <Sun className="w-4 h-4" /> : <Moon className="w-4 h-4" />}
+                            {type === 'light' ? 'Light' : 'Dark'}
+                            {customBase === type && <CheckCircle2 className="w-3.5 h-3.5" />}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+
+                    {/* Accent colour presets */}
+                    <div className="space-y-2">
+                      <Label className="text-xs font-semibold">Accent Colour</Label>
+                      <div className="flex flex-wrap gap-2">
+                        {ACCENT_PRESETS.map(ac => (
+                          <button
+                            key={ac.hex}
+                            title={ac.label}
+                            onClick={() => setCustomPrimary(ac.hex)}
+                            className={cn(
+                              'w-8 h-8 rounded-full border-2 transition-all hover:scale-110',
+                              customPrimary === ac.hex ? 'border-foreground scale-110 ring-2 ring-offset-1 ring-foreground/30' : 'border-transparent'
+                            )}
+                            style={{ background: ac.hex }}
+                          />
+                        ))}
+                      </div>
+                      {/* Manual hex input */}
+                      <div className="flex items-center gap-2 mt-1">
+                        <div className="w-7 h-7 rounded-lg border border-border" style={{ background: customPrimary }} />
+                        <Input
+                          type="color"
+                          value={customPrimary}
+                          onChange={e => setCustomPrimary(e.target.value)}
+                          className="w-10 h-7 p-0.5 rounded cursor-pointer border border-border"
+                          title="Pick any colour"
+                        />
+                        <Input
+                          value={customPrimary}
+                          onChange={e => {
+                            const v = e.target.value;
+                            if (/^#[0-9a-fA-F]{0,6}$/.test(v)) setCustomPrimary(v);
+                          }}
+                          className="bg-secondary/50 font-mono text-xs w-28"
+                          placeholder="#0ea5e9"
+                          maxLength={7}
+                        />
+                        <span className="text-[10px] text-muted-foreground font-mono">HSL: {hexToHsl(customPrimary.length === 7 ? customPrimary : '#0ea5e9')}</span>
+                      </div>
+                    </div>
+
+                    {/* Live preview */}
+                    <div className="space-y-1.5">
+                      <Label className="text-xs font-semibold">Preview</Label>
+                      <div className="rounded-xl border border-border overflow-hidden h-24 flex" style={{ background: customBase === 'light' ? '#f4f6f8' : '#0f172a' }}>
+                        {/* Fake sidebar */}
+                        <div className="w-14 border-r flex flex-col gap-1 p-2" style={{ background: customBase === 'light' ? '#eef1f6' : '#0a1020', borderColor: customBase === 'light' ? '#dce3ec' : '#1e2a40' }}>
+                          <div className="w-6 h-6 rounded-lg mb-1" style={{ background: customPrimary }} />
+                          {[0,1,2,3].map(i => (
+                            <div key={i} className="h-2 rounded-full" style={{ width: `${70 - i * 10}%`, background: i === 0 ? customPrimary + 'aa' : (customBase === 'light' ? '#cbd5e1' : '#334155') }} />
+                          ))}
+                        </div>
+                        {/* Fake content */}
+                        <div className="flex-1 p-3 space-y-2">
+                          <div className="h-4 rounded" style={{ width: '60%', background: customPrimary + '30' }} />
+                          <div className="flex gap-2">
+                            {[1,2,3].map(i => (
+                              <div key={i} className="flex-1 h-8 rounded-lg border" style={{ background: customBase === 'light' ? '#fff' : '#1e293b', borderColor: customBase === 'light' ? '#e2e8f0' : '#334155' }}>
+                                <div className="h-1 rounded-t-lg" style={{ background: i === 1 ? customPrimary : (customBase === 'light' ? '#e2e8f0' : '#334155') }} />
+                              </div>
+                            ))}
+                          </div>
+                          <div className="flex gap-1">
+                            <div className="h-2 rounded-full w-16" style={{ background: customPrimary }} />
+                            <div className="h-2 rounded-full w-10" style={{ background: customBase === 'light' ? '#cbd5e1' : '#475569' }} />
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+
+                    <Button onClick={handleSaveCustom} className="gap-2">
+                      <Plus className="w-4 h-4" />
+                      Save & Apply Custom Theme
+                    </Button>
+                  </CardContent>
+                </Card>
+              </div>
+            </TabsContent>
+
+            <TabsContent value="ai-agents">
+              <div className="space-y-4">
+                {/* Overview card */}
+                <Card className="bg-card border-border">
+                  <CardHeader>
+                    <div className="flex items-center gap-3">
+                      <div className="w-10 h-10 bg-violet-500/10 rounded-lg flex items-center justify-center">
+                        <Brain className="w-5 h-5 text-violet-400" />
+                      </div>
+                      <div>
+                        <CardTitle>AI Intelligence Agents</CardTitle>
+                        <CardDescription>Add API keys to activate agents that sharpen signal accuracy through multi-source validation.</CardDescription>
+                      </div>
+                    </div>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mb-2">
+                      {[
+                        { label: 'Claude AI', desc: 'Always active — primary analysis', color: 'text-violet-400', bg: 'bg-violet-500/10', Icon: Brain, active: true },
+                        { label: 'Coinglass', desc: 'Funding rates & long/short data', color: 'text-orange-400', bg: 'bg-orange-500/10', Icon: Activity, active: !!settings.coinglassApiKey },
+                        { label: 'Perplexity', desc: 'Real-time news sentiment', color: 'text-sky-400', bg: 'bg-sky-500/10', Icon: Globe, active: !!settings.perplexityApiKey },
+                        { label: 'Arkham', desc: 'Whale & smart money tracking', color: 'text-cyan-400', bg: 'bg-cyan-500/10', Icon: Zap, active: !!settings.arkhamApiKey },
+                      ].map(({ label, desc, color, bg, Icon, active }) => (
+                        <div key={label} className={`flex items-center gap-3 p-3 rounded-lg border ${active ? 'border-green-500/30 bg-green-500/5' : 'border-border bg-secondary/40'}`}>
+                          <div className={`w-8 h-8 rounded ${bg} flex items-center justify-center flex-shrink-0`}>
+                            <Icon className={`w-4 h-4 ${color}`} />
+                          </div>
+                          <div className="min-w-0">
+                            <div className="text-sm font-medium">{label}</div>
+                            <div className="text-[11px] text-muted-foreground">{desc}</div>
+                          </div>
+                          <div className={`ml-auto text-[10px] font-semibold flex-shrink-0 ${active ? 'text-green-500' : 'text-muted-foreground'}`}>
+                            {active ? '● ON' : '○ OFF'}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </CardContent>
+                </Card>
+
+                {/* Coinglass */}
+                <Card className="bg-card border-border">
+                  <CardHeader>
+                    <div className="flex items-center gap-3">
+                      <div className="w-10 h-10 bg-orange-500/10 rounded-lg flex items-center justify-center">
+                        <Activity className="w-5 h-5 text-orange-400" />
+                      </div>
+                      <div>
+                        <CardTitle className="text-base">Coinglass</CardTitle>
+                        <CardDescription>Derivatives data: funding rates, long/short ratios, open interest. Adds ±8% confidence weight.</CardDescription>
+                      </div>
+                      <div className={`ml-auto text-xs font-semibold px-2 py-1 rounded-full ${settings.coinglassApiKey ? 'bg-green-500/10 text-green-500' : 'bg-secondary text-muted-foreground'}`}>
+                        {settings.coinglassApiKey ? 'Active' : 'Inactive'}
+                      </div>
+                    </div>
+                  </CardHeader>
+                  <CardContent className="space-y-3">
+                    <div className="space-y-1">
+                      <Label className="text-xs">API Key (coinglassSecret)</Label>
+                      <div className="flex gap-2">
+                        <Input
+                          type="password"
+                          value={coinglassApiKey}
+                          onChange={(e) => setCoinglassApiKey(e.target.value)}
+                          placeholder="Enter Coinglass API key"
+                          className="bg-secondary font-mono text-xs"
+                        />
+                        <Button
+                          size="sm"
+                          onClick={() => updateMutation.mutate({ coinglassApiKey: coinglassApiKey || null } as any)}
+                          disabled={updateMutation.isPending || coinglassApiKey === (settings.coinglassApiKey ?? '')}
+                        >
+                          Save
+                        </Button>
+                      </div>
+                    </div>
+                    <div className="rounded-lg bg-orange-500/5 border border-orange-500/20 p-3 space-y-1">
+                      <p className="text-[11px] font-semibold text-orange-400">How to get your Coinglass API key:</p>
+                      <ol className="text-[11px] text-muted-foreground space-y-0.5 list-decimal list-inside">
+                        <li>Sign up at coinglass.com and go to your account settings</li>
+                        <li>Navigate to API section and generate a key</li>
+                        <li>Copy the key labeled "coinglassSecret" and paste above</li>
+                      </ol>
+                    </div>
+                  </CardContent>
+                </Card>
+
+                {/* Perplexity */}
+                <Card className="bg-card border-border">
+                  <CardHeader>
+                    <div className="flex items-center gap-3">
+                      <div className="w-10 h-10 bg-sky-500/10 rounded-lg flex items-center justify-center">
+                        <Globe className="w-5 h-5 text-sky-400" />
+                      </div>
+                      <div>
+                        <CardTitle className="text-base">Perplexity AI</CardTitle>
+                        <CardDescription>Real-time news sentiment filter. Detects regulatory/hack risk events. Adds ±10% confidence weight.</CardDescription>
+                      </div>
+                      <div className={`ml-auto text-xs font-semibold px-2 py-1 rounded-full ${settings.perplexityApiKey ? 'bg-green-500/10 text-green-500' : 'bg-secondary text-muted-foreground'}`}>
+                        {settings.perplexityApiKey ? 'Active' : 'Inactive'}
+                      </div>
+                    </div>
+                  </CardHeader>
+                  <CardContent className="space-y-3">
+                    <div className="space-y-1">
+                      <Label className="text-xs">API Key</Label>
+                      <div className="flex gap-2">
+                        <Input
+                          type="password"
+                          value={perplexityApiKey}
+                          onChange={(e) => setPerplexityApiKey(e.target.value)}
+                          placeholder="pplx-..."
+                          className="bg-secondary font-mono text-xs"
+                        />
+                        <Button
+                          size="sm"
+                          onClick={() => updateMutation.mutate({ perplexityApiKey: perplexityApiKey || null } as any)}
+                          disabled={updateMutation.isPending || perplexityApiKey === (settings.perplexityApiKey ?? '')}
+                        >
+                          Save
+                        </Button>
+                      </div>
+                    </div>
+                    <div className="rounded-lg bg-sky-500/5 border border-sky-500/20 p-3 space-y-1">
+                      <p className="text-[11px] font-semibold text-sky-400">How to get your Perplexity API key:</p>
+                      <ol className="text-[11px] text-muted-foreground space-y-0.5 list-decimal list-inside">
+                        <li>Go to perplexity.ai and create an account</li>
+                        <li>Navigate to Settings → API</li>
+                        <li>Generate a new API key (starts with "pplx-")</li>
+                        <li>Paste above and Save</li>
+                      </ol>
+                    </div>
+                  </CardContent>
+                </Card>
+
+                {/* Arkham */}
+                <Card className="bg-card border-border">
+                  <CardHeader>
+                    <div className="flex items-center gap-3">
+                      <div className="w-10 h-10 bg-cyan-500/10 rounded-lg flex items-center justify-center">
+                        <Zap className="w-5 h-5 text-cyan-400" />
+                      </div>
+                      <div>
+                        <CardTitle className="text-base">Arkham Intelligence</CardTitle>
+                        <CardDescription>On-chain whale tracking. Detects large exchange inflows/outflows from smart money. Adds ±7% confidence weight.</CardDescription>
+                      </div>
+                      <div className={`ml-auto text-xs font-semibold px-2 py-1 rounded-full ${settings.arkhamApiKey ? 'bg-green-500/10 text-green-500' : 'bg-secondary text-muted-foreground'}`}>
+                        {settings.arkhamApiKey ? 'Active' : 'Inactive'}
+                      </div>
+                    </div>
+                  </CardHeader>
+                  <CardContent className="space-y-3">
+                    <div className="space-y-1">
+                      <Label className="text-xs">API Key</Label>
+                      <div className="flex gap-2">
+                        <Input
+                          type="password"
+                          value={arkhamApiKey}
+                          onChange={(e) => setArkhamApiKey(e.target.value)}
+                          placeholder="Enter Arkham API key"
+                          className="bg-secondary font-mono text-xs"
+                        />
+                        <Button
+                          size="sm"
+                          onClick={() => updateMutation.mutate({ arkhamApiKey: arkhamApiKey || null } as any)}
+                          disabled={updateMutation.isPending || arkhamApiKey === (settings.arkhamApiKey ?? '')}
+                        >
+                          Save
+                        </Button>
+                      </div>
+                    </div>
+                    <div className="rounded-lg bg-cyan-500/5 border border-cyan-500/20 p-3 space-y-1">
+                      <p className="text-[11px] font-semibold text-cyan-400">How to get your Arkham API key:</p>
+                      <ol className="text-[11px] text-muted-foreground space-y-0.5 list-decimal list-inside">
+                        <li>Sign up at arkhamintelligence.com</li>
+                        <li>Go to your profile → API Keys</li>
+                        <li>Create a new key and copy it</li>
+                        <li>Paste above and Save</li>
+                      </ol>
+                    </div>
+                  </CardContent>
+                </Card>
+              </div>
             </TabsContent>
 
             <TabsContent value="users">
@@ -549,7 +1066,7 @@ export default function SettingsPage() {
                       {userAccessList.map(user => (
                         <div
                           key={user.id}
-                          className="flex items-center justify-between p-4 rounded-lg border border-border bg-muted/10 hover:bg-muted/20 transition-colors"
+                          className="flex items-center justify-between p-4 rounded-lg border border-border bg-secondary/40 hover:bg-secondary/50 transition-colors"
                           data-testid={`user-row-${user.id}`}
                         >
                           <div className="flex items-center gap-3">
@@ -642,7 +1159,7 @@ export default function SettingsPage() {
                 placeholder="user@example.com"
                 value={newEmail}
                 onChange={(e) => setNewEmail(e.target.value)}
-                className="bg-muted/20"
+                className="bg-secondary/50"
                 disabled={!!editUser}
               />
             </div>
@@ -650,7 +1167,7 @@ export default function SettingsPage() {
             <div className="space-y-2">
               <Label>Role</Label>
               <Select value={newRole} onValueChange={setNewRole}>
-                <SelectTrigger className="bg-muted/20" data-testid="select-role">
+                <SelectTrigger className="bg-secondary/50" data-testid="select-role">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
@@ -675,7 +1192,7 @@ export default function SettingsPage() {
                     className={`flex items-center gap-2 p-2 rounded-lg border cursor-pointer transition-colors ${
                       newPermissions.includes(p.value)
                         ? 'border-primary/50 bg-primary/10'
-                        : 'border-border bg-muted/10 hover:bg-muted/20'
+                        : 'border-border bg-secondary/40 hover:bg-secondary/50'
                     }`}
                     onClick={() => togglePermission(p.value)}
                     data-testid={`perm-${p.value}`}

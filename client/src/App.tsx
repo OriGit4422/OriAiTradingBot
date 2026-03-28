@@ -12,6 +12,10 @@ import Signals from "@/pages/signals";
 import Portfolio from "@/pages/portfolio";
 import Settings from "@/pages/settings";
 import NotFound from "@/pages/not-found";
+import { applyThemeById, getActiveThemeId } from "@/lib/themes";
+
+// Apply saved theme immediately on boot (before first paint)
+applyThemeById(getActiveThemeId());
 
 function Router() {
   return (

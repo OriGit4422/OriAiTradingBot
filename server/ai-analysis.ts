@@ -14,6 +14,18 @@ export interface AISignalAnalysis {
   marketSentiment: string;
 }
 
+export interface AgentContext {
+  coinglassBias?:    string;
+  coinglassSignal?:  string;
+  fundingRate?:      number;
+  longPercent?:      number;
+  newsSentiment?:    string;
+  newsHeadline?:     string;
+  newsRiskLevel?:    string;
+  whaleBias?:        string;
+  whaleSignal?:      string;
+}
+
 export async function analyzeSignalWithAI(signalData: {
   coin: string;
   type: string;
@@ -24,31 +36,46 @@ export async function analyzeSignalWithAI(signalData: {
   timeframe: string;
   confidence: number;
   strategy: string;
+  agentContext?: AgentContext;
 }): Promise<AISignalAnalysis> {
   try {
-    const prompt = `You are a professional crypto trading analyst AI. Analyze this trading signal and provide a detailed assessment.
+    const rr = (Math.abs(signalData.tp - signalData.entry) / Math.abs(signalData.entry - signalData.sl)).toFixed(2);
+    const ctx = signalData.agentContext;
+
+    // Build the optional multi-agent context block
+    const agentBlock = ctx ? `
+Multi-Agent Intelligence (already gathered — use this to sharpen your assessment):
+${ctx.coinglassBias    ? `- Derivatives (Coinglass): Bias=${ctx.coinglassBias}, Signal="${ctx.coinglassSignal}", Funding=${ctx.fundingRate?.toFixed(5)}%, Longs=${ctx.longPercent?.toFixed(0)}%` : ''}
+${ctx.newsSentiment    ? `- News (Perplexity):       Sentiment=${ctx.newsSentiment}, RiskLevel=${ctx.newsRiskLevel}, Headline="${ctx.newsHeadline}"` : ''}
+${ctx.whaleBias        ? `- Whale Flow (Arkham):     Bias=${ctx.whaleBias}, Signal="${ctx.whaleSignal}"` : ''}
+` : '';
+
+    const prompt = `You are a senior crypto trading analyst AI with access to multi-source intelligence. Analyze this trading signal and provide a calibrated assessment.
 
 Signal Data:
 - Coin: ${signalData.coin}/USDT
 - Direction: ${signalData.type}
 - Strategy: ${signalData.strategy}
-- Entry Price: $${signalData.entry.toFixed(4)}
-- Take Profit: $${signalData.tp.toFixed(4)}
-- Stop Loss: $${signalData.sl.toFixed(4)}
-- Current Market Price: $${signalData.marketPrice.toFixed(4)}
+- Entry: $${signalData.entry.toFixed(4)} | TP: $${signalData.tp.toFixed(4)} | SL: $${signalData.sl.toFixed(4)}
+- Market Price: $${signalData.marketPrice.toFixed(4)}
 - Timeframe: ${signalData.timeframe}
 - Base Confidence: ${signalData.confidence}%
+- Risk/Reward: 1:${rr}
+${agentBlock}
+Instructions:
+1. Evaluate the technical merit of Entry/TP/SL placement.
+2. If multi-agent context is provided, incorporate it — conflicting data should LOWER confidence, confirming data should RAISE it.
+3. Never exceed 95% or go below 10% for adjustedConfidence.
+4. Be concise and precise.
 
-Risk/Reward Ratio: ${(Math.abs(signalData.tp - signalData.entry) / Math.abs(signalData.entry - signalData.sl)).toFixed(2)}
-
-Respond in JSON format only:
+Respond in JSON only:
 {
   "verdict": "STRONG_BUY" | "BUY" | "NEUTRAL" | "SELL" | "STRONG_SELL",
   "adjustedConfidence": <number 0-100>,
-  "reasoning": "<brief 1-2 sentence analysis>",
+  "reasoning": "<2-3 sentence analysis referencing the multi-agent data if present>",
   "riskLevel": "LOW" | "MEDIUM" | "HIGH",
   "keyLevels": { "support": <number>, "resistance": <number> },
-  "marketSentiment": "<brief sentiment description>"
+  "marketSentiment": "<brief 1-sentence sentiment>"
 }`;
 
     const message = await anthropic.messages.create({

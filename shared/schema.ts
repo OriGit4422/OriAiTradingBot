@@ -38,6 +38,10 @@ export const settings = pgTable("settings", {
   binanceConnected: boolean("binance_connected").notNull().default(false),
   bybitApiKey: text("bybit_api_key"),
   bybitConnected: boolean("bybit_connected").notNull().default(false),
+  // AI Agent integrations
+  coinglassApiKey: text("coinglass_api_key"),
+  perplexityApiKey: text("perplexity_api_key"),
+  arkhamApiKey: text("arkham_api_key"),
 });
 
 export const insertSettingsSchema = createInsertSchema(settings).omit({ id: true });

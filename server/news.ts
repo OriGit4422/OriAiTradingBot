@@ -67,3 +67,14 @@ export async function getLatestCryptoNews(limit = 10): Promise<NewsItem[]> {
     return FALLBACK_NEWS.slice(0, safeLimit);
   }
 }
+
+export async function getCoinNews(symbol: string, limit = 10): Promise<{ articles: NewsItem[]; sentiment: string | null }> {
+  const normalized = (symbol || "").toUpperCase();
+  const all = await getLatestCryptoNews(limit * 2);
+  const filtered = all.filter((a) => a.title.toUpperCase().includes(normalized)).slice(0, limit);
+  const articles = filtered.length ? filtered : all.slice(0, limit);
+  return {
+    articles,
+    sentiment: null,
+  };
+}

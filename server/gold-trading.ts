@@ -54,6 +54,43 @@ export async function getLiveGoldPrice() {
   }
 }
 
+export async function getGoldCandles(timeframe = '1h') {
+  const intervalMap: Record<string, { interval: string; range: string }> = {
+    '5m': { interval: '5m', range: '1d' },
+    '15m': { interval: '15m', range: '5d' },
+    '1h': { interval: '1h', range: '1mo' },
+    '4h': { interval: '1h', range: '3mo' },
+    '1d': { interval: '1d', range: '1y' },
+  };
+
+  const cfg = intervalMap[timeframe] || intervalMap['1h'];
+  const res = await fetch(`https://query1.finance.yahoo.com/v8/finance/chart/GC=F?interval=${cfg.interval}&range=${cfg.range}`);
+  if (!res.ok) {
+    throw new Error(`Gold candles unavailable (${res.status})`);
+  }
+  const raw = await res.json();
+  const result = raw?.chart?.result?.[0];
+  const timestamps: number[] = result?.timestamp || [];
+  const quote = result?.indicators?.quote?.[0] || {};
+  const highs: number[] = quote.high || [];
+  const lows: number[] = quote.low || [];
+  const opens: number[] = quote.open || [];
+  const closes: number[] = quote.close || [];
+  const volumes: number[] = quote.volume || [];
+
+  return timestamps
+    .map((ts, i) => ({
+      time: new Date(ts * 1000).toISOString(),
+      open: opens[i] ?? closes[i] ?? 0,
+      high: highs[i] ?? closes[i] ?? 0,
+      low: lows[i] ?? closes[i] ?? 0,
+      close: closes[i] ?? 0,
+      volume: volumes[i] ?? 0,
+    }))
+    .filter((c) => Number.isFinite(c.close) && c.close > 0)
+    .slice(-300);
+}
+
 export async function generateGoldSignal(timeframe = '15m') {
   const market = await getLiveGoldPrice();
   const price = market.price || 3300;

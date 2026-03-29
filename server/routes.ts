@@ -8,8 +8,8 @@ import { analyzeSignalWithAI, getMarketInsight } from "./ai-analysis";
 import { notifySignal, sendTestNotifications, validateSignalBestPractice } from "./notifications";
 import { testBinanceConnectivity, testBybitConnectivity } from "./exchange-connectivity";
 import { evaluateSignalsPerformance } from "./signal-performance";
-import { connectMt5, disconnectMt5, generateGoldSignal, getGoldTradingStatus, getLiveGoldPrice, runGoldAutoTradeOnce, setGoldAutoTrading } from "./gold-trading";
-import { getLatestCryptoNews } from "./news";
+import { connectMt5, disconnectMt5, generateGoldSignal, getGoldCandles, getGoldTradingStatus, getLiveGoldPrice, runGoldAutoTradeOnce, setGoldAutoTrading } from "./gold-trading";
+import { getCoinNews, getLatestCryptoNews } from "./news";
 
 function getAppVersionInfo() {
   let version = "unknown";
@@ -146,10 +146,30 @@ export async function registerRoutes(
     }
   });
 
+  // Legacy news endpoint kept for backward compatibility
+  app.get("/api/news/:symbol", async (req, res) => {
+    try {
+      const payload = await getCoinNews(req.params.symbol, 10);
+      res.json(payload);
+    } catch (e: any) {
+      res.status(500).json({ message: e.message, articles: [], sentiment: null });
+    }
+  });
+
   // ─── Gold + MT5 ─────────────────────────────────────────────
   app.get("/api/gold/price", async (_req, res) => {
     const result = await getLiveGoldPrice();
     res.status(result.price ? 200 : 503).json(result);
+  });
+
+  // Legacy endpoint kept for backward compatibility
+  app.get("/api/gold/candles/:timeframe", async (req, res) => {
+    try {
+      const candles = await getGoldCandles(req.params.timeframe || "1h");
+      res.json({ symbol: "XAUUSD", timeframe: req.params.timeframe || "1h", candles });
+    } catch (e: any) {
+      res.status(500).json({ message: e.message, candles: [] });
+    }
   });
 
   app.get("/api/gold/status", (_req, res) => {
@@ -165,6 +185,16 @@ export async function registerRoutes(
     }
   });
 
+  // Legacy endpoint kept for backward compatibility
+  app.get("/api/gold/signal/:timeframe", async (req, res) => {
+    try {
+      const signal = await generateGoldSignal(req.params.timeframe || "1h");
+      res.json(signal);
+    } catch (e: any) {
+      res.status(500).json({ message: e.message });
+    }
+  });
+
   app.post("/api/gold/mt5/connect", (req, res) => {
     const result = connectMt5(req.body || {});
     res.status(result.ok ? 200 : 400).json(result);
@@ -173,6 +203,21 @@ export async function registerRoutes(
   app.post("/api/gold/mt5/disconnect", (_req, res) => {
     const result = disconnectMt5();
     res.json(result);
+  });
+
+  // Legacy endpoint kept for backward compatibility
+  app.get("/api/mt5/account", (_req, res) => {
+    const status = getGoldTradingStatus();
+    if (!status.mt5.connected) {
+      return res.status(200).json({ connected: false, message: "MT5 credentials not configured" });
+    }
+    return res.json({
+      connected: true,
+      login: status.mt5.login,
+      server: status.mt5.server,
+      updatedAt: status.mt5.updatedAt,
+      mode: "paper",
+    });
   });
 
   app.patch("/api/gold/auto-trading", (req, res) => {
@@ -303,18 +348,23 @@ export async function registerRoutes(
   app.get("/api/signals/performance", async (req, res) => {
     try {
       const hours = Math.max(1, Math.min(240, Number(req.query.hours || 24)));
+      const includeNoData = String(req.query.includeNoData || "false").toLowerCase() === "true";
+      const limit = Math.max(1, Math.min(500, Number(req.query.limit || 100)));
       const allSignals = await storage.getSignals();
       const performance = await evaluateSignalsPerformance(allSignals, hours);
+      const filtered = includeNoData ? performance : performance.filter((p) => p.outcome !== "NO_DATA");
+      const items = filtered.slice(0, limit);
       res.json({
         hoursWindow: hours,
-        total: performance.length,
+        total: items.length,
+        totalBeforeLimit: filtered.length,
         summary: {
           tpHit: performance.filter((p) => p.outcome === "TP_HIT").length,
           slHit: performance.filter((p) => p.outcome === "SL_HIT").length,
           running: performance.filter((p) => p.outcome === "RUNNING").length,
           noData: performance.filter((p) => p.outcome === "NO_DATA").length,
         },
-        items: performance,
+        items,
       });
     } catch (e: any) {
       res.status(500).json({ message: e.message });

@@ -566,11 +566,66 @@ export function getQuantumSignal(symbol: string, price: number, data: BinanceKli
   let confidence = MAJOR_COINS.includes(symbol.toUpperCase()) ? 78 : 70;
   let entryPrice = price;
 
+  const smcScore = (
+    (analysis.orderBlocks.length > 0 ? 20 : 0) +
+    (analysis.bos.length > 0 ? 20 : 0) +
+    (analysis.choch.length > 0 ? 20 : 0) +
+    (marketStructure !== 'RANGING' ? 20 : 0) +
+    (rsiDivergence !== 'NONE' ? 20 : 0)
+  );
+  const ictScore = (
+    (analysis.fvg.length > 0 ? 35 : 0) +
+    (analysis.choch.length > 0 ? 30 : 0) +
+    (ichimoku.signal !== 'NEUTRAL' ? 20 : 0) +
+    (trendStrength > 60 ? 15 : 0)
+  );
+  const crtScore = (
+    ((rsi > 65 || rsi < 35) ? 30 : 0) +
+    (stochRsi.k > 80 || stochRsi.k < 20 ? 25 : 0) +
+    (adx < 24 ? 20 : 0) +
+    (analysis.volatilityForecast.expansion ? 25 : 0)
+  );
+  const liquidityScore = (
+    (analysis.liquidity.length > 1 ? 35 : 0) +
+    (analysis.liquidityClusters.length > 2 ? 35 : 0) +
+    (analysis.whaleActivity.detected ? 30 : 0)
+  );
+  const quantumScore = (
+    (analysis.quantumZones.length > 0 ? 40 : 0) +
+    (analysis.ensembleScore.confidence > 70 ? 35 : 0) +
+    (analysis.volumeForecast.expectedSpike ? 25 : 0)
+  );
+
+  const longDomainVotes = (
+    (marketStructure === 'BULLISH' ? 1 : 0) +
+    (rsiDivergence === 'BULLISH' ? 1 : 0) +
+    (analysis.ensembleScore.direction === 'LONG' ? 2 : 0) +
+    (macd.histogram > 0 ? 1 : 0) +
+    (ichimoku.signal === 'BULLISH' ? 1 : 0) +
+    (analysis.whaleActivity.direction === 'BUYING' ? 1 : 0)
+  );
+  const shortDomainVotes = (
+    (marketStructure === 'BEARISH' ? 1 : 0) +
+    (rsiDivergence === 'BEARISH' ? 1 : 0) +
+    (analysis.ensembleScore.direction === 'SHORT' ? 2 : 0) +
+    (macd.histogram < 0 ? 1 : 0) +
+    (ichimoku.signal === 'BEARISH' ? 1 : 0) +
+    (analysis.whaleActivity.direction === 'SELLING' ? 1 : 0)
+  );
+
   if (analysis.ensembleScore.direction !== 'NEUTRAL' && analysis.ensembleScore.confidence > 75) {
     type = analysis.ensembleScore.direction as 'LONG' | 'SHORT';
     confidence = analysis.ensembleScore.confidence;
     strategy = 'QL';
   } else {
+    if (longDomainVotes >= shortDomainVotes + 2) {
+      type = 'LONG';
+      confidence = Math.max(confidence, 80);
+    } else if (shortDomainVotes >= longDomainVotes + 2) {
+      type = 'SHORT';
+      confidence = Math.max(confidence, 80);
+    }
+
     const bullishOB = analysis.orderBlocks.find(ob => ob.type === 'BULLISH');
     const bearishOB = analysis.orderBlocks.find(ob => ob.type === 'BEARISH');
     const nearQuantum = analysis.quantumZones.find(z => Math.abs(z.price - price) / price < 0.01);
@@ -617,6 +672,9 @@ export function getQuantumSignal(symbol: string, price: number, data: BinanceKli
       }
     }
   }
+
+  const strategyDepthBonus = Math.round((smcScore + ictScore + crtScore + liquidityScore + quantumScore) / 100);
+  confidence += Math.min(8, strategyDepthBonus);
 
   let confluenceBonus = 0;
   if (type === 'LONG') {
@@ -687,6 +745,17 @@ export function getQuantumSignal(symbol: string, price: number, data: BinanceKli
       ichimokuSignal: ichimoku.signal,
       stochRsi: stochRsi.k,
       liquidityClusters: analysis.liquidityClusters.length,
+      strategyDepth: {
+        smc: smcScore,
+        ict: ictScore,
+        crt: crtScore,
+        liquidity: liquidityScore,
+        quantum: quantumScore,
+      },
+      domainVotes: {
+        long: longDomainVotes,
+        short: shortDomainVotes,
+      },
     },
   };
 }

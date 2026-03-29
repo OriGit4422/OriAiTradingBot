@@ -9,6 +9,11 @@ interface AISignalConfirmation {
   marketSentiment: string;
 }
 
+const AI_CLIENT_COOLDOWN_MS = 10 * 60 * 1000;
+const AI_RESULT_CACHE_TTL_MS = 5 * 60 * 1000;
+let aiClientDisabledUntil = 0;
+const aiResultCache = new Map<string, { at: number; data: AISignalConfirmation }>();
+
 function verdictBias(verdict: AISignalConfirmation['verdict']): 'LONG' | 'SHORT' | 'NEUTRAL' {
   if (verdict === 'STRONG_BUY' || verdict === 'BUY') return 'LONG';
   if (verdict === 'STRONG_SELL' || verdict === 'SELL') return 'SHORT';
@@ -17,6 +22,7 @@ function verdictBias(verdict: AISignalConfirmation['verdict']): 'LONG' | 'SHORT'
 
 export async function enhanceSignalsWithAI(signals: any[], limit = 12): Promise<any[]> {
   if (!signals.length) return signals;
+  if (Date.now() < aiClientDisabledUntil) return signals;
 
   const sortedIndexes = signals
     .map((signal, index) => ({ signal, index }))
@@ -25,21 +31,37 @@ export async function enhanceSignalsWithAI(signals: any[], limit = 12): Promise<
 
   const enhancedSignals = [...signals];
 
+  const buildKey = (s: any) =>
+    `${s.coin}|${s.type}|${s.timeframe}|${Number(s.entry).toFixed(6)}|${Number(s.tp).toFixed(6)}|${Number(s.sl).toFixed(6)}|${s.strategy}`;
+
   await Promise.allSettled(
     sortedIndexes.map(async ({ signal, index }) => {
-      const response = await apiRequest('POST', '/api/ai/analyze-signal', {
-        coin: signal.coin,
-        type: signal.type,
-        entry: signal.entry,
-        tp: signal.tp,
-        sl: signal.sl,
-        marketPrice: signal.marketPrice,
-        timeframe: signal.timeframe,
-        confidence: signal.confidence,
-        strategy: signal.strategy,
-      });
+      const key = buildKey(signal);
+      const cached = aiResultCache.get(key);
+      let ai: AISignalConfirmation;
 
-      const ai = (await response.json()) as AISignalConfirmation;
+      if (cached && Date.now() - cached.at < AI_RESULT_CACHE_TTL_MS) {
+        ai = cached.data;
+      } else {
+        const response = await apiRequest('POST', '/api/ai/analyze-signal', {
+          coin: signal.coin,
+          type: signal.type,
+          entry: signal.entry,
+          tp: signal.tp,
+          sl: signal.sl,
+          marketPrice: signal.marketPrice,
+          timeframe: signal.timeframe,
+          confidence: signal.confidence,
+          strategy: signal.strategy,
+        });
+
+        ai = (await response.json()) as AISignalConfirmation;
+        aiResultCache.set(key, { at: Date.now(), data: ai });
+      }
+
+      if ((ai.reasoning || '').toLowerCase().includes('temporarily unavailable')) {
+        aiClientDisabledUntil = Date.now() + AI_CLIENT_COOLDOWN_MS;
+      }
 
       const bias = verdictBias(ai.verdict);
       const directionPenalty =

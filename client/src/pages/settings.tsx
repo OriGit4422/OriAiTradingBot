@@ -70,6 +70,10 @@ export default function SettingsPage() {
   const [binanceApiKey, setBinanceApiKey] = useState('');
   const [bybitApiKey, setBybitApiKey] = useState('');
   const [telegramChatId, setTelegramChatId] = useState('');
+  const [mt5Login, setMt5Login] = useState('');
+  const [mt5Password, setMt5Password] = useState('');
+  const [mt5Server, setMt5Server] = useState('');
+  const [goldRisk, setGoldRisk] = useState('1.0');
 
   // ── Exchange (Binance / Bybit / MEXC) state ──────────────────────────────
   const [binanceApiSecret, setBinanceApiSecret] = useState('');
@@ -295,77 +299,6 @@ export default function SettingsPage() {
       toast({ title: data.ok ? 'Gold auto trade executed' : 'Gold auto trade blocked', description: data.message, variant: data.ok ? 'default' : 'destructive' as any });
     },
   });
-
-  const testExchangeConnection = async (exchange: 'binance' | 'bybit' | 'mexc') => {
-    setTestingExchange(exchange);
-    try {
-      const res = await apiRequest('POST', `/api/exchange/${exchange}/test`);
-      const data = await res.json();
-      if (data.ok) {
-        queryClient.invalidateQueries({ queryKey: ['/api/settings'] });
-        if (data.balance) {
-          const bal = { available: data.balance.availableBalance, total: data.balance.totalWalletBalance };
-          if (exchange === 'binance') setBinanceBalance(bal);
-          else if (exchange === 'bybit') setBybitBalance(bal);
-          else setMexcBalance(bal);
-        }
-        toast({ title: `${exchange.charAt(0).toUpperCase() + exchange.slice(1)} connected!`, description: data.message });
-      } else {
-        toast({ title: 'Connection failed', description: data.message, variant: 'destructive' });
-      }
-    } catch (e: any) {
-      toast({ title: 'Connection error', description: e.message, variant: 'destructive' });
-    } finally {
-      setTestingExchange(null);
-    }
-  };
-
-  const fetchExchangeBalance = async (exchange: 'binance' | 'bybit' | 'mexc') => {
-    setFetchingBalance(exchange);
-    try {
-      const res = await apiRequest('GET', `/api/exchange/${exchange}/balance`);
-      const data = await res.json();
-      if (data.ok) {
-        const bal = { available: data.availableBalance, total: data.totalWalletBalance };
-        if (exchange === 'binance') setBinanceBalance(bal);
-        else if (exchange === 'bybit') setBybitBalance(bal);
-        else setMexcBalance(bal);
-      }
-    } catch {} finally {
-      setFetchingBalance(null);
-    }
-  };
-
-  const saveExchangeSettings = (exchange: 'binance' | 'bybit' | 'mexc') => {
-    if (exchange === 'binance') {
-      updateMutation.mutate({
-        binanceApiKey,
-        binanceApiSecret,
-        binanceAutoTrading,
-        binanceLeverage: parseInt(binanceLeverage) || 10,
-        binanceMarginType,
-        binanceMaxPositionUsdt: parseFloat(binanceMaxPosition) || 100,
-      } as any);
-    } else if (exchange === 'bybit') {
-      updateMutation.mutate({
-        bybitApiKey,
-        bybitApiSecret,
-        bybitAutoTrading,
-        bybitLeverage: parseInt(bybitLeverage) || 10,
-        bybitMarginType,
-        bybitMaxPositionUsdt: parseFloat(bybitMaxPosition) || 100,
-      } as any);
-    } else {
-      updateMutation.mutate({
-        mexcApiKey,
-        mexcApiSecret,
-        mexcAutoTrading,
-        mexcLeverage: parseInt(mexcLeverage) || 10,
-        mexcMarginType,
-        mexcMaxPositionUsdt: parseFloat(mexcMaxPosition) || 100,
-      } as any);
-    }
-  };
 
   const resetUserForm = () => {
     setAddUserOpen(false);

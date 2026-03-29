@@ -29,6 +29,8 @@ import {
   ArrowUpDown,
   PieChart as PieChartIcon,
   LineChart as LineChartIcon,
+  Newspaper,
+  ExternalLink,
 } from 'lucide-react';
 import { fetch24hTicker } from '@/lib/binance';
 import {
@@ -73,6 +75,11 @@ export default function Dashboard() {
 
   const { data: walletData } = useQuery<any>({
     queryKey: ['/api/wallet'],
+  });
+
+  const { data: latestNews } = useQuery<{ items: Array<{ title: string; url: string; source: string; publishedAt: string }> }>({
+    queryKey: ['/api/news/latest?limit=10'],
+    refetchInterval: 120000,
   });
 
   const fetchInsight = async (moversData?: any[]) => {
@@ -543,13 +550,45 @@ export default function Dashboard() {
               </div>
             </div>
 
-            {/* News bar — spans full width, sits below chart + signals */}
-            <div className="col-span-12">
-              <NewsBar coin={selectedCoin} />
-            </div>
-
-            <div className="col-span-12 lg:col-span-8 bg-white rounded-xl border border-border overflow-hidden shadow-sm" data-testid="card-orderbook">
-              <OrderBook symbol={selectedCoin} currentPrice={currentPrice} />
+            <div className="col-span-12 lg:col-span-8 grid grid-cols-1 xl:grid-cols-2 gap-2 md:gap-3">
+              <div className="bg-card rounded-xl border border-green-500/20 overflow-hidden shadow-[0_0_15px_rgba(16,185,129,0.05)]" data-testid="card-orderbook">
+                <OrderBook symbol={selectedCoin} currentPrice={currentPrice} />
+              </div>
+              <div className="bg-card rounded-xl border border-border overflow-hidden" data-testid="card-latest-news">
+                <div className="p-3 border-b border-border bg-muted/20 flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <Newspaper className="w-4 h-4 text-primary" />
+                    <span className="text-xs font-bold uppercase tracking-wider">Top 10 Latest News</span>
+                  </div>
+                  <Badge variant="outline" className="text-[10px] font-mono">{latestNews?.items?.length || 0} Items</Badge>
+                </div>
+                <ScrollArea className="h-[280px]">
+                  <div className="divide-y divide-border/30">
+                    {(latestNews?.items || []).map((item, idx) => (
+                      <a
+                        key={`${item.url}-${idx}`}
+                        href={item.url}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="block p-3 hover:bg-muted/20 transition-colors"
+                        data-testid={`news-item-${idx}`}
+                      >
+                        <div className="flex items-start justify-between gap-2">
+                          <p className="text-xs font-medium leading-snug line-clamp-2">{item.title}</p>
+                          <ExternalLink className="w-3.5 h-3.5 text-muted-foreground mt-0.5 shrink-0" />
+                        </div>
+                        <div className="mt-1 flex items-center justify-between text-[10px] text-muted-foreground font-mono">
+                          <span>{item.source}</span>
+                          <span>{new Date(item.publishedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
+                        </div>
+                      </a>
+                    ))}
+                    {!latestNews?.items?.length && (
+                      <div className="p-6 text-xs text-muted-foreground text-center">News feed unavailable right now.</div>
+                    )}
+                  </div>
+                </ScrollArea>
+              </div>
             </div>
 
             <div className="col-span-12 lg:col-span-4 bg-white rounded-xl border border-border overflow-hidden" data-testid="card-trade-entry">

@@ -9,15 +9,7 @@ import { notifySignal, sendTestNotifications, validateSignalBestPractice } from 
 import { testBinanceConnectivity, testBybitConnectivity } from "./exchange-connectivity";
 import { evaluateSignalsPerformance } from "./signal-performance";
 import { connectMt5, disconnectMt5, generateGoldSignal, getGoldTradingStatus, getLiveGoldPrice, runGoldAutoTradeOnce, setGoldAutoTrading } from "./gold-trading";
-import { getCoinglassData } from "./coinglass";
-import { getNewsSentiment } from "./perplexity";
-import { getWhaleActivity } from "./arkham";
-import { runMultiAgentValidation } from "./signal-validator";
-import { getGoldCandles, getGoldSpotPrice } from "./gold-data";
-import { analyzeGold } from "./gold-analysis";
-import { getMT5AccountInfo, placeMT5Order, getMT5OpenPositions } from "./mt5";
-import { testExchangeConnection, getBinanceBalance, getBybitBalance, getMexcBalance, autoTradeSignal, type ExchangeName } from "./exchanges";
-import { getCoinNews, getMarketNews, aggregateSentiment } from "./news";
+import { getLatestCryptoNews } from "./news";
 
 function getAppVersionInfo() {
   let version = "unknown";
@@ -26,6 +18,7 @@ function getAppVersionInfo() {
     const pkg = JSON.parse(pkgRaw);
     version = pkg.version || "unknown";
   } catch (_e) {}
+
   return {
     appVersion: version,
     buildTime: process.env.BUILD_TIME || new Date().toISOString(),
@@ -143,22 +136,20 @@ export async function registerRoutes(
     }
   });
 
+  app.get("/api/news/latest", async (req, res) => {
+    try {
+      const limitRaw = Number(req.query?.limit ?? 10);
+      const news = await getLatestCryptoNews(Number.isFinite(limitRaw) ? limitRaw : 10);
+      res.json({ items: news });
+    } catch (e: any) {
+      res.status(500).json({ message: e.message });
+    }
+  });
+
   // ─── Gold + MT5 ─────────────────────────────────────────────
   app.get("/api/gold/price", async (_req, res) => {
-    try {
-      // Use gold-data.ts which returns the full GoldSpot shape the frontend expects
-      const spot = await getGoldSpotPrice();
-      if (!spot || !spot.price) {
-        // Fallback to legacy getLiveGoldPrice if getGoldSpotPrice fails
-        const legacy = await getLiveGoldPrice();
-        return res.status(legacy.price ? 200 : 503).json(legacy);
-      }
-      res.json(spot);
-    } catch (e: any) {
-      // Final fallback
-      const legacy = await getLiveGoldPrice().catch(() => ({ price: 0, symbol: 'XAUUSD', source: 'Unavailable', timestamp: new Date().toISOString() }));
-      res.status(legacy.price ? 200 : 503).json(legacy);
-    }
+    const result = await getLiveGoldPrice();
+    res.status(result.price ? 200 : 503).json(result);
   });
 
   app.get("/api/gold/status", (_req, res) => {

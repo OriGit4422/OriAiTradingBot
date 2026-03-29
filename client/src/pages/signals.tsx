@@ -66,61 +66,17 @@ export default function Signals() {
       timeframes.map(tf => ({ coin, tf }))
     );
 
-    // Fetch crypto signals and gold signals in parallel
-    const goldTimeframes = isMobile ? ['1h', '4h'] : ['15m', '1h', '4h', '1d'];
-
-    const [results, goldResults] = await Promise.all([
-      Promise.allSettled(
-        tasks.map(async ({ coin, tf }) => {
-          const data = await fetchKlines(coin, tf, candleLimit);
-          if (data.length > 50) {
-            const signal = getQuantumSignal(coin, data[data.length - 1].close, data);
-            signal.timeframe = tf;
-            return signal;
-          }
-          return null;
-        })
-      ),
-      Promise.allSettled(
-        goldTimeframes.map(async (tf) => {
-          const res = await apiRequest('GET', `/api/gold/signal/${tf}`);
-          const g = await res.json();
-          if (!g || g.type === 'NEUTRAL') return null;
-          // Normalize gold signal to match crypto signal format
-          const macdHist = g.indicators?.macd?.histogram ?? 0;
-          const ema20 = g.indicators?.ema20 ?? 0;
-          const ema50 = g.indicators?.ema50 ?? 0;
-          return {
-            coin: 'XAUUSD',
-            type: g.type === 'BUY' ? 'LONG' : 'SHORT',
-            entry: g.entry,
-            tp: g.tp,
-            sl: g.sl,
-            marketPrice: g.entry,
-            timeframe: g.timeframe,
-            confidence: g.confidence,
-            strategy: 'Gold AI Strategy',
-            rrRatio: g.rrRatio,
-            isGold: true,
-            goldReasoning: g.reasoning,
-            trend: g.trend,
-            keyLevels: g.keyLevels,
-            indicators: {
-              rsi: g.indicators?.rsi ?? 50,
-              macdSignal: macdHist > 0 ? 'BULLISH' : 'BEARISH',
-              emaTrend: ema20 > ema50 ? 'ABOVE' : 'BELOW',
-              volumeProfile: 'NORMAL',
-              marketStructure: g.trend === 'BULLISH' ? 'BULLISH' : g.trend === 'BEARISH' ? 'BEARISH' : 'RANGING',
-              trendStrength: Math.round(g.confidence * 0.9),
-              rsiDivergence: 'NONE',
-              atr: g.indicators?.atr,
-              bbUpper: g.indicators?.bbUpper,
-              bbLower: g.indicators?.bbLower,
-            },
-          };
-        })
-      ),
-    ]);
+    const results = await Promise.allSettled(
+      tasks.map(async ({ coin, tf }) => {
+        const data = await fetchKlines(coin, tf, candleLimit);
+        if (data.length > 50) {
+          const signal = getQuantumSignal(coin, data[data.length - 1].close, data);
+          signal.timeframe = tf;
+          return signal;
+        }
+        return null;
+      })
+    );
 
     const cryptoSignals = results
       .filter((r): r is PromiseFulfilledResult<any> => r.status === 'fulfilled' && r.value !== null)
@@ -130,14 +86,7 @@ export default function Signals() {
         return s.confidence > 75 || ALWAYS_INCLUDE.includes(s.coin);
       });
 
-    const goldSignals = goldResults
-      .filter((r): r is PromiseFulfilledResult<any> => r.status === 'fulfilled' && r.value !== null)
-      .map(r => r.value);
-
-    const newSignals = [...cryptoSignals, ...goldSignals];
-
-    const aiLimit = isMobile ? 8 : 16;
-    const aiConfirmed = await enhanceSignalsWithAI(newSignals, aiLimit);
+    const aiConfirmed = await enhanceSignalsWithAI(newSignals, isMobile ? 8 : 14);
     const sorted = aiConfirmed.sort((a, b) => b.confidence - a.confidence);
     setLiveSignals(sorted);
 

@@ -75,6 +75,51 @@ export default function SettingsPage() {
   const [goldMt5Server, setGoldMt5Server] = useState('');
   const [goldRiskPercent, setGoldRiskPercent] = useState('1.0');
 
+  // Advanced API key states
+  const [discordWebhookUrl, setDiscordWebhookUrl] = useState('');
+  const [coinglassApiKey, setCoinglassApiKey] = useState('');
+  const [perplexityApiKey, setPerplexityApiKey] = useState('');
+  const [arkhamApiKey, setArkhamApiKey] = useState('');
+  const [newsApiKey, setNewsApiKey] = useState('');
+  const [metaApiToken, setMetaApiToken] = useState('');
+  const [metaApiAccountId, setMetaApiAccountId] = useState('');
+  // Gold auto-trading states
+  const [goldLotSize, setGoldLotSize] = useState('0.01');
+  const [goldMaxDailyTrades, setGoldMaxDailyTrades] = useState('5');
+  const [goldMinConfidence, setGoldMinConfidence] = useState('75');
+  const [goldAutoTradingEnabled, setGoldAutoTradingEnabled] = useState(false);
+  // Exchange states (Binance)
+  const [binanceApiSecret, setBinanceApiSecret] = useState('');
+  const [binanceAutoTrading, setBinanceAutoTrading] = useState(false);
+  const [binanceLeverage, setBinanceLeverage] = useState('10');
+  const [binanceMarginType, setBinanceMarginType] = useState('ISOLATED');
+  const [binanceMaxPosition, setBinanceMaxPosition] = useState('100');
+  // Exchange states (Bybit)
+  const [bybitApiSecret, setBybitApiSecret] = useState('');
+  const [bybitAutoTrading, setBybitAutoTrading] = useState(false);
+  const [bybitLeverage, setBybitLeverage] = useState('10');
+  const [bybitMarginType, setBybitMarginType] = useState('ISOLATED');
+  const [bybitMaxPosition, setBybitMaxPosition] = useState('100');
+  // Exchange states (MEXC)
+  const [mexcApiKey, setMexcApiKey] = useState('');
+  const [mexcApiSecret, setMexcApiSecret] = useState('');
+  const [mexcAutoTrading, setMexcAutoTrading] = useState(false);
+  const [mexcLeverage, setMexcLeverage] = useState('10');
+  const [mexcMarginType, setMexcMarginType] = useState('ISOLATED');
+  const [mexcMaxPosition, setMexcMaxPosition] = useState('100');
+  // Exchange UI states
+  const [testingExchange, setTestingExchange] = useState<string | null>(null);
+  const [fetchingBalance, setFetchingBalance] = useState<string | null>(null);
+  const [binanceBalance, setBinanceBalance] = useState<{ available: number; total: number } | null>(null);
+  const [bybitBalance, setBybitBalance] = useState<{ available: number; total: number } | null>(null);
+  const [mexcBalance, setMexcBalance] = useState<{ available: number; total: number } | null>(null);
+  // Theme states
+  const [activeThemeId, setActiveThemeId] = useState<string>(() => getActiveThemeId());
+  const [customThemes, setCustomThemes] = useState<CustomTheme[]>(() => getCustomThemes());
+  const [customName, setCustomName] = useState('');
+  const [customBase, setCustomBase] = useState<'light' | 'dark'>('dark');
+  const [customPrimary, setCustomPrimary] = useState('#0ea5e9');
+
   const [addUserOpen, setAddUserOpen] = useState(false);
   const [editUser, setEditUser] = useState<UserAccess | null>(null);
   const [newEmail, setNewEmail] = useState('');
@@ -258,6 +303,104 @@ export default function SettingsPage() {
 
   const togglePermission = (perm: string) => {
     setNewPermissions(prev => prev.includes(perm) ? prev.filter(p => p !== perm) : [...prev, perm]);
+  };
+
+  // Theme handlers
+  const handleApplyTheme = (theme: Theme | CustomTheme) => {
+    applyTheme(theme);
+    setActiveThemeId(theme.id);
+  };
+
+  const handleDeleteCustom = (id: string) => {
+    deleteCustomTheme(id);
+    setCustomThemes(getCustomThemes());
+    if (activeThemeId === id) {
+      const fallback = getAllThemes()[0];
+      if (fallback) handleApplyTheme(fallback);
+    }
+  };
+
+  const handleSaveCustom = () => {
+    const name = customName.trim() || 'Custom Theme';
+    const hex = customPrimary.length === 7 ? customPrimary : '#0ea5e9';
+    const hsl = hexToHsl(hex);
+    const vars = buildCustomVars(hsl, customBase);
+    const id = `custom-${Date.now()}`;
+    const theme: CustomTheme = {
+      id, name, type: customBase, primaryHex: hex, custom: true, vars,
+      preview: { bg: customBase === 'light' ? '#f4f6f8' : '#0f172a', card: customBase === 'light' ? '#ffffff' : '#1e293b', primary: hex, accent2: '#64748b' },
+    };
+    saveCustomTheme(theme);
+    setCustomThemes(getCustomThemes());
+    handleApplyTheme(theme);
+    setCustomName('');
+    toast({ title: 'Custom theme saved', description: `"${name}" applied.` });
+  };
+
+  // Exchange handlers
+  const fetchExchangeBalance = async (exchange: string) => {
+    setFetchingBalance(exchange);
+    try {
+      const res = await apiRequest('GET', `/api/exchange/${exchange}/balance`);
+      const data = await res.json();
+      if (data.ok !== false) {
+        const bal = { available: data.availableBalance ?? 0, total: data.totalWalletBalance ?? 0 };
+        if (exchange === 'binance') setBinanceBalance(bal);
+        else if (exchange === 'bybit') setBybitBalance(bal);
+        else if (exchange === 'mexc') setMexcBalance(bal);
+      }
+    } catch { /* silent */ }
+    setFetchingBalance(null);
+  };
+
+  const saveExchangeSettings = (exchange: string) => {
+    const patch: Record<string, any> = {};
+    if (exchange === 'binance') {
+      patch.binanceApiKey = binanceApiKey;
+      patch.binanceApiSecret = binanceApiSecret;
+      patch.binanceLeverage = parseInt(binanceLeverage) || 10;
+      patch.binanceMarginType = binanceMarginType;
+      patch.binanceMaxPositionUsdt = parseInt(binanceMaxPosition) || 100;
+      patch.binanceAutoTrading = binanceAutoTrading;
+    } else if (exchange === 'bybit') {
+      patch.bybitApiKey = bybitApiKey;
+      patch.bybitApiSecret = bybitApiSecret;
+      patch.bybitLeverage = parseInt(bybitLeverage) || 10;
+      patch.bybitMarginType = bybitMarginType;
+      patch.bybitMaxPositionUsdt = parseInt(bybitMaxPosition) || 100;
+      patch.bybitAutoTrading = bybitAutoTrading;
+    } else if (exchange === 'mexc') {
+      patch.mexcApiKey = mexcApiKey;
+      patch.mexcApiSecret = mexcApiSecret;
+      patch.mexcLeverage = parseInt(mexcLeverage) || 10;
+      patch.mexcMarginType = mexcMarginType;
+      patch.mexcMaxPositionUsdt = parseInt(mexcMaxPosition) || 100;
+      patch.mexcAutoTrading = mexcAutoTrading;
+    }
+    updateMutation.mutate(patch as any);
+  };
+
+  const testExchangeConnection = async (exchange: string) => {
+    setTestingExchange(exchange);
+    try {
+      const keyMap: Record<string, [string, string]> = {
+        binance: [binanceApiKey, binanceApiSecret],
+        bybit: [bybitApiKey, bybitApiSecret],
+        mexc: [mexcApiKey, mexcApiSecret],
+      };
+      const [apiKey, apiSecret] = keyMap[exchange] ?? ['', ''];
+      const res = await apiRequest('POST', `/api/exchange/${exchange}/test`, { apiKey, apiSecret });
+      const data = await res.json();
+      if (data.ok) {
+        toast({ title: `${exchange} connected!`, description: data.message });
+        queryClient.invalidateQueries({ queryKey: ['/api/settings'] });
+      } else {
+        toast({ title: `${exchange} connection failed`, description: data.message, variant: 'destructive' });
+      }
+    } catch (e: any) {
+      toast({ title: 'Connection error', description: e.message, variant: 'destructive' });
+    }
+    setTestingExchange(null);
   };
 
   if (isError) {

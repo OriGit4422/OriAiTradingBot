@@ -10,6 +10,13 @@ import { testBinanceConnectivity, testBybitConnectivity } from "./exchange-conne
 import { evaluateSignalsPerformance } from "./signal-performance";
 import { connectMt5, disconnectMt5, generateGoldSignal, getGoldCandles, getGoldTradingStatus, getLiveGoldPrice, runGoldAutoTradeOnce, setGoldAutoTrading } from "./gold-trading";
 import { getCoinNews, getLatestCryptoNews } from "./news";
+import { type ExchangeName, testExchangeConnection, getBinanceBalance, getBybitBalance, getMexcBalance, autoTradeSignal } from "./exchanges";
+import { analyzeGold } from "./gold-analysis";
+import { getMT5AccountInfo, placeMT5Order, getMT5OpenPositions } from "./mt5";
+import { getCoinglassData } from "./coinglass";
+import { getNewsSentiment } from "./perplexity";
+import { getWhaleActivity } from "./arkham";
+import { runMultiAgentValidation } from "./signal-validator";
 
 function getAppVersionInfo() {
   let version = "unknown";
@@ -51,18 +58,12 @@ export async function registerRoutes(
       // Enrich with news context if NewsAPI key is available
       let enrichedData = { ...signalData };
       try {
-        const s = await storage.getSettings();
-        const newsApiKey = (s as any)?.newsApiKey || process.env.NEWS_API_KEY || 'd66b436737204e49a72f1cafb522d483';
-        if (newsApiKey) {
-          const { articles, sentiment } = await getCoinNews(signalData.coin, newsApiKey, 5)
-            .then(arts => ({ articles: arts, sentiment: aggregateSentiment(arts) }));
-          if (articles.length) {
-            enrichedData.agentContext = {
-              ...enrichedData.agentContext,
-              newsImpact: sentiment.overall,
-              newsTopHeadlines: articles.slice(0, 3).map((a: any) => a.title),
-            };
-          }
+        const { articles } = await getCoinNews(signalData.coin, 5);
+        if (articles.length) {
+          enrichedData.agentContext = {
+            ...enrichedData.agentContext,
+            newsTopHeadlines: articles.slice(0, 3).map((a: any) => a.title),
+          };
         }
       } catch (_e) { /* non-fatal: news enrichment is best-effort */ }
 
@@ -146,23 +147,12 @@ export async function registerRoutes(
     }
   });
 
-  // Legacy news endpoint kept for backward compatibility
-  app.get("/api/news/:symbol", async (req, res) => {
-    try {
-      const payload = await getCoinNews(req.params.symbol, 10);
-      res.json(payload);
-    } catch (e: any) {
-      res.status(500).json({ message: e.message, articles: [], sentiment: null });
-    }
-  });
-
   // ─── Gold + MT5 ─────────────────────────────────────────────
   app.get("/api/gold/price", async (_req, res) => {
     const result = await getLiveGoldPrice();
     res.status(result.price ? 200 : 503).json(result);
   });
 
-  // Legacy endpoint kept for backward compatibility
   app.get("/api/gold/candles/:timeframe", async (req, res) => {
     try {
       const candles = await getGoldCandles(req.params.timeframe || "1h");
@@ -603,17 +593,7 @@ export async function registerRoutes(
 
   // ─── Gold Extended Routes ─────────────────────────────────────────────────
 
-  // GET /api/gold/candles/:interval  (1m | 5m | 15m | 30m | 1h | 4h | 1d)
-  app.get("/api/gold/candles/:interval", async (req, res) => {
-    try {
-      const interval = req.params.interval || '1h';
-      const limit = parseInt(req.query.limit as string) || 200;
-      const candles = await getGoldCandles(interval, limit);
-      res.json(candles);
-    } catch (e: any) {
-      res.status(500).json({ message: e.message });
-    }
-  });
+  // /api/gold/candles/:interval is handled above (line ~167)
 
   // GET /api/gold/signal/:timeframe
   app.get("/api/gold/signal/:timeframe", async (req, res) => {
@@ -767,13 +747,10 @@ export async function registerRoutes(
 
   // ── NEWS ROUTES ──────────────────────────────────────────────────────────────
 
-  // GET /api/news/market — general crypto market news + aggregate sentiment
-  app.get("/api/news/market", async (req, res) => {
+  // GET /api/news/market — general crypto market news
+  app.get("/api/news/market", async (_req, res) => {
     try {
-      const s = await storage.getSettings();
-      const apiKey = (s as any)?.newsApiKey || process.env.NEWS_API_KEY || 'd66b436737204e49a72f1cafb522d483';
-      const articles = await getMarketNews(apiKey, 10);
-      const sentiment = aggregateSentiment(articles);
+      const { articles, sentiment } = await getCoinNews('crypto', 10);
       res.json({ articles, sentiment });
     } catch (e: any) {
       res.status(500).json({ message: e.message, articles: [], sentiment: null });
@@ -783,11 +760,8 @@ export async function registerRoutes(
   // GET /api/news/:coin — coin-specific news (BTC, ETH, XAUUSD, etc.)
   app.get("/api/news/:coin", async (req, res) => {
     try {
-      const s = await storage.getSettings();
-      const apiKey = (s as any)?.newsApiKey || process.env.NEWS_API_KEY || 'd66b436737204e49a72f1cafb522d483';
       const limit = parseInt(req.query.limit as string) || 5;
-      const articles = await getCoinNews(req.params.coin, apiKey, limit);
-      const sentiment = aggregateSentiment(articles);
+      const { articles, sentiment } = await getCoinNews(req.params.coin, limit);
       res.json({ articles, sentiment });
     } catch (e: any) {
       res.status(500).json({ message: e.message, articles: [], sentiment: null });

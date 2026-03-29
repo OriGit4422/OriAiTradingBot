@@ -1,13 +1,13 @@
 import { useEffect, useState, useCallback } from 'react';
 import { Badge } from '@/components/ui/badge';
 import { ScrollArea } from '@/components/ui/scroll-area';
+import { Input } from '@/components/ui/input';
 import { getQuantumSignal, calculateMultiTFConfluence } from '@/lib/strategies';
 import { fetchKlines } from '@/lib/binance';
 import { enhanceSignalsWithAI } from '@/lib/signal-ai';
 import { cn } from '@/lib/utils';
 import { Clock, Loader2, BrainCircuit, Zap, Flame, Send, TrendingUp, TrendingDown, BarChart3, RefreshCw, ChevronDown, ChevronRight, Activity, X, Target, Shield, Search } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
 import { toast } from '@/hooks/use-toast';
 import { apiRequest, queryClient } from '@/lib/queryClient';
 import {
@@ -83,10 +83,8 @@ export function SignalFeed({ compact = false, onSelectCoin }: SignalFeedProps) {
     return () => clearInterval(interval);
   }, [generateAllSignals]);
 
-  const filteredSignals = (selectedTF === 'ALL'
-    ? allSignals
-    : allSignals.filter(s => s.timeframe === selectedTF))
-    .filter((s) => !searchQuery || s.coin.toLowerCase().includes(searchQuery.toLowerCase()))
+  const filteredSignals = (selectedTF === 'ALL' ? allSignals : allSignals.filter(s => s.timeframe === selectedTF))
+    .filter(s => !searchQuery || s.coin.toLowerCase().includes(searchQuery.toLowerCase()))
     .sort((a, b) => b.confidence - a.confidence);
   const visibleSignals = filteredSignals.slice(0, 10);
 

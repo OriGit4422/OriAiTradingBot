@@ -100,6 +100,7 @@ export default function SettingsPage() {
   const [coinglassApiKey, setCoinglassApiKey] = useState('');
   const [perplexityApiKey, setPerplexityApiKey] = useState('');
   const [arkhamApiKey, setArkhamApiKey] = useState('');
+  const [newsApiKey, setNewsApiKey] = useState('');
 
   // ── MT5 / Gold state ─────────────────────────────────────────────────────
   // Legacy simple MT5 login fields (used by built-in gold-trading module)
@@ -166,6 +167,7 @@ export default function SettingsPage() {
       setCoinglassApiKey(settings.coinglassApiKey ?? '');
       setPerplexityApiKey(settings.perplexityApiKey ?? '');
       setArkhamApiKey(settings.arkhamApiKey ?? '');
+      setNewsApiKey((settings as any).newsApiKey ?? '');
       setMetaApiToken(settings.metaApiToken ?? '');
       setMetaApiAccountId(settings.metaApiAccountId ?? '');
       setGoldLotSize(String(settings.goldLotSize ?? 0.01));
@@ -1062,6 +1064,7 @@ export default function SettingsPage() {
                     <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mb-2">
                       {[
                         { label: 'Claude AI', desc: 'Always active — primary analysis', color: 'text-violet-400', bg: 'bg-violet-500/10', Icon: Brain, active: true },
+                        { label: 'NewsAPI', desc: 'Live news impact on signals', color: 'text-blue-400', bg: 'bg-blue-500/10', Icon: Globe, active: !!(settings as any).newsApiKey },
                         { label: 'Coinglass', desc: 'Funding rates & long/short data', color: 'text-orange-400', bg: 'bg-orange-500/10', Icon: Activity, active: !!settings.coinglassApiKey },
                         { label: 'Perplexity', desc: 'Real-time news sentiment', color: 'text-sky-400', bg: 'bg-sky-500/10', Icon: Globe, active: !!settings.perplexityApiKey },
                         { label: 'Arkham', desc: 'Whale & smart money tracking', color: 'text-cyan-400', bg: 'bg-cyan-500/10', Icon: Zap, active: !!settings.arkhamApiKey },
@@ -1222,6 +1225,58 @@ export default function SettingsPage() {
                         <li>Create a new key and copy it</li>
                         <li>Paste above and Save</li>
                       </ol>
+                    </div>
+                  </CardContent>
+                </Card>
+
+                {/* NewsAPI */}
+                <Card className="bg-card border-border">
+                  <CardHeader>
+                    <div className="flex items-center gap-3">
+                      <div className="w-10 h-10 bg-blue-500/10 rounded-lg flex items-center justify-center">
+                        <Globe className="w-5 h-5 text-blue-400" />
+                      </div>
+                      <div>
+                        <CardTitle className="text-base">NewsAPI — Live News Impact</CardTitle>
+                        <CardDescription>Real-time news articles for each coin. Feeds headline sentiment into Claude signal analysis. Powers the news bar on the dashboard.</CardDescription>
+                      </div>
+                      <div className={`ml-auto text-xs font-semibold px-2 py-1 rounded-full ${(settings as any).newsApiKey ? 'bg-green-500/10 text-green-500' : 'bg-secondary text-muted-foreground'}`}>
+                        {(settings as any).newsApiKey ? 'Active' : 'Inactive'}
+                      </div>
+                    </div>
+                  </CardHeader>
+                  <CardContent className="space-y-3">
+                    <div className="space-y-1">
+                      <Label className="text-xs">API Key</Label>
+                      <div className="flex gap-2">
+                        <Input
+                          type="password"
+                          value={newsApiKey}
+                          onChange={(e) => setNewsApiKey(e.target.value)}
+                          placeholder="Enter NewsAPI key..."
+                          className="bg-secondary font-mono text-xs"
+                        />
+                        <Button
+                          size="sm"
+                          onClick={() => updateMutation.mutate({ newsApiKey: newsApiKey || null } as any)}
+                          disabled={updateMutation.isPending || newsApiKey === ((settings as any).newsApiKey ?? '')}
+                        >
+                          Save
+                        </Button>
+                      </div>
+                    </div>
+                    <div className="rounded-lg bg-blue-500/5 border border-blue-500/20 p-3 space-y-1">
+                      <p className="text-[11px] font-semibold text-blue-400">How to get your NewsAPI key:</p>
+                      <ol className="text-[11px] text-muted-foreground space-y-0.5 list-decimal list-inside">
+                        <li>Sign up free at newsapi.org</li>
+                        <li>Your API key is shown on the dashboard after registration</li>
+                        <li>Paste above and Save — news will appear on the dashboard immediately</li>
+                      </ol>
+                    </div>
+                    <div className="rounded-lg bg-secondary/40 border border-border p-3">
+                      <p className="text-[11px] text-muted-foreground">
+                        <span className="font-semibold text-foreground">What this powers:</span> News ticker bar below every chart, per-coin headline sentiment injection into Claude AI signal analysis, X/social sentiment layer in market intelligence.
+                      </p>
                     </div>
                   </CardContent>
                 </Card>

@@ -62,6 +62,7 @@ export const settings = pgTable("settings", {
   coinglassApiKey: text("coinglass_api_key"),
   perplexityApiKey: text("perplexity_api_key"),
   arkhamApiKey: text("arkham_api_key"),
+  newsApiKey: text("news_api_key"),
   // MT5 / Gold trading
   metaApiToken: text("meta_api_token"),
   metaApiAccountId: text("meta_api_account_id"),

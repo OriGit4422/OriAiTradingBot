@@ -58,8 +58,11 @@ export interface AgentContext {
   newsSentiment?:    string;
   newsHeadline?:     string;
   newsRiskLevel?:    string;
+  newsImpact?:       string;      // NewsAPI aggregate sentiment (BULLISH/BEARISH/NEUTRAL)
+  newsTopHeadlines?: string[];    // Up to 3 most impactful headlines
   whaleBias?:        string;
   whaleSignal?:      string;
+  xSentiment?:       string;      // Social/X sentiment
 }
 
 export async function analyzeSignalWithAI(signalData: {
@@ -91,6 +94,8 @@ export async function analyzeSignalWithAI(signalData: {
 Multi-Agent Intelligence (already gathered — use this to sharpen your assessment):
 ${ctx.coinglassBias    ? `- Derivatives (Coinglass): Bias=${ctx.coinglassBias}, Signal="${ctx.coinglassSignal}", Funding=${ctx.fundingRate?.toFixed(5)}%, Longs=${ctx.longPercent?.toFixed(0)}%` : ''}
 ${ctx.newsSentiment    ? `- News (Perplexity):       Sentiment=${ctx.newsSentiment}, RiskLevel=${ctx.newsRiskLevel}, Headline="${ctx.newsHeadline}"` : ''}
+${ctx.newsImpact       ? `- News (NewsAPI):          Overall=${ctx.newsImpact}${ctx.newsTopHeadlines?.length ? `, Top headlines: ${ctx.newsTopHeadlines.slice(0,3).map((h,i) => `[${i+1}] ${h}`).join(' | ')}` : ''}` : ''}
+${ctx.xSentiment       ? `- X/Social Sentiment:      ${ctx.xSentiment}` : ''}
 ${ctx.whaleBias        ? `- Whale Flow (Arkham):     Bias=${ctx.whaleBias}, Signal="${ctx.whaleSignal}"` : ''}
 ` : '';
 

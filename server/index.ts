@@ -90,7 +90,8 @@ app.use((req, res, next) => {
         ADD COLUMN IF NOT EXISTS mexc_auto_trading              BOOLEAN NOT NULL DEFAULT false,
         ADD COLUMN IF NOT EXISTS mexc_leverage                  INTEGER NOT NULL DEFAULT 10,
         ADD COLUMN IF NOT EXISTS mexc_margin_type               TEXT    NOT NULL DEFAULT 'ISOLATED',
-        ADD COLUMN IF NOT EXISTS mexc_max_position_usdt         REAL    NOT NULL DEFAULT 100;
+        ADD COLUMN IF NOT EXISTS mexc_max_position_usdt         REAL    NOT NULL DEFAULT 100,
+        ADD COLUMN IF NOT EXISTS news_api_key                   TEXT;
     `);
   } catch (e: any) {
     // Non-fatal: table may not exist yet on first boot (db:push handles full init)

@@ -8,6 +8,7 @@ import { TradeEntry } from '@/components/dashboard/TradeEntry';
 import { OrderBook } from '@/components/dashboard/OrderBook';
 import { TopSignalsPanel } from '@/components/dashboard/TopSignalsPanel';
 import { AIAgentsPanel } from '@/components/dashboard/AIAgentsPanel';
+import { NewsBar } from '@/components/dashboard/NewsBar';
 import { Button } from '@/components/ui/button';
 import {
   Bell,
@@ -540,6 +541,11 @@ export default function Dashboard() {
               <div className="flex-1 overflow-hidden">
                 <SignalFeed onSelectCoin={setSelectedCoin} />
               </div>
+            </div>
+
+            {/* News bar — spans full width, sits below chart + signals */}
+            <div className="col-span-12">
+              <NewsBar coin={selectedCoin} />
             </div>
 
             <div className="col-span-12 lg:col-span-8 bg-white rounded-xl border border-border overflow-hidden shadow-sm" data-testid="card-orderbook">

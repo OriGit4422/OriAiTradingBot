@@ -34,10 +34,42 @@ export const settings = pgTable("settings", {
   notifyOnSignal: boolean("notify_on_signal").notNull().default(true),
   notifyOnHighConfidence: boolean("notify_on_high_confidence").notNull().default(true),
   minNotifyConfidence: integer("min_notify_confidence").notNull().default(80),
+  // Binance Futures
   binanceApiKey: text("binance_api_key"),
+  binanceApiSecret: text("binance_api_secret"),
   binanceConnected: boolean("binance_connected").notNull().default(false),
+  binanceAutoTrading: boolean("binance_auto_trading").notNull().default(false),
+  binanceLeverage: integer("binance_leverage").notNull().default(10),
+  binanceMarginType: text("binance_margin_type").notNull().default("ISOLATED"),
+  binanceMaxPositionUsdt: real("binance_max_position_usdt").notNull().default(100),
+  // Bybit Futures
   bybitApiKey: text("bybit_api_key"),
+  bybitApiSecret: text("bybit_api_secret"),
   bybitConnected: boolean("bybit_connected").notNull().default(false),
+  bybitAutoTrading: boolean("bybit_auto_trading").notNull().default(false),
+  bybitLeverage: integer("bybit_leverage").notNull().default(10),
+  bybitMarginType: text("bybit_margin_type").notNull().default("ISOLATED"),
+  bybitMaxPositionUsdt: real("bybit_max_position_usdt").notNull().default(100),
+  // MEXC Futures
+  mexcApiKey: text("mexc_api_key"),
+  mexcApiSecret: text("mexc_api_secret"),
+  mexcConnected: boolean("mexc_connected").notNull().default(false),
+  mexcAutoTrading: boolean("mexc_auto_trading").notNull().default(false),
+  mexcLeverage: integer("mexc_leverage").notNull().default(10),
+  mexcMarginType: text("mexc_margin_type").notNull().default("ISOLATED"),
+  mexcMaxPositionUsdt: real("mexc_max_position_usdt").notNull().default(100),
+  // AI Agent integrations
+  coinglassApiKey: text("coinglass_api_key"),
+  perplexityApiKey: text("perplexity_api_key"),
+  arkhamApiKey: text("arkham_api_key"),
+  newsApiKey: text("news_api_key"),
+  // MT5 / Gold trading
+  metaApiToken: text("meta_api_token"),
+  metaApiAccountId: text("meta_api_account_id"),
+  goldAutoTradingEnabled: boolean("gold_auto_trading_enabled").notNull().default(false),
+  goldLotSize: real("gold_lot_size").notNull().default(0.01),
+  goldMaxDailyTrades: integer("gold_max_daily_trades").notNull().default(5),
+  goldMinConfidence: integer("gold_min_confidence").notNull().default(75),
 });
 
 export const insertSettingsSchema = createInsertSchema(settings).omit({ id: true });
@@ -124,6 +156,26 @@ export const userAccess = pgTable("user_access", {
 export const insertUserAccessSchema = createInsertSchema(userAccess).omit({ id: true, createdAt: true });
 export type InsertUserAccess = z.infer<typeof insertUserAccessSchema>;
 export type UserAccess = typeof userAccess.$inferSelect;
+
+// Gold Trades
+export const goldTrades = pgTable("gold_trades", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  type: text("type").notNull(), // BUY | SELL
+  lotSize: real("lot_size").notNull(),
+  entryPrice: real("entry_price").notNull(),
+  tp: real("tp").notNull(),
+  sl: real("sl").notNull(),
+  confidence: integer("confidence").notNull(),
+  status: text("status").notNull().default("OPEN"), // OPEN | CLOSED | CANCELLED
+  mt5OrderId: text("mt5_order_id"),
+  pnl: real("pnl"),
+  closedAt: timestamp("closed_at"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+});
+
+export const insertGoldTradeSchema = createInsertSchema(goldTrades).omit({ id: true, createdAt: true, closedAt: true, pnl: true });
+export type InsertGoldTrade = z.infer<typeof insertGoldTradeSchema>;
+export type GoldTrade = typeof goldTrades.$inferSelect;
 
 // AI Chat (for integration)
 export { conversations, messages } from "./models/chat";

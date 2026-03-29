@@ -62,21 +62,6 @@ export async function enhanceSignalsWithAI(signals: any[], limit = 12): Promise<
       if ((ai.reasoning || '').toLowerCase().includes('temporarily unavailable')) {
         aiClientDisabledUntil = Date.now() + AI_CLIENT_COOLDOWN_MS;
       }
-  await Promise.allSettled(
-    sortedIndexes.map(async ({ signal, index }) => {
-      const response = await apiRequest('POST', '/api/ai/analyze-signal', {
-        coin: signal.coin,
-        type: signal.type,
-        entry: signal.entry,
-        tp: signal.tp,
-        sl: signal.sl,
-        marketPrice: signal.marketPrice,
-        timeframe: signal.timeframe,
-        confidence: signal.confidence,
-        strategy: signal.strategy,
-      });
-
-      const ai = (await response.json()) as AISignalConfirmation;
 
       const bias = verdictBias(ai.verdict);
       const directionPenalty =
@@ -102,12 +87,10 @@ export async function enhanceSignalsWithAI(signals: any[], limit = 12): Promise<
       };
 
       if (Date.now() < aiClientDisabledUntil) break;
-    } catch {
+    } catch (_error) {
       continue;
     }
   }
-    })
-  );
 
   return enhancedSignals;
 }

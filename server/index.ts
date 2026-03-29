@@ -65,15 +65,32 @@ app.use((req, res, next) => {
   try {
     await pool.query(`
       ALTER TABLE settings
-        ADD COLUMN IF NOT EXISTS coinglass_api_key         TEXT,
-        ADD COLUMN IF NOT EXISTS perplexity_api_key        TEXT,
-        ADD COLUMN IF NOT EXISTS arkham_api_key            TEXT,
-        ADD COLUMN IF NOT EXISTS meta_api_token            TEXT,
-        ADD COLUMN IF NOT EXISTS meta_api_account_id       TEXT,
-        ADD COLUMN IF NOT EXISTS gold_auto_trading_enabled BOOLEAN NOT NULL DEFAULT false,
-        ADD COLUMN IF NOT EXISTS gold_lot_size             REAL    NOT NULL DEFAULT 0.01,
-        ADD COLUMN IF NOT EXISTS gold_max_daily_trades     INTEGER NOT NULL DEFAULT 5,
-        ADD COLUMN IF NOT EXISTS gold_min_confidence       INTEGER NOT NULL DEFAULT 75;
+        ADD COLUMN IF NOT EXISTS coinglass_api_key              TEXT,
+        ADD COLUMN IF NOT EXISTS perplexity_api_key             TEXT,
+        ADD COLUMN IF NOT EXISTS arkham_api_key                 TEXT,
+        ADD COLUMN IF NOT EXISTS meta_api_token                 TEXT,
+        ADD COLUMN IF NOT EXISTS meta_api_account_id            TEXT,
+        ADD COLUMN IF NOT EXISTS gold_auto_trading_enabled      BOOLEAN NOT NULL DEFAULT false,
+        ADD COLUMN IF NOT EXISTS gold_lot_size                  REAL    NOT NULL DEFAULT 0.01,
+        ADD COLUMN IF NOT EXISTS gold_max_daily_trades          INTEGER NOT NULL DEFAULT 5,
+        ADD COLUMN IF NOT EXISTS gold_min_confidence            INTEGER NOT NULL DEFAULT 75,
+        ADD COLUMN IF NOT EXISTS binance_api_secret             TEXT,
+        ADD COLUMN IF NOT EXISTS binance_auto_trading           BOOLEAN NOT NULL DEFAULT false,
+        ADD COLUMN IF NOT EXISTS binance_leverage               INTEGER NOT NULL DEFAULT 10,
+        ADD COLUMN IF NOT EXISTS binance_margin_type            TEXT    NOT NULL DEFAULT 'ISOLATED',
+        ADD COLUMN IF NOT EXISTS binance_max_position_usdt      REAL    NOT NULL DEFAULT 100,
+        ADD COLUMN IF NOT EXISTS bybit_api_secret               TEXT,
+        ADD COLUMN IF NOT EXISTS bybit_auto_trading             BOOLEAN NOT NULL DEFAULT false,
+        ADD COLUMN IF NOT EXISTS bybit_leverage                 INTEGER NOT NULL DEFAULT 10,
+        ADD COLUMN IF NOT EXISTS bybit_margin_type              TEXT    NOT NULL DEFAULT 'ISOLATED',
+        ADD COLUMN IF NOT EXISTS bybit_max_position_usdt        REAL    NOT NULL DEFAULT 100,
+        ADD COLUMN IF NOT EXISTS mexc_api_key                   TEXT,
+        ADD COLUMN IF NOT EXISTS mexc_api_secret                TEXT,
+        ADD COLUMN IF NOT EXISTS mexc_connected                 BOOLEAN NOT NULL DEFAULT false,
+        ADD COLUMN IF NOT EXISTS mexc_auto_trading              BOOLEAN NOT NULL DEFAULT false,
+        ADD COLUMN IF NOT EXISTS mexc_leverage                  INTEGER NOT NULL DEFAULT 10,
+        ADD COLUMN IF NOT EXISTS mexc_margin_type               TEXT    NOT NULL DEFAULT 'ISOLATED',
+        ADD COLUMN IF NOT EXISTS mexc_max_position_usdt         REAL    NOT NULL DEFAULT 100;
     `);
   } catch (e: any) {
     // Non-fatal: table may not exist yet on first boot (db:push handles full init)

@@ -215,7 +215,7 @@ export function SignalFeed({ compact = false, onSelectCoin }: SignalFeedProps) {
                   </div>
 
                     <div className="flex items-center gap-1 mb-1.5">
-                      <Badge variant="outline" className="text-[8px] h-4 px-1 border-primary/20 bg-primary/8 text-primary font-bold">
+                      <Badge variant="outline" className="text-[8px] h-4 px-1 border-primary/30 bg-primary/5 text-primary font-bold">
                         {signal.strategy}
                       </Badge>
                       {signal.aiConfirmation?.verdict && (

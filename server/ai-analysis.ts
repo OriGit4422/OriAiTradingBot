@@ -5,6 +5,42 @@ const anthropic = new Anthropic({
   baseURL: process.env.AI_INTEGRATIONS_ANTHROPIC_BASE_URL,
 });
 
+const AI_PROVIDER_COOLDOWN_MS = 15 * 60 * 1000;
+let aiProviderDisabledUntil = 0;
+let lastAIAuthErrorLogAt = 0;
+
+function isAnthropicAuthenticationError(error: any): boolean {
+  const status = error?.status;
+  const faultString = error?.error?.fault?.faultstring || "";
+  const errorCode = error?.error?.fault?.detail?.errorcode || "";
+  const message = error?.message || "";
+  return (
+    status === 401 ||
+    /ApiKey not approved/i.test(faultString) ||
+    /ApiKeyNotApproved/i.test(errorCode) ||
+    /authentication/i.test(message)
+  );
+}
+
+function getAIFallback(signalData: {
+  type: string;
+  confidence: number;
+  sl: number;
+  tp: number;
+}): AISignalAnalysis {
+  const isLong = signalData.type?.toUpperCase() === "LONG";
+  const isShort = signalData.type?.toUpperCase() === "SHORT";
+
+  return {
+    verdict: isLong ? "BUY" : isShort ? "SELL" : signalData.confidence >= 85 ? "BUY" : "NEUTRAL",
+    adjustedConfidence: signalData.confidence,
+    reasoning: "AI analysis temporarily unavailable - using base signal data",
+    riskLevel: "MEDIUM",
+    keyLevels: { support: signalData.sl, resistance: signalData.tp },
+    marketSentiment: "Calculating...",
+  };
+}
+
 export interface AISignalAnalysis {
   verdict: "STRONG_BUY" | "BUY" | "NEUTRAL" | "SELL" | "STRONG_SELL";
   adjustedConfidence: number;
@@ -38,6 +74,14 @@ export async function analyzeSignalWithAI(signalData: {
   strategy: string;
   agentContext?: AgentContext;
 }): Promise<AISignalAnalysis> {
+  if (!process.env.AI_INTEGRATIONS_ANTHROPIC_API_KEY) {
+    return getAIFallback(signalData);
+  }
+
+  if (Date.now() < aiProviderDisabledUntil) {
+    return getAIFallback(signalData);
+  }
+
   try {
     const rr = (Math.abs(signalData.tp - signalData.entry) / Math.abs(signalData.entry - signalData.sl)).toFixed(2);
     const ctx = signalData.agentContext;
@@ -102,15 +146,19 @@ Respond in JSON only:
       marketSentiment: parsed.marketSentiment || "Neutral",
     };
   } catch (error) {
+    if (isAnthropicAuthenticationError(error)) {
+      aiProviderDisabledUntil = Date.now() + AI_PROVIDER_COOLDOWN_MS;
+      if (Date.now() - lastAIAuthErrorLogAt > 60 * 1000) {
+        lastAIAuthErrorLogAt = Date.now();
+        console.warn(
+          "AI analysis auth error (Anthropic 401). Using fallback for 15 minutes before retry."
+        );
+      }
+      return getAIFallback(signalData);
+    }
+
     console.error("AI analysis error:", error);
-    return {
-      verdict: signalData.confidence >= 85 ? "BUY" : "NEUTRAL",
-      adjustedConfidence: signalData.confidence,
-      reasoning: "AI analysis temporarily unavailable - using base signal data",
-      riskLevel: "MEDIUM",
-      keyLevels: { support: signalData.sl, resistance: signalData.tp },
-      marketSentiment: "Calculating...",
-    };
+    return getAIFallback(signalData);
   }
 }
 
@@ -166,6 +214,10 @@ export async function getMarketInsight(coins: string[], marketData?: any[]): Pro
     marketMood: "Cautiously Optimistic",
     timestamp: new Date().toISOString(),
   };
+
+  if (!process.env.AI_INTEGRATIONS_ANTHROPIC_API_KEY || Date.now() < aiProviderDisabledUntil) {
+    return fallbackResult;
+  }
 
   try {
     const marketContext = marketData?.length
@@ -246,6 +298,17 @@ RULES:
       timestamp: new Date().toISOString(),
     };
   } catch (error: any) {
+    if (isAnthropicAuthenticationError(error)) {
+      aiProviderDisabledUntil = Date.now() + AI_PROVIDER_COOLDOWN_MS;
+      if (Date.now() - lastAIAuthErrorLogAt > 60 * 1000) {
+        lastAIAuthErrorLogAt = Date.now();
+        console.warn(
+          "Market insight auth error (Anthropic 401). Using fallback for 15 minutes before retry."
+        );
+      }
+      return fallbackResult;
+    }
+
     console.error("Market insight error:", error?.message || error);
     return fallbackResult;
   }

@@ -1,5 +1,6 @@
 import type { Express } from "express";
 import { createServer, type Server } from "http";
+import { readFileSync } from "fs";
 import { storage } from "./storage";
 import { insertSettingsSchema, insertStrategySchema, insertSignalSchema, insertPositionSchema, insertUserAccessSchema } from "@shared/schema";
 import { z } from "zod";
@@ -7,13 +8,30 @@ import { analyzeSignalWithAI, getMarketInsight } from "./ai-analysis";
 import { notifySignal, sendTestNotifications, validateSignalBestPractice } from "./notifications";
 import { testBinanceConnectivity, testBybitConnectivity } from "./exchange-connectivity";
 import { evaluateSignalsPerformance } from "./signal-performance";
+import { connectMt5, disconnectMt5, generateGoldSignal, getGoldTradingStatus, getLiveGoldPrice, runGoldAutoTradeOnce, setGoldAutoTrading } from "./gold-trading";
 import { getCoinglassData } from "./coinglass";
 import { getNewsSentiment } from "./perplexity";
 import { getWhaleActivity } from "./arkham";
 import { runMultiAgentValidation } from "./signal-validator";
-import { getGoldSpotPrice, getGoldCandles } from "./gold-data";
+import { getGoldCandles } from "./gold-data";
 import { analyzeGold } from "./gold-analysis";
 import { getMT5AccountInfo, placeMT5Order, getMT5OpenPositions } from "./mt5";
+import { testExchangeConnection, getBinanceBalance, getBybitBalance, getMexcBalance, autoTradeSignal, type ExchangeName } from "./exchanges";
+
+function getAppVersionInfo() {
+  let version = "unknown";
+  try {
+    const pkgRaw = readFileSync(new URL("../package.json", import.meta.url), "utf-8");
+    const pkg = JSON.parse(pkgRaw);
+    version = pkg.version || "unknown";
+  } catch (_e) {}
+  return {
+    appVersion: version,
+    buildTime: process.env.BUILD_TIME || new Date().toISOString(),
+    gitBranch: process.env.GIT_BRANCH || "unknown",
+    gitCommit: process.env.GIT_COMMIT || "unknown",
+  };
+}
 
 export async function registerRoutes(
   httpServer: Server,
@@ -105,6 +123,45 @@ export async function registerRoutes(
     }
   });
 
+  // ─── Gold + MT5 ─────────────────────────────────────────────
+  app.get("/api/gold/price", async (_req, res) => {
+    const result = await getLiveGoldPrice();
+    res.status(result.price ? 200 : 503).json(result);
+  });
+
+  app.get("/api/gold/status", (_req, res) => {
+    res.json(getGoldTradingStatus());
+  });
+
+  app.post("/api/gold/signal", async (req, res) => {
+    try {
+      const signal = await generateGoldSignal(req.body?.timeframe || "15m");
+      res.json(signal);
+    } catch (e: any) {
+      res.status(500).json({ message: e.message });
+    }
+  });
+
+  app.post("/api/gold/mt5/connect", (req, res) => {
+    const result = connectMt5(req.body || {});
+    res.status(result.ok ? 200 : 400).json(result);
+  });
+
+  app.post("/api/gold/mt5/disconnect", (_req, res) => {
+    const result = disconnectMt5();
+    res.json(result);
+  });
+
+  app.patch("/api/gold/auto-trading", (req, res) => {
+    const result = setGoldAutoTrading(req.body || { enabled: false });
+    res.json(result);
+  });
+
+  app.post("/api/gold/auto-trade/run", async (_req, res) => {
+    const result = await runGoldAutoTradeOnce();
+    res.status(result.ok ? 200 : 400).json(result);
+  });
+
   app.get("/api/system/requirements-status", async (_req, res) => {
     try {
       const s = await storage.getSettings();
@@ -133,6 +190,13 @@ export async function registerRoutes(
     } catch (e: any) {
       res.status(500).json({ message: e.message });
     }
+  });
+
+  app.get("/api/system/version", (_req, res) => {
+    res.json({
+      status: "ok",
+      ...getAppVersionInfo(),
+    });
   });
 
   app.get("/api/system/diagnostics", async (_req, res) => {
@@ -464,17 +528,7 @@ export async function registerRoutes(
     }
   });
 
-  // ─── Gold Market Data ──────────────────────────────────────────────────────
-
-  // GET /api/gold/price
-  app.get("/api/gold/price", async (_req, res) => {
-    try {
-      const spot = await getGoldSpotPrice();
-      res.json(spot);
-    } catch (e: any) {
-      res.status(500).json({ message: e.message });
-    }
-  });
+  // ─── Gold Extended Routes ─────────────────────────────────────────────────
 
   // GET /api/gold/candles/:interval  (1m | 5m | 15m | 30m | 1h | 4h | 1d)
   app.get("/api/gold/candles/:interval", async (req, res) => {
@@ -555,6 +609,86 @@ export async function registerRoutes(
       res.json(positions);
     } catch (e: any) {
       res.status(500).json({ message: e.message });
+    }
+  });
+
+  // ─── Exchange Auto-Trading ────────────────────────────────────────────────
+
+  // POST /api/exchange/:exchange/test  — verify credentials
+  app.post("/api/exchange/:exchange/test", async (req, res) => {
+    try {
+      const exchange = req.params.exchange as ExchangeName;
+      if (!["binance", "bybit", "mexc"].includes(exchange)) {
+        return res.status(400).json({ ok: false, message: "Unknown exchange" });
+      }
+      const { apiKey, apiSecret } = req.body;
+      if (!apiKey || !apiSecret) return res.status(400).json({ ok: false, message: "apiKey and apiSecret required" });
+      const result = await testExchangeConnection(exchange, apiKey, apiSecret);
+      // Persist connected status to settings
+      if (result.ok) {
+        const patch: Record<string, any> = {};
+        patch[`${exchange}Connected`] = true;
+        await storage.upsertSettings(patch as any);
+      }
+      res.json(result);
+    } catch (e: any) {
+      res.status(500).json({ ok: false, message: e.message });
+    }
+  });
+
+  // GET /api/exchange/:exchange/balance
+  app.get("/api/exchange/:exchange/balance", async (req, res) => {
+    try {
+      const exchange = req.params.exchange as ExchangeName;
+      const s = await storage.getSettings();
+      if (!s) return res.status(400).json({ ok: false, message: "Settings not found" });
+      const keyMap: Record<string, [string | null | undefined, string | null | undefined]> = {
+        binance: [s.binanceApiKey, s.binanceApiSecret],
+        bybit:   [s.bybitApiKey,   s.bybitApiSecret],
+        mexc:    [s.mexcApiKey,    s.mexcApiSecret],
+      };
+      const [apiKey, apiSecret] = keyMap[exchange] ?? [];
+      if (!apiKey || !apiSecret) return res.json({ ok: false, exchange, message: "API keys not configured", totalWalletBalance: 0, availableBalance: 0, unrealizedPnl: 0, currency: "USDT" });
+      let bal;
+      if (exchange === "binance") bal = await getBinanceBalance(apiKey, apiSecret);
+      else if (exchange === "bybit") bal = await getBybitBalance(apiKey, apiSecret);
+      else bal = await getMexcBalance(apiKey, apiSecret);
+      res.json(bal);
+    } catch (e: any) {
+      res.status(500).json({ ok: false, message: e.message });
+    }
+  });
+
+  // POST /api/exchange/:exchange/trade  — manual / auto-triggered trade
+  app.post("/api/exchange/:exchange/trade", async (req, res) => {
+    try {
+      const exchange = req.params.exchange as ExchangeName;
+      const s = await storage.getSettings();
+      if (!s) return res.status(400).json({ ok: false, message: "Settings not found" });
+      const keyMap: Record<string, [string | null | undefined, string | null | undefined]> = {
+        binance: [s.binanceApiKey, s.binanceApiSecret],
+        bybit:   [s.bybitApiKey,   s.bybitApiSecret],
+        mexc:    [s.mexcApiKey,    s.mexcApiSecret],
+      };
+      const [apiKey, apiSecret] = keyMap[exchange] ?? [];
+      if (!apiKey || !apiSecret) return res.status(400).json({ ok: false, message: `${exchange} API keys not configured in Settings` });
+
+      const cfgMap: Record<string, { lev: number; margin: string; maxUsdt: number; auto: boolean; minConf: number }> = {
+        binance: { lev: s.binanceLeverage ?? 10, margin: s.binanceMarginType ?? "ISOLATED", maxUsdt: s.binanceMaxPositionUsdt ?? 100, auto: s.binanceAutoTrading ?? false, minConf: 70 },
+        bybit:   { lev: s.bybitLeverage ?? 10,   margin: s.bybitMarginType ?? "ISOLATED",   maxUsdt: s.bybitMaxPositionUsdt ?? 100,   auto: s.bybitAutoTrading ?? false,   minConf: 70 },
+        mexc:    { lev: s.mexcLeverage ?? 10,    margin: s.mexcMarginType ?? "ISOLATED",    maxUsdt: s.mexcMaxPositionUsdt ?? 100,    auto: s.mexcAutoTrading ?? false,    minConf: 70 },
+      };
+      const cfg = cfgMap[exchange];
+
+      const result = await autoTradeSignal(exchange, apiKey, apiSecret, req.body, {
+        leverage: cfg.lev,
+        marginType: cfg.margin as "ISOLATED" | "CROSSED",
+        maxPositionUsdt: cfg.maxUsdt,
+        minConfidence: cfg.minConf,
+      });
+      res.json(result);
+    } catch (e: any) {
+      res.status(500).json({ ok: false, message: e.message });
     }
   });
 

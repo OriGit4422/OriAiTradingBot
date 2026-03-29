@@ -5,6 +5,42 @@ const anthropic = new Anthropic({
   baseURL: process.env.AI_INTEGRATIONS_ANTHROPIC_BASE_URL,
 });
 
+const AI_PROVIDER_COOLDOWN_MS = 15 * 60 * 1000;
+let aiProviderDisabledUntil = 0;
+let lastAIAuthErrorLogAt = 0;
+
+function isAnthropicAuthenticationError(error: any): boolean {
+  const status = error?.status;
+  const faultString = error?.error?.fault?.faultstring || "";
+  const errorCode = error?.error?.fault?.detail?.errorcode || "";
+  const message = error?.message || "";
+  return (
+    status === 401 ||
+    /ApiKey not approved/i.test(faultString) ||
+    /ApiKeyNotApproved/i.test(errorCode) ||
+    /authentication/i.test(message)
+  );
+}
+
+function getAIFallback(signalData: {
+  type: string;
+  confidence: number;
+  sl: number;
+  tp: number;
+}): AISignalAnalysis {
+  const isLong = signalData.type?.toUpperCase() === "LONG";
+  const isShort = signalData.type?.toUpperCase() === "SHORT";
+
+  return {
+    verdict: isLong ? "BUY" : isShort ? "SELL" : signalData.confidence >= 85 ? "BUY" : "NEUTRAL",
+    adjustedConfidence: signalData.confidence,
+    reasoning: "AI analysis temporarily unavailable - using base signal data",
+    riskLevel: "MEDIUM",
+    keyLevels: { support: signalData.sl, resistance: signalData.tp },
+    marketSentiment: "Calculating...",
+  };
+}
+
 export interface AISignalAnalysis {
   verdict: "STRONG_BUY" | "BUY" | "NEUTRAL" | "SELL" | "STRONG_SELL";
   adjustedConfidence: number;
@@ -25,6 +61,14 @@ export async function analyzeSignalWithAI(signalData: {
   confidence: number;
   strategy: string;
 }): Promise<AISignalAnalysis> {
+  if (!process.env.AI_INTEGRATIONS_ANTHROPIC_API_KEY) {
+    return getAIFallback(signalData);
+  }
+
+  if (Date.now() < aiProviderDisabledUntil) {
+    return getAIFallback(signalData);
+  }
+
   try {
     const prompt = `You are a professional crypto trading analyst AI. Analyze this trading signal and provide a detailed assessment.
 
@@ -74,15 +118,19 @@ Respond in JSON format only:
       marketSentiment: parsed.marketSentiment || "Neutral",
     };
   } catch (error) {
+    if (isAnthropicAuthenticationError(error)) {
+      aiProviderDisabledUntil = Date.now() + AI_PROVIDER_COOLDOWN_MS;
+      if (Date.now() - lastAIAuthErrorLogAt > 60 * 1000) {
+        lastAIAuthErrorLogAt = Date.now();
+        console.warn(
+          "AI analysis auth error (Anthropic 401). Using fallback for 15 minutes before retry."
+        );
+      }
+      return getAIFallback(signalData);
+    }
+
     console.error("AI analysis error:", error);
-    return {
-      verdict: signalData.confidence >= 85 ? "BUY" : "NEUTRAL",
-      adjustedConfidence: signalData.confidence,
-      reasoning: "AI analysis temporarily unavailable - using base signal data",
-      riskLevel: "MEDIUM",
-      keyLevels: { support: signalData.sl, resistance: signalData.tp },
-      marketSentiment: "Calculating...",
-    };
+    return getAIFallback(signalData);
   }
 }
 
@@ -92,6 +140,11 @@ export interface CoinInsight {
   shortAnalysis: string;
   keyLevel: string;
   action: "BUY" | "SELL" | "HOLD" | "WATCH";
+  xSentiment?: string;
+  fomoLevel?: "LOW" | "MEDIUM" | "HIGH";
+  liquidityView?: string;
+  psychologicalLevels?: string;
+  newsBias?: string;
 }
 
 export interface UpcomingTrade {
@@ -119,6 +172,11 @@ export async function getMarketInsight(coins: string[], marketData?: any[]): Pro
       shortAnalysis: "Consolidating near key levels. Watch for volume confirmation.",
       keyLevel: "Support/Resistance zone active",
       action: "WATCH" as const,
+      xSentiment: "Neutral social sentiment",
+      fomoLevel: "MEDIUM" as const,
+      liquidityView: "Balanced",
+      psychologicalLevels: "Near round-number pivots",
+      newsBias: "No strong catalyst",
     })),
     upcomingTrades: [
       { coin: "BTC", direction: "LONG", reason: "Holding above key support with increasing volume", confidence: 75, timeframe: "4h" },
@@ -128,6 +186,10 @@ export async function getMarketInsight(coins: string[], marketData?: any[]): Pro
     marketMood: "Cautiously Optimistic",
     timestamp: new Date().toISOString(),
   };
+
+  if (!process.env.AI_INTEGRATIONS_ANTHROPIC_API_KEY || Date.now() < aiProviderDisabledUntil) {
+    return fallbackResult;
+  }
 
   try {
     const marketContext = marketData?.length
@@ -150,7 +212,7 @@ Return this exact JSON structure:
 {
   "overview": "2-3 sentence market overview referencing actual prices and % changes from the data above",
   "coins": [
-    {"coin": "BTC", "sentiment": "BULLISH or BEARISH or NEUTRAL", "shortAnalysis": "1 sentence using actual price data", "keyLevel": "specific realistic price level near current price", "action": "BUY or SELL or HOLD or WATCH"}
+    {"coin": "BTC", "sentiment": "BULLISH or BEARISH or NEUTRAL", "shortAnalysis": "1 sentence using actual price data", "keyLevel": "specific realistic price level near current price", "action": "BUY or SELL or HOLD or WATCH", "xSentiment":"short social sentiment read", "fomoLevel":"LOW or MEDIUM or HIGH", "liquidityView":"where liquidity is clustered", "psychologicalLevels":"major round numbers", "newsBias":"bullish/bearish/neutral headline bias"}
   ],
   "upcomingTrades": [
     {"coin": "BTC", "direction": "LONG or SHORT", "reason": "1 sentence with specific price targets near current levels", "confidence": 75, "timeframe": "1h or 4h or 15m"}
@@ -191,6 +253,11 @@ RULES:
         shortAnalysis: c.shortAnalysis || "Analysis pending",
         keyLevel: c.keyLevel || "Key levels being calculated",
         action: (["BUY", "SELL", "HOLD", "WATCH"].includes(c.action) ? c.action : "WATCH") as "BUY" | "SELL" | "HOLD" | "WATCH",
+        xSentiment: c.xSentiment || "Neutral social sentiment",
+        fomoLevel: (["LOW", "MEDIUM", "HIGH"].includes(c.fomoLevel) ? c.fomoLevel : "MEDIUM") as "LOW" | "MEDIUM" | "HIGH",
+        liquidityView: c.liquidityView || "Liquidity balanced near VWAP",
+        psychologicalLevels: c.psychologicalLevels || "Round numbers and weekly pivots",
+        newsBias: c.newsBias || "No strong catalyst",
       })),
       upcomingTrades: (parsed.upcomingTrades || []).map((t: any) => ({
         coin: t.coin || "BTC",
@@ -203,6 +270,17 @@ RULES:
       timestamp: new Date().toISOString(),
     };
   } catch (error: any) {
+    if (isAnthropicAuthenticationError(error)) {
+      aiProviderDisabledUntil = Date.now() + AI_PROVIDER_COOLDOWN_MS;
+      if (Date.now() - lastAIAuthErrorLogAt > 60 * 1000) {
+        lastAIAuthErrorLogAt = Date.now();
+        console.warn(
+          "Market insight auth error (Anthropic 401). Using fallback for 15 minutes before retry."
+        );
+      }
+      return fallbackResult;
+    }
+
     console.error("Market insight error:", error?.message || error);
     return fallbackResult;
   }

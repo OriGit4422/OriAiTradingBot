@@ -41,17 +41,25 @@ const TOP_SYMBOLS = [
 
 let tickerCache: { data: BinanceTicker[]; ts: number } | null = null;
 const TICKER_CACHE_TTL = 5000;
+const KLINE_CACHE_TTL = 10000;
+const klineCache = new Map<string, { data: BinanceKline[]; ts: number }>();
 
 export async function fetchKlines(symbol: string, interval: string, limit = 200): Promise<BinanceKline[]> {
   const pair = `${symbol.toUpperCase()}USDT`;
   const binanceInterval = INTERVAL_MAP[interval] || '1h';
+  const cacheKey = `${pair}:${binanceInterval}:${limit}`;
+
+  const cached = klineCache.get(cacheKey);
+  if (cached && Date.now() - cached.ts < KLINE_CACHE_TTL) {
+    return cached.data;
+  }
 
   try {
     const response = await fetch(`${BASE_URL}/klines?symbol=${pair}&interval=${binanceInterval}&limit=${limit}`);
     if (!response.ok) return [];
     const data = await response.json();
 
-    return data.map((d: any[]) => ({
+    const mapped = data.map((d: any[]) => ({
       time: d[0] / 1000,
       open: parseFloat(d[1]),
       high: parseFloat(d[2]),
@@ -59,6 +67,8 @@ export async function fetchKlines(symbol: string, interval: string, limit = 200)
       close: parseFloat(d[4]),
       volume: parseFloat(d[5]),
     }));
+    klineCache.set(cacheKey, { data: mapped, ts: Date.now() });
+    return mapped;
   } catch (error) {
     console.error('Error fetching klines:', error);
     return [];

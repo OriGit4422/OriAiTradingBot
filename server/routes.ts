@@ -1,9 +1,31 @@
 import type { Express } from "express";
 import { createServer, type Server } from "http";
+import { readFileSync } from "fs";
 import { storage } from "./storage";
 import { insertSettingsSchema, insertStrategySchema, insertSignalSchema, insertPositionSchema, insertUserAccessSchema } from "@shared/schema";
 import { z } from "zod";
 import { analyzeSignalWithAI, getMarketInsight } from "./ai-analysis";
+import { notifySignal, sendTestNotifications, validateSignalBestPractice } from "./notifications";
+import { testBinanceConnectivity, testBybitConnectivity } from "./exchange-connectivity";
+import { evaluateSignalsPerformance } from "./signal-performance";
+import { connectMt5, disconnectMt5, generateGoldSignal, getGoldCandles, getGoldTradingStatus, getLiveGoldPrice, runGoldAutoTradeOnce, setGoldAutoTrading } from "./gold-trading";
+import { getCoinNews, getLatestCryptoNews } from "./news";
+
+function getAppVersionInfo() {
+  let version = "unknown";
+  try {
+    const pkgRaw = readFileSync(new URL("../package.json", import.meta.url), "utf-8");
+    const pkg = JSON.parse(pkgRaw);
+    version = pkg.version || "unknown";
+  } catch (_e) {}
+
+  return {
+    appVersion: version,
+    buildTime: process.env.BUILD_TIME || new Date().toISOString(),
+    gitBranch: process.env.GIT_BRANCH || "unknown",
+    gitCommit: process.env.GIT_COMMIT || "unknown",
+  };
+}
 
 export async function registerRoutes(
   httpServer: Server,
@@ -57,8 +79,199 @@ export async function registerRoutes(
 
   app.patch("/api/settings", async (req, res) => {
     try {
-      const updated = await storage.upsertSettings(req.body);
+      const patch = { ...req.body };
+
+      if (typeof patch.binanceApiKey === "string") {
+        const test = await testBinanceConnectivity(patch.binanceApiKey);
+        patch.binanceConnected = test.ok;
+      }
+
+      if (typeof patch.bybitApiKey === "string") {
+        const test = await testBybitConnectivity(patch.bybitApiKey);
+        patch.bybitConnected = test.ok;
+      }
+
+      const updated = await storage.upsertSettings(patch);
       res.json(updated);
+    } catch (e: any) {
+      res.status(500).json({ message: e.message });
+    }
+  });
+
+  app.post("/api/exchange/binance/test", async (req, res) => {
+    const result = await testBinanceConnectivity(req.body?.apiKey);
+    res.status(result.ok ? 200 : 503).json(result);
+  });
+
+  app.post("/api/exchange/bybit/test", async (req, res) => {
+    const result = await testBybitConnectivity(req.body?.apiKey);
+    res.status(result.ok ? 200 : 503).json(result);
+  });
+
+  app.post("/api/notifications/test", async (_req, res) => {
+    try {
+      const result = await sendTestNotifications();
+      res.status(result.ok ? 200 : 503).json(result);
+    } catch (e: any) {
+      res.status(500).json({ message: e.message });
+    }
+  });
+
+  app.get("/api/news/latest", async (req, res) => {
+    try {
+      const limitRaw = Number(req.query?.limit ?? 10);
+      const news = await getLatestCryptoNews(Number.isFinite(limitRaw) ? limitRaw : 10);
+      res.json({ items: news });
+    } catch (e: any) {
+      res.status(500).json({ message: e.message });
+    }
+  });
+
+  // Legacy news endpoint kept for backward compatibility
+  app.get("/api/news/:symbol", async (req, res) => {
+    try {
+      const payload = await getCoinNews(req.params.symbol, 10);
+      res.json(payload);
+    } catch (e: any) {
+      res.status(500).json({ message: e.message, articles: [], sentiment: null });
+    }
+  });
+
+  // ─── Gold + MT5 ─────────────────────────────────────────────
+  app.get("/api/gold/price", async (_req, res) => {
+    const result = await getLiveGoldPrice();
+    res.status(result.price ? 200 : 503).json(result);
+  });
+
+  // Legacy endpoint kept for backward compatibility
+  app.get("/api/gold/candles/:timeframe", async (req, res) => {
+    try {
+      const candles = await getGoldCandles(req.params.timeframe || "1h");
+      res.json({ symbol: "XAUUSD", timeframe: req.params.timeframe || "1h", candles });
+    } catch (e: any) {
+      res.status(500).json({ message: e.message, candles: [] });
+    }
+  });
+
+  app.get("/api/gold/status", (_req, res) => {
+    res.json(getGoldTradingStatus());
+  });
+
+  app.post("/api/gold/signal", async (req, res) => {
+    try {
+      const signal = await generateGoldSignal(req.body?.timeframe || "15m");
+      res.json(signal);
+    } catch (e: any) {
+      res.status(500).json({ message: e.message });
+    }
+  });
+
+  // Legacy endpoint kept for backward compatibility
+  app.get("/api/gold/signal/:timeframe", async (req, res) => {
+    try {
+      const signal = await generateGoldSignal(req.params.timeframe || "1h");
+      res.json(signal);
+    } catch (e: any) {
+      res.status(500).json({ message: e.message });
+    }
+  });
+
+  app.post("/api/gold/mt5/connect", (req, res) => {
+    const result = connectMt5(req.body || {});
+    res.status(result.ok ? 200 : 400).json(result);
+  });
+
+  app.post("/api/gold/mt5/disconnect", (_req, res) => {
+    const result = disconnectMt5();
+    res.json(result);
+  });
+
+  // Legacy endpoint kept for backward compatibility
+  app.get("/api/mt5/account", (_req, res) => {
+    const status = getGoldTradingStatus();
+    if (!status.mt5.connected) {
+      return res.status(200).json({ connected: false, message: "MT5 credentials not configured" });
+    }
+    return res.json({
+      connected: true,
+      login: status.mt5.login,
+      server: status.mt5.server,
+      updatedAt: status.mt5.updatedAt,
+      mode: "paper",
+    });
+  });
+
+  app.patch("/api/gold/auto-trading", (req, res) => {
+    const result = setGoldAutoTrading(req.body || { enabled: false });
+    res.json(result);
+  });
+
+  app.post("/api/gold/auto-trade/run", async (_req, res) => {
+    const result = await runGoldAutoTradeOnce();
+    res.status(result.ok ? 200 : 400).json(result);
+  });
+
+  app.get("/api/system/requirements-status", async (_req, res) => {
+    try {
+      const s = await storage.getSettings();
+      const hasTelegramConfig = !!(s?.telegramEnabled && s?.telegramBotToken && s?.telegramChatId);
+      const hasDiscordConfig = !!(s?.discordEnabled && s?.discordWebhookUrl);
+      res.json({
+        status: "ok",
+        features: {
+          aiSignalConfirmation: true,
+          signalBestPracticeValidation: true,
+          exchangeConnectivityChecks: true,
+          signalPerformance24h: true,
+          notifications: {
+            telegramReady: hasTelegramConfig,
+            discordReady: hasDiscordConfig,
+            notifyOnSignal: !!s?.notifyOnSignal,
+            highConfidenceOnly: !!s?.notifyOnHighConfidence,
+            minNotifyConfidence: s?.minNotifyConfidence ?? 80,
+          },
+          exchanges: {
+            binanceConnected: !!s?.binanceConnected,
+            bybitConnected: !!s?.bybitConnected,
+          },
+        },
+      });
+    } catch (e: any) {
+      res.status(500).json({ message: e.message });
+    }
+  });
+
+  app.get("/api/system/version", (_req, res) => {
+    res.json({
+      status: "ok",
+      ...getAppVersionInfo(),
+    });
+  });
+
+  app.get("/api/system/diagnostics", async (_req, res) => {
+    try {
+      const s = await storage.getSettings();
+      const [binance, bybit] = await Promise.all([
+        testBinanceConnectivity(s?.binanceApiKey || undefined),
+        testBybitConnectivity(s?.bybitApiKey || undefined),
+      ]);
+
+      const notificationCheck = await sendTestNotifications();
+      const strategyCount = (await storage.getStrategies()).length;
+
+      res.json({
+        status: "ok",
+        diagnostics: {
+          exchanges: { binance, bybit },
+          notifications: notificationCheck,
+          strategies: { count: strategyCount, seededFallback: strategyCount > 0 },
+          endpoints: {
+            aiAnalyzeSignal: "/api/ai/analyze-signal",
+            signalPerformance: "/api/signals/performance?hours=24",
+            requirements: "/api/system/requirements-status",
+          },
+        },
+      });
     } catch (e: any) {
       res.status(500).json({ message: e.message });
     }
@@ -113,10 +326,45 @@ export async function registerRoutes(
     }
   });
 
+  app.get("/api/signals/performance", async (req, res) => {
+    try {
+      const hours = Math.max(1, Math.min(240, Number(req.query.hours || 24)));
+      const includeNoData = String(req.query.includeNoData || "false").toLowerCase() === "true";
+      const limit = Math.max(1, Math.min(500, Number(req.query.limit || 100)));
+      const allSignals = await storage.getSignals();
+      const performance = await evaluateSignalsPerformance(allSignals, hours);
+      const filtered = includeNoData ? performance : performance.filter((p) => p.outcome !== "NO_DATA");
+      const items = filtered.slice(0, limit);
+      res.json({
+        hoursWindow: hours,
+        total: items.length,
+        totalBeforeLimit: filtered.length,
+        summary: {
+          tpHit: performance.filter((p) => p.outcome === "TP_HIT").length,
+          slHit: performance.filter((p) => p.outcome === "SL_HIT").length,
+          running: performance.filter((p) => p.outcome === "RUNNING").length,
+          noData: performance.filter((p) => p.outcome === "NO_DATA").length,
+        },
+        items,
+      });
+    } catch (e: any) {
+      res.status(500).json({ message: e.message });
+    }
+  });
+
   app.post("/api/signals", async (req, res) => {
     try {
       const data = insertSignalSchema.parse(req.body);
+      const quality = validateSignalBestPractice(data);
+      if (!quality.isValid) {
+        return res.status(422).json({
+          message: "Signal failed best-practice checks",
+          issues: quality.issues,
+          riskReward: Number(quality.riskReward.toFixed(2)),
+        });
+      }
       const s = await storage.createSignal(data);
+      await notifySignal(s);
       res.status(201).json(s);
     } catch (e: any) {
       res.status(400).json({ message: e.message });
@@ -127,10 +375,24 @@ export async function registerRoutes(
     try {
       const signalsData = z.array(insertSignalSchema).parse(req.body);
       const results = [];
+      const rejected: Array<{ coin: string; timeframe: string; issues: string[]; riskReward: number }> = [];
       for (const s of signalsData) {
-        results.push(await storage.createSignal(s));
+        const quality = validateSignalBestPractice(s);
+        if (!quality.isValid) {
+          rejected.push({
+            coin: s.coin,
+            timeframe: s.timeframe,
+            issues: quality.issues,
+            riskReward: Number(quality.riskReward.toFixed(2)),
+          });
+          continue;
+        }
+
+        const created = await storage.createSignal(s);
+        results.push(created);
+        await notifySignal(created);
       }
-      res.status(201).json(results);
+      res.status(201).json({ created: results, rejected, summary: { created: results.length, rejected: rejected.length } });
     } catch (e: any) {
       res.status(400).json({ message: e.message });
     }

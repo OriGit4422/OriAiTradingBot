@@ -26,7 +26,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { Bell, Lock, Key, Globe, Shield, Loader2, Users, UserPlus, Trash2, Edit, Mail, Check, X, Brain, Activity, Zap, Palette, Sun, Moon, Plus, CheckCircle2 } from 'lucide-react';
+import { Bell, Lock, Key, Globe, Shield, Loader2, Users, UserPlus, Trash2, Edit, Mail, Check, X, Brain, Activity, Zap, Palette, Sun, Moon, Plus, CheckCircle2, TrendingUp, Link, Unlink, RefreshCw } from 'lucide-react';
 import type { Settings, UserAccess } from '@shared/schema';
 import {
   PRESET_THEMES, ACCENT_PRESETS, getAllThemes, getActiveThemeId,
@@ -70,6 +70,32 @@ export default function SettingsPage() {
   const [binanceApiKey, setBinanceApiKey] = useState('');
   const [bybitApiKey, setBybitApiKey] = useState('');
   const [telegramChatId, setTelegramChatId] = useState('');
+
+  // ── Exchange (Binance / Bybit / MEXC) state ──────────────────────────────
+  const [binanceApiSecret, setBinanceApiSecret] = useState('');
+  const [binanceAutoTrading, setBinanceAutoTrading] = useState(false);
+  const [binanceLeverage, setBinanceLeverage] = useState('10');
+  const [binanceMarginType, setBinanceMarginType] = useState<'ISOLATED' | 'CROSSED'>('ISOLATED');
+  const [binanceMaxPosition, setBinanceMaxPosition] = useState('100');
+
+  const [bybitApiSecret, setBybitApiSecret] = useState('');
+  const [bybitAutoTrading, setBybitAutoTrading] = useState(false);
+  const [bybitLeverage, setBybitLeverage] = useState('10');
+  const [bybitMarginType, setBybitMarginType] = useState<'ISOLATED' | 'CROSSED'>('ISOLATED');
+  const [bybitMaxPosition, setBybitMaxPosition] = useState('100');
+
+  const [mexcApiKey, setMexcApiKey] = useState('');
+  const [mexcApiSecret, setMexcApiSecret] = useState('');
+  const [mexcAutoTrading, setMexcAutoTrading] = useState(false);
+  const [mexcLeverage, setMexcLeverage] = useState('10');
+  const [mexcMarginType, setMexcMarginType] = useState<'ISOLATED' | 'CROSSED'>('ISOLATED');
+  const [mexcMaxPosition, setMexcMaxPosition] = useState('100');
+
+  const [binanceBalance, setBinanceBalance] = useState<{ available: number; total: number } | null>(null);
+  const [bybitBalance, setBybitBalance] = useState<{ available: number; total: number } | null>(null);
+  const [mexcBalance, setMexcBalance] = useState<{ available: number; total: number } | null>(null);
+  const [testingExchange, setTestingExchange] = useState<string | null>(null);
+  const [fetchingBalance, setFetchingBalance] = useState<string | null>(null);
   const [discordWebhookUrl, setDiscordWebhookUrl] = useState('');
   const [coinglassApiKey, setCoinglassApiKey] = useState('');
   const [perplexityApiKey, setPerplexityApiKey] = useState('');
@@ -146,6 +172,23 @@ export default function SettingsPage() {
       setGoldMaxDailyTrades(String(settings.goldMaxDailyTrades ?? 5));
       setGoldMinConfidence(String(settings.goldMinConfidence ?? 75));
       setGoldAutoTradingEnabled(settings.goldAutoTradingEnabled ?? false);
+      // Exchange fields
+      setBinanceApiSecret((settings as any).binanceApiSecret ?? '');
+      setBinanceAutoTrading((settings as any).binanceAutoTrading ?? false);
+      setBinanceLeverage(String((settings as any).binanceLeverage ?? 10));
+      setBinanceMarginType((settings as any).binanceMarginType ?? 'ISOLATED');
+      setBinanceMaxPosition(String((settings as any).binanceMaxPositionUsdt ?? 100));
+      setBybitApiSecret((settings as any).bybitApiSecret ?? '');
+      setBybitAutoTrading((settings as any).bybitAutoTrading ?? false);
+      setBybitLeverage(String((settings as any).bybitLeverage ?? 10));
+      setBybitMarginType((settings as any).bybitMarginType ?? 'ISOLATED');
+      setBybitMaxPosition(String((settings as any).bybitMaxPositionUsdt ?? 100));
+      setMexcApiKey((settings as any).mexcApiKey ?? '');
+      setMexcApiSecret((settings as any).mexcApiSecret ?? '');
+      setMexcAutoTrading((settings as any).mexcAutoTrading ?? false);
+      setMexcLeverage(String((settings as any).mexcLeverage ?? 10));
+      setMexcMarginType((settings as any).mexcMarginType ?? 'ISOLATED');
+      setMexcMaxPosition(String((settings as any).mexcMaxPositionUsdt ?? 100));
     }
   }, [settings]);
 
@@ -251,6 +294,77 @@ export default function SettingsPage() {
     },
   });
 
+  const testExchangeConnection = async (exchange: 'binance' | 'bybit' | 'mexc') => {
+    setTestingExchange(exchange);
+    try {
+      const res = await apiRequest('POST', `/api/exchange/${exchange}/test`);
+      const data = await res.json();
+      if (data.ok) {
+        queryClient.invalidateQueries({ queryKey: ['/api/settings'] });
+        if (data.balance) {
+          const bal = { available: data.balance.availableBalance, total: data.balance.totalWalletBalance };
+          if (exchange === 'binance') setBinanceBalance(bal);
+          else if (exchange === 'bybit') setBybitBalance(bal);
+          else setMexcBalance(bal);
+        }
+        toast({ title: `${exchange.charAt(0).toUpperCase() + exchange.slice(1)} connected!`, description: data.message });
+      } else {
+        toast({ title: 'Connection failed', description: data.message, variant: 'destructive' });
+      }
+    } catch (e: any) {
+      toast({ title: 'Connection error', description: e.message, variant: 'destructive' });
+    } finally {
+      setTestingExchange(null);
+    }
+  };
+
+  const fetchExchangeBalance = async (exchange: 'binance' | 'bybit' | 'mexc') => {
+    setFetchingBalance(exchange);
+    try {
+      const res = await apiRequest('GET', `/api/exchange/${exchange}/balance`);
+      const data = await res.json();
+      if (data.ok) {
+        const bal = { available: data.availableBalance, total: data.totalWalletBalance };
+        if (exchange === 'binance') setBinanceBalance(bal);
+        else if (exchange === 'bybit') setBybitBalance(bal);
+        else setMexcBalance(bal);
+      }
+    } catch {} finally {
+      setFetchingBalance(null);
+    }
+  };
+
+  const saveExchangeSettings = (exchange: 'binance' | 'bybit' | 'mexc') => {
+    if (exchange === 'binance') {
+      updateMutation.mutate({
+        binanceApiKey,
+        binanceApiSecret,
+        binanceAutoTrading,
+        binanceLeverage: parseInt(binanceLeverage) || 10,
+        binanceMarginType,
+        binanceMaxPositionUsdt: parseFloat(binanceMaxPosition) || 100,
+      } as any);
+    } else if (exchange === 'bybit') {
+      updateMutation.mutate({
+        bybitApiKey,
+        bybitApiSecret,
+        bybitAutoTrading,
+        bybitLeverage: parseInt(bybitLeverage) || 10,
+        bybitMarginType,
+        bybitMaxPositionUsdt: parseFloat(bybitMaxPosition) || 100,
+      } as any);
+    } else {
+      updateMutation.mutate({
+        mexcApiKey,
+        mexcApiSecret,
+        mexcAutoTrading,
+        mexcLeverage: parseInt(mexcLeverage) || 10,
+        mexcMarginType,
+        mexcMaxPositionUsdt: parseFloat(mexcMaxPosition) || 100,
+      } as any);
+    }
+  };
+
   const resetUserForm = () => {
     setAddUserOpen(false);
     setEditUser(null);
@@ -332,6 +446,10 @@ export default function SettingsPage() {
               <TabsTrigger value="mt5" data-testid="tab-mt5">
                 <Activity className="w-3.5 h-3.5 mr-1.5" />
                 MT5 / Gold
+              </TabsTrigger>
+              <TabsTrigger value="exchanges" data-testid="tab-exchanges">
+                <TrendingUp className="w-3.5 h-3.5 mr-1.5" />
+                Exchanges
               </TabsTrigger>
               <TabsTrigger value="users" data-testid="tab-users">
                 <Users className="w-3.5 h-3.5 mr-1.5" />
@@ -1241,6 +1359,273 @@ export default function SettingsPage() {
                   </CardContent>
                 </Card>
 
+              </div>
+            </TabsContent>
+
+            {/* ── EXCHANGES TAB ───────────────────────────────────────── */}
+            <TabsContent value="exchanges">
+              <div className="space-y-5">
+                <div className="text-sm text-muted-foreground bg-secondary/40 rounded-lg p-3 border border-border">
+                  Connect your exchange accounts to enable auto-trading. API keys are stored encrypted and used only to place orders you approve.
+                </div>
+
+                {/* ── BINANCE ── */}
+                {(() => {
+                  const isConnected = !!(settings as any)?.binanceConnected;
+                  const isTesting = testingExchange === 'binance';
+                  const isFetching = fetchingBalance === 'binance';
+                  return (
+                    <Card className="bg-card border-border">
+                      <CardHeader>
+                        <div className="flex items-center gap-3">
+                          <div className="w-10 h-10 bg-yellow-500/10 rounded-lg flex items-center justify-center">
+                            <TrendingUp className="w-5 h-5 text-yellow-500" />
+                          </div>
+                          <div className="flex-1">
+                            <div className="flex items-center gap-2">
+                              <CardTitle className="text-base">Binance Futures</CardTitle>
+                              <Badge variant={isConnected ? 'default' : 'secondary'} className={`text-[10px] h-5 ${isConnected ? 'bg-green-500/20 text-green-400 border-green-500/30' : ''}`}>
+                                {isConnected ? '● Connected' : '○ Disconnected'}
+                              </Badge>
+                            </div>
+                            <CardDescription>USDⓈ-M Perpetual Futures — fapi.binance.com</CardDescription>
+                          </div>
+                          {isConnected && (
+                            <Button size="sm" variant="ghost" onClick={() => fetchExchangeBalance('binance')} disabled={isFetching} className="gap-1 text-xs">
+                              <RefreshCw className={`w-3 h-3 ${isFetching ? 'animate-spin' : ''}`} />
+                              {binanceBalance ? `$${binanceBalance.available.toFixed(2)}` : 'Balance'}
+                            </Button>
+                          )}
+                        </div>
+                      </CardHeader>
+                      <CardContent className="space-y-4">
+                        {binanceBalance && (
+                          <div className="grid grid-cols-2 gap-3 p-3 rounded-lg bg-green-500/5 border border-green-500/20">
+                            <div><p className="text-[11px] text-muted-foreground">Available Balance</p><p className="text-sm font-bold text-green-400">${binanceBalance.available.toFixed(2)} USDT</p></div>
+                            <div><p className="text-[11px] text-muted-foreground">Total Wallet</p><p className="text-sm font-bold">${binanceBalance.total.toFixed(2)} USDT</p></div>
+                          </div>
+                        )}
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                          <div className="space-y-1">
+                            <Label className="text-xs">API Key</Label>
+                            <Input type="password" value={binanceApiKey} onChange={(e) => setBinanceApiKey(e.target.value)} placeholder="Binance API Key" className="bg-secondary/50 font-mono text-xs" />
+                          </div>
+                          <div className="space-y-1">
+                            <Label className="text-xs">API Secret</Label>
+                            <Input type="password" value={binanceApiSecret} onChange={(e) => setBinanceApiSecret(e.target.value)} placeholder="Binance API Secret" className="bg-secondary/50 font-mono text-xs" />
+                          </div>
+                        </div>
+                        <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                          <div className="space-y-1">
+                            <Label className="text-xs">Leverage (1–125x)</Label>
+                            <Input type="number" min="1" max="125" value={binanceLeverage} onChange={(e) => setBinanceLeverage(e.target.value)} className="bg-secondary/50" />
+                          </div>
+                          <div className="space-y-1">
+                            <Label className="text-xs">Margin Type</Label>
+                            <div className="flex gap-2">
+                              {(['ISOLATED', 'CROSSED'] as const).map(t => (
+                                <button key={t} onClick={() => setBinanceMarginType(t)} className={`flex-1 py-2 text-xs font-medium rounded-lg border transition-all ${binanceMarginType === t ? 'border-primary bg-primary/10 text-primary' : 'border-border hover:border-primary/40'}`}>{t}</button>
+                              ))}
+                            </div>
+                          </div>
+                          <div className="space-y-1">
+                            <Label className="text-xs">Max Position (USDT)</Label>
+                            <Input type="number" min="10" value={binanceMaxPosition} onChange={(e) => setBinanceMaxPosition(e.target.value)} className="bg-secondary/50" />
+                          </div>
+                        </div>
+                        <div className="flex items-center justify-between py-2 border-t border-border">
+                          <div>
+                            <Label className="text-sm font-semibold">Auto-Trading</Label>
+                            <p className="text-xs text-muted-foreground">Automatically execute signals on Binance Futures</p>
+                          </div>
+                          <Switch checked={binanceAutoTrading} onCheckedChange={setBinanceAutoTrading} />
+                        </div>
+                        <div className="flex gap-2 flex-wrap">
+                          <Button size="sm" onClick={() => saveExchangeSettings('binance')} disabled={updateMutation.isPending} className="gap-1.5">
+                            {updateMutation.isPending ? <Loader2 className="w-3 h-3 animate-spin" /> : null}
+                            Save Settings
+                          </Button>
+                          <Button size="sm" variant="outline" onClick={() => { saveExchangeSettings('binance'); setTimeout(() => testExchangeConnection('binance'), 500); }} disabled={isTesting || !binanceApiKey || !binanceApiSecret} className="gap-1.5">
+                            {isTesting ? <Loader2 className="w-3 h-3 animate-spin" /> : <Link className="w-3 h-3" />}
+                            {isTesting ? 'Testing…' : 'Test Connection'}
+                          </Button>
+                        </div>
+                      </CardContent>
+                    </Card>
+                  );
+                })()}
+
+                {/* ── BYBIT ── */}
+                {(() => {
+                  const isConnected = !!(settings as any)?.bybitConnected;
+                  const isTesting = testingExchange === 'bybit';
+                  const isFetching = fetchingBalance === 'bybit';
+                  return (
+                    <Card className="bg-card border-border">
+                      <CardHeader>
+                        <div className="flex items-center gap-3">
+                          <div className="w-10 h-10 bg-orange-500/10 rounded-lg flex items-center justify-center">
+                            <TrendingUp className="w-5 h-5 text-orange-500" />
+                          </div>
+                          <div className="flex-1">
+                            <div className="flex items-center gap-2">
+                              <CardTitle className="text-base">Bybit Futures</CardTitle>
+                              <Badge variant={isConnected ? 'default' : 'secondary'} className={`text-[10px] h-5 ${isConnected ? 'bg-green-500/20 text-green-400 border-green-500/30' : ''}`}>
+                                {isConnected ? '● Connected' : '○ Disconnected'}
+                              </Badge>
+                            </div>
+                            <CardDescription>Linear Perpetuals — api.bybit.com V5</CardDescription>
+                          </div>
+                          {isConnected && (
+                            <Button size="sm" variant="ghost" onClick={() => fetchExchangeBalance('bybit')} disabled={isFetching} className="gap-1 text-xs">
+                              <RefreshCw className={`w-3 h-3 ${isFetching ? 'animate-spin' : ''}`} />
+                              {bybitBalance ? `$${bybitBalance.available.toFixed(2)}` : 'Balance'}
+                            </Button>
+                          )}
+                        </div>
+                      </CardHeader>
+                      <CardContent className="space-y-4">
+                        {bybitBalance && (
+                          <div className="grid grid-cols-2 gap-3 p-3 rounded-lg bg-green-500/5 border border-green-500/20">
+                            <div><p className="text-[11px] text-muted-foreground">Available Balance</p><p className="text-sm font-bold text-green-400">${bybitBalance.available.toFixed(2)} USDT</p></div>
+                            <div><p className="text-[11px] text-muted-foreground">Total Wallet</p><p className="text-sm font-bold">${bybitBalance.total.toFixed(2)} USDT</p></div>
+                          </div>
+                        )}
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                          <div className="space-y-1">
+                            <Label className="text-xs">API Key</Label>
+                            <Input type="password" value={bybitApiKey} onChange={(e) => setBybitApiKey(e.target.value)} placeholder="Bybit API Key" className="bg-secondary/50 font-mono text-xs" />
+                          </div>
+                          <div className="space-y-1">
+                            <Label className="text-xs">API Secret</Label>
+                            <Input type="password" value={bybitApiSecret} onChange={(e) => setBybitApiSecret(e.target.value)} placeholder="Bybit API Secret" className="bg-secondary/50 font-mono text-xs" />
+                          </div>
+                        </div>
+                        <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                          <div className="space-y-1">
+                            <Label className="text-xs">Leverage (1–100x)</Label>
+                            <Input type="number" min="1" max="100" value={bybitLeverage} onChange={(e) => setBybitLeverage(e.target.value)} className="bg-secondary/50" />
+                          </div>
+                          <div className="space-y-1">
+                            <Label className="text-xs">Margin Type</Label>
+                            <div className="flex gap-2">
+                              {(['ISOLATED', 'CROSSED'] as const).map(t => (
+                                <button key={t} onClick={() => setBybitMarginType(t)} className={`flex-1 py-2 text-xs font-medium rounded-lg border transition-all ${bybitMarginType === t ? 'border-primary bg-primary/10 text-primary' : 'border-border hover:border-primary/40'}`}>{t}</button>
+                              ))}
+                            </div>
+                          </div>
+                          <div className="space-y-1">
+                            <Label className="text-xs">Max Position (USDT)</Label>
+                            <Input type="number" min="10" value={bybitMaxPosition} onChange={(e) => setBybitMaxPosition(e.target.value)} className="bg-secondary/50" />
+                          </div>
+                        </div>
+                        <div className="flex items-center justify-between py-2 border-t border-border">
+                          <div>
+                            <Label className="text-sm font-semibold">Auto-Trading</Label>
+                            <p className="text-xs text-muted-foreground">Automatically execute signals on Bybit Futures</p>
+                          </div>
+                          <Switch checked={bybitAutoTrading} onCheckedChange={setBybitAutoTrading} />
+                        </div>
+                        <div className="flex gap-2 flex-wrap">
+                          <Button size="sm" onClick={() => saveExchangeSettings('bybit')} disabled={updateMutation.isPending} className="gap-1.5">
+                            {updateMutation.isPending ? <Loader2 className="w-3 h-3 animate-spin" /> : null}
+                            Save Settings
+                          </Button>
+                          <Button size="sm" variant="outline" onClick={() => { saveExchangeSettings('bybit'); setTimeout(() => testExchangeConnection('bybit'), 500); }} disabled={isTesting || !bybitApiKey || !bybitApiSecret} className="gap-1.5">
+                            {isTesting ? <Loader2 className="w-3 h-3 animate-spin" /> : <Link className="w-3 h-3" />}
+                            {isTesting ? 'Testing…' : 'Test Connection'}
+                          </Button>
+                        </div>
+                      </CardContent>
+                    </Card>
+                  );
+                })()}
+
+                {/* ── MEXC ── */}
+                {(() => {
+                  const isConnected = !!(settings as any)?.mexcConnected;
+                  const isTesting = testingExchange === 'mexc';
+                  const isFetching = fetchingBalance === 'mexc';
+                  return (
+                    <Card className="bg-card border-border">
+                      <CardHeader>
+                        <div className="flex items-center gap-3">
+                          <div className="w-10 h-10 bg-blue-500/10 rounded-lg flex items-center justify-center">
+                            <TrendingUp className="w-5 h-5 text-blue-500" />
+                          </div>
+                          <div className="flex-1">
+                            <div className="flex items-center gap-2">
+                              <CardTitle className="text-base">MEXC Futures</CardTitle>
+                              <Badge variant={isConnected ? 'default' : 'secondary'} className={`text-[10px] h-5 ${isConnected ? 'bg-green-500/20 text-green-400 border-green-500/30' : ''}`}>
+                                {isConnected ? '● Connected' : '○ Disconnected'}
+                              </Badge>
+                            </div>
+                            <CardDescription>Perpetual Contracts — contract.mexc.com</CardDescription>
+                          </div>
+                          {isConnected && (
+                            <Button size="sm" variant="ghost" onClick={() => fetchExchangeBalance('mexc')} disabled={isFetching} className="gap-1 text-xs">
+                              <RefreshCw className={`w-3 h-3 ${isFetching ? 'animate-spin' : ''}`} />
+                              {mexcBalance ? `$${mexcBalance.available.toFixed(2)}` : 'Balance'}
+                            </Button>
+                          )}
+                        </div>
+                      </CardHeader>
+                      <CardContent className="space-y-4">
+                        {mexcBalance && (
+                          <div className="grid grid-cols-2 gap-3 p-3 rounded-lg bg-green-500/5 border border-green-500/20">
+                            <div><p className="text-[11px] text-muted-foreground">Available Balance</p><p className="text-sm font-bold text-green-400">${mexcBalance.available.toFixed(2)} USDT</p></div>
+                            <div><p className="text-[11px] text-muted-foreground">Total Wallet</p><p className="text-sm font-bold">${mexcBalance.total.toFixed(2)} USDT</p></div>
+                          </div>
+                        )}
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                          <div className="space-y-1">
+                            <Label className="text-xs">API Key</Label>
+                            <Input type="password" value={mexcApiKey} onChange={(e) => setMexcApiKey(e.target.value)} placeholder="MEXC API Key" className="bg-secondary/50 font-mono text-xs" />
+                          </div>
+                          <div className="space-y-1">
+                            <Label className="text-xs">API Secret</Label>
+                            <Input type="password" value={mexcApiSecret} onChange={(e) => setMexcApiSecret(e.target.value)} placeholder="MEXC API Secret" className="bg-secondary/50 font-mono text-xs" />
+                          </div>
+                        </div>
+                        <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                          <div className="space-y-1">
+                            <Label className="text-xs">Leverage (1–100x)</Label>
+                            <Input type="number" min="1" max="100" value={mexcLeverage} onChange={(e) => setMexcLeverage(e.target.value)} className="bg-secondary/50" />
+                          </div>
+                          <div className="space-y-1">
+                            <Label className="text-xs">Margin Type</Label>
+                            <div className="flex gap-2">
+                              {(['ISOLATED', 'CROSSED'] as const).map(t => (
+                                <button key={t} onClick={() => setMexcMarginType(t)} className={`flex-1 py-2 text-xs font-medium rounded-lg border transition-all ${mexcMarginType === t ? 'border-primary bg-primary/10 text-primary' : 'border-border hover:border-primary/40'}`}>{t}</button>
+                              ))}
+                            </div>
+                          </div>
+                          <div className="space-y-1">
+                            <Label className="text-xs">Max Position (USDT)</Label>
+                            <Input type="number" min="10" value={mexcMaxPosition} onChange={(e) => setMexcMaxPosition(e.target.value)} className="bg-secondary/50" />
+                          </div>
+                        </div>
+                        <div className="flex items-center justify-between py-2 border-t border-border">
+                          <div>
+                            <Label className="text-sm font-semibold">Auto-Trading</Label>
+                            <p className="text-xs text-muted-foreground">Automatically execute signals on MEXC Futures</p>
+                          </div>
+                          <Switch checked={mexcAutoTrading} onCheckedChange={setMexcAutoTrading} />
+                        </div>
+                        <div className="flex gap-2 flex-wrap">
+                          <Button size="sm" onClick={() => saveExchangeSettings('mexc')} disabled={updateMutation.isPending} className="gap-1.5">
+                            {updateMutation.isPending ? <Loader2 className="w-3 h-3 animate-spin" /> : null}
+                            Save Settings
+                          </Button>
+                          <Button size="sm" variant="outline" onClick={() => { saveExchangeSettings('mexc'); setTimeout(() => testExchangeConnection('mexc'), 500); }} disabled={isTesting || !mexcApiKey || !mexcApiSecret} className="gap-1.5">
+                            {isTesting ? <Loader2 className="w-3 h-3 animate-spin" /> : <Link className="w-3 h-3" />}
+                            {isTesting ? 'Testing…' : 'Test Connection'}
+                          </Button>
+                        </div>
+                      </CardContent>
+                    </Card>
+                  );
+                })()}
               </div>
             </TabsContent>
 

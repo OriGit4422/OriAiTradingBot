@@ -716,14 +716,23 @@ export function getQuantumSignal(symbol: string, price: number, data: BinanceKli
 
   const marketPrice = data[data.length - 1].close;
 
-  // Hard clamp: entry must be within 1.5% of current market price.
-  // Historical indicator levels (CHoCH, OB, FVG) can be far away — snap them.
-  const MAX_ENTRY_DEVIATION = 0.015; // 1.5%
+  // ── Entry price sanity clamp ───────────────────────────────────────────────
+  // Rule 1: LONG entry must NEVER be above market price (would require price to
+  //         rise before entry — nonsensical for immediate-fill signals).
+  //         SHORT entry must NEVER be below market price.
+  if (type === 'LONG' && entryPrice > marketPrice) {
+    entryPrice = marketPrice * 0.998; // 0.2% below market
+  } else if (type === 'SHORT' && entryPrice < marketPrice) {
+    entryPrice = marketPrice * 1.002; // 0.2% above market
+  }
+
+  // Rule 2: Even after directional fix, clamp to max 0.5% from market so entries
+  //         are always close to current price regardless of timeframe.
+  const MAX_ENTRY_DEVIATION = 0.005; // 0.5%
   if (Math.abs(entryPrice - marketPrice) / marketPrice > MAX_ENTRY_DEVIATION) {
-    // Keep directional intent but put entry just inside current price
     entryPrice = type === 'LONG'
-      ? marketPrice * (1 - 0.003)  // 0.3% below market for LONG entries
-      : marketPrice * (1 + 0.003); // 0.3% above market for SHORT entries
+      ? marketPrice * 0.997  // 0.3% below market
+      : marketPrice * 1.003; // 0.3% above market
   }
 
   const { dynamicSL, dynamicTP, riskReward, kellyFraction } = analysis.adaptiveRisk;

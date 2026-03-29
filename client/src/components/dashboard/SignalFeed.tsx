@@ -1,11 +1,12 @@
 import { useEffect, useState, useCallback } from 'react';
 import { Badge } from '@/components/ui/badge';
 import { ScrollArea } from '@/components/ui/scroll-area';
+import { Input } from '@/components/ui/input';
 import { getQuantumSignal, calculateMultiTFConfluence } from '@/lib/strategies';
 import { fetchKlines } from '@/lib/binance';
 import { enhanceSignalsWithAI } from '@/lib/signal-ai';
 import { cn } from '@/lib/utils';
-import { Clock, Loader2, BrainCircuit, Zap, Flame, Send, TrendingUp, TrendingDown, BarChart3, RefreshCw, ChevronDown, ChevronRight, Activity, X, Target, Shield } from 'lucide-react';
+import { Clock, Loader2, BrainCircuit, Zap, Flame, Send, TrendingUp, TrendingDown, BarChart3, RefreshCw, ChevronDown, ChevronRight, Activity, X, Target, Shield, Search } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { toast } from '@/hooks/use-toast';
 import { apiRequest, queryClient } from '@/lib/queryClient';
@@ -41,6 +42,7 @@ export function SignalFeed({ compact = false, onSelectCoin }: SignalFeedProps) {
   const [isLoading, setIsLoading] = useState(true);
   const [selectedTF, setSelectedTF] = useState('ALL');
   const [selectedSignal, setSelectedSignal] = useState<any | null>(null);
+  const [searchQuery, setSearchQuery] = useState('');
 
   const generateAllSignals = useCallback(async () => {
     setIsLoading(true);
@@ -81,10 +83,10 @@ export function SignalFeed({ compact = false, onSelectCoin }: SignalFeedProps) {
     return () => clearInterval(interval);
   }, [generateAllSignals]);
 
-  const filteredSignals = selectedTF === 'ALL'
-    ? allSignals.sort((a, b) => b.confidence - a.confidence)
-    : allSignals.filter(s => s.timeframe === selectedTF).sort((a, b) => b.confidence - a.confidence);
-  const visibleSignals = isMobile ? filteredSignals.slice(0, 12) : filteredSignals;
+  const filteredSignals = (selectedTF === 'ALL' ? allSignals : allSignals.filter(s => s.timeframe === selectedTF))
+    .filter(s => !searchQuery || s.coin.toLowerCase().includes(searchQuery.toLowerCase()))
+    .sort((a, b) => b.confidence - a.confidence);
+  const visibleSignals = filteredSignals.slice(0, 10);
 
   const handleExecuteTrade = async (signal: any) => {
     try {
@@ -173,6 +175,19 @@ export function SignalFeed({ compact = false, onSelectCoin }: SignalFeedProps) {
             </div>
           </div>
         )}
+
+        <div className="px-2 py-1.5 border-b border-border/50">
+          <div className="relative">
+            <Search className="absolute left-2.5 top-2 h-3.5 w-3.5 text-muted-foreground" />
+            <Input
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              placeholder="Search coin (e.g. BTC)"
+              className="h-8 pl-8 text-xs"
+              data-testid="input-quantum-search"
+            />
+          </div>
+        </div>
 
         <ScrollArea className="flex-1">
           <div className="divide-y divide-border/30">

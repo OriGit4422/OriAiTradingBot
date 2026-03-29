@@ -134,10 +134,10 @@ export default function Signals() {
       .filter((r): r is PromiseFulfilledResult<any> => r.status === 'fulfilled' && r.value !== null)
       .map(r => r.value);
 
-    const newSignals = [...cryptoSignals, ...goldSignals];
+    const allSignals = [...cryptoSignals, ...goldSignals];
 
     const aiLimit = isMobile ? 8 : 16;
-    const aiConfirmed = await enhanceSignalsWithAI(newSignals, aiLimit);
+    const aiConfirmed = await enhanceSignalsWithAI(allSignals, aiLimit);
     const sorted = aiConfirmed.sort((a, b) => b.confidence - a.confidence);
     setLiveSignals(sorted);
 

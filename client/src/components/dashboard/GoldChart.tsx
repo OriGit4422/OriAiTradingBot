@@ -87,8 +87,10 @@ export function GoldChart({ timeframe }: GoldChartProps) {
     // Fetch candles
     fetch(`/api/gold/candles/${timeframe}`)
       .then(r => r.json())
-      .then((candles: GoldCandle[]) => {
+      .then((resp: any) => {
         if (!isMounted) return;
+        // Handle both flat array and { candles: [...] } response shapes
+        const candles: GoldCandle[] = Array.isArray(resp) ? resp : (resp?.candles ?? []);
         if (!candles || candles.length === 0) {
           setError('No candle data returned.');
           setIsLoading(false);

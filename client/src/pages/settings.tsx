@@ -70,89 +70,10 @@ export default function SettingsPage() {
   const [binanceApiKey, setBinanceApiKey] = useState('');
   const [bybitApiKey, setBybitApiKey] = useState('');
   const [telegramChatId, setTelegramChatId] = useState('');
-  const [mt5Login, setMt5Login] = useState('');
-  const [mt5Password, setMt5Password] = useState('');
-  const [mt5Server, setMt5Server] = useState('');
-  const [goldRisk, setGoldRisk] = useState('1.0');
-
-  // ── Exchange (Binance / Bybit / MEXC) state ──────────────────────────────
-  const [binanceApiSecret, setBinanceApiSecret] = useState('');
-  const [binanceAutoTrading, setBinanceAutoTrading] = useState(false);
-  const [binanceLeverage, setBinanceLeverage] = useState('10');
-  const [binanceMarginType, setBinanceMarginType] = useState<'ISOLATED' | 'CROSSED'>('ISOLATED');
-  const [binanceMaxPosition, setBinanceMaxPosition] = useState('100');
-
-  const [bybitApiSecret, setBybitApiSecret] = useState('');
-  const [bybitAutoTrading, setBybitAutoTrading] = useState(false);
-  const [bybitLeverage, setBybitLeverage] = useState('10');
-  const [bybitMarginType, setBybitMarginType] = useState<'ISOLATED' | 'CROSSED'>('ISOLATED');
-  const [bybitMaxPosition, setBybitMaxPosition] = useState('100');
-
-  const [mexcApiKey, setMexcApiKey] = useState('');
-  const [mexcApiSecret, setMexcApiSecret] = useState('');
-  const [mexcAutoTrading, setMexcAutoTrading] = useState(false);
-  const [mexcLeverage, setMexcLeverage] = useState('10');
-  const [mexcMarginType, setMexcMarginType] = useState<'ISOLATED' | 'CROSSED'>('ISOLATED');
-  const [mexcMaxPosition, setMexcMaxPosition] = useState('100');
-
-  const [binanceBalance, setBinanceBalance] = useState<{ available: number; total: number } | null>(null);
-  const [bybitBalance, setBybitBalance] = useState<{ available: number; total: number } | null>(null);
-  const [mexcBalance, setMexcBalance] = useState<{ available: number; total: number } | null>(null);
-  const [testingExchange, setTestingExchange] = useState<string | null>(null);
-  const [fetchingBalance, setFetchingBalance] = useState<string | null>(null);
-  const [discordWebhookUrl, setDiscordWebhookUrl] = useState('');
-  const [coinglassApiKey, setCoinglassApiKey] = useState('');
-  const [perplexityApiKey, setPerplexityApiKey] = useState('');
-  const [arkhamApiKey, setArkhamApiKey] = useState('');
-  const [newsApiKey, setNewsApiKey] = useState('');
-
-  // ── MT5 / Gold state ─────────────────────────────────────────────────────
-  // Legacy simple MT5 login fields (used by built-in gold-trading module)
-  const [mt5Login, setMt5Login] = useState('');
-  const [mt5Password, setMt5Password] = useState('');
-  const [mt5Server, setMt5Server] = useState('');
-  const [goldRisk, setGoldRisk] = useState('1.0');
-  // MetaApi advanced fields
-  const [metaApiToken, setMetaApiToken] = useState('');
-  const [metaApiAccountId, setMetaApiAccountId] = useState('');
-  const [goldLotSize, setGoldLotSize] = useState('0.01');
-  const [goldMaxDailyTrades, setGoldMaxDailyTrades] = useState('5');
-  const [goldMinConfidence, setGoldMinConfidence] = useState('75');
-  const [goldAutoTradingEnabled, setGoldAutoTradingEnabled] = useState(false);
-
-  // ── Theme state ──────────────────────────────────────────────────────────
-  const [activeThemeId, setActiveThemeId] = useState(getActiveThemeId);
-  const [customThemes, setCustomThemes] = useState(getCustomThemes);
-  const [customName, setCustomName] = useState('');
-  const [customBase, setCustomBase] = useState<'light' | 'dark'>('dark');
-  const [customPrimary, setCustomPrimary] = useState('#0ea5e9');
-
-  const handleApplyTheme = (theme: Theme) => {
-    applyTheme(theme);
-    setActiveThemeId(theme.id);
-  };
-
-  const handleSaveCustom = () => {
-    const name = customName.trim() || `Custom ${customThemes.length + 1}`;
-    const id = `custom-${Date.now()}`;
-    const vars = buildCustomVars(customPrimary, customBase);
-    const newTheme: CustomTheme = {
-      id, name, type: customBase, primaryHex: customPrimary, custom: true,
-      preview: { bg: customBase === 'light' ? '#f4f6f8' : '#0f172a', card: '#ffffff', primary: customPrimary, accent2: customPrimary },
-      vars,
-    };
-    saveCustomTheme(newTheme);
-    setCustomThemes(getCustomThemes());
-    handleApplyTheme(newTheme);
-    setCustomName('');
-    toast({ title: `Theme "${name}" saved and applied` });
-  };
-
-  const handleDeleteCustom = (id: string) => {
-    deleteCustomTheme(id);
-    setCustomThemes(getCustomThemes());
-    if (activeThemeId === id) handleApplyTheme(PRESET_THEMES[0]);
-  };
+  const [goldMt5Login, setGoldMt5Login] = useState('');
+  const [goldMt5Password, setGoldMt5Password] = useState('');
+  const [goldMt5Server, setGoldMt5Server] = useState('');
+  const [goldRiskPercent, setGoldRiskPercent] = useState('1.0');
 
   const [addUserOpen, setAddUserOpen] = useState(false);
   const [editUser, setEditUser] = useState<UserAccess | null>(null);
@@ -270,7 +191,11 @@ export default function SettingsPage() {
 
   const connectMt5Mutation = useMutation({
     mutationFn: async () => {
-      const res = await apiRequest('POST', '/api/gold/mt5/connect', { login: mt5Login, password: mt5Password, server: mt5Server });
+      const res = await apiRequest('POST', '/api/gold/mt5/connect', {
+        login: goldMt5Login,
+        password: goldMt5Password,
+        server: goldMt5Server,
+      });
       return res.json();
     },
     onSuccess: (data) => {
@@ -281,7 +206,10 @@ export default function SettingsPage() {
 
   const autoGoldMutation = useMutation({
     mutationFn: async (enabled: boolean) => {
-      const res = await apiRequest('PATCH', '/api/gold/auto-trading', { enabled, maxRiskPercent: parseFloat(goldRisk) || 1.0 });
+      const res = await apiRequest('PATCH', '/api/gold/auto-trading', {
+        enabled,
+        maxRiskPercent: parseFloat(goldRiskPercent) || 1.0,
+      });
       return res.json();
     },
     onSuccess: (data) => {
@@ -596,9 +524,9 @@ export default function SettingsPage() {
                 </CardHeader>
                 <CardContent className="space-y-4">
                   <div className="grid grid-cols-1 md:grid-cols-3 gap-2">
-                    <Input placeholder="MT5 Login" value={mt5Login} onChange={(e) => setMt5Login(e.target.value)} />
-                    <Input placeholder="MT5 Password" type="password" value={mt5Password} onChange={(e) => setMt5Password(e.target.value)} />
-                    <Input placeholder="MT5 Server" value={mt5Server} onChange={(e) => setMt5Server(e.target.value)} />
+                    <Input placeholder="MT5 Login" value={goldMt5Login} onChange={(e) => setGoldMt5Login(e.target.value)} />
+                    <Input placeholder="MT5 Password" type="password" value={goldMt5Password} onChange={(e) => setGoldMt5Password(e.target.value)} />
+                    <Input placeholder="MT5 Server" value={goldMt5Server} onChange={(e) => setGoldMt5Server(e.target.value)} />
                   </div>
                   <div className="flex flex-wrap gap-2">
                     <Button onClick={() => connectMt5Mutation.mutate()} disabled={connectMt5Mutation.isPending}>Connect MT5</Button>
@@ -610,7 +538,7 @@ export default function SettingsPage() {
                   </div>
                   <div className="flex items-center gap-2">
                     <Label>Gold Risk %</Label>
-                    <Input className="max-w-32" value={goldRisk} onChange={(e) => setGoldRisk(e.target.value)} />
+                    <Input className="max-w-32" value={goldRiskPercent} onChange={(e) => setGoldRiskPercent(e.target.value)} />
                   </div>
                   <div className="text-xs text-muted-foreground">
                     MT5: <span className={goldStatus?.mt5?.connected ? 'text-green-500' : 'text-red-500'}>{goldStatus?.mt5?.connected ? 'Connected' : 'Disconnected'}</span>

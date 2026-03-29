@@ -358,8 +358,15 @@ function calculateAdaptiveRisk(data: BinanceKline[], atr: number, rsi: number, a
   const optimalSize = kellyFraction * sizeFactor;
 
   const trendStrength = adx > 30 ? 1.2 : adx > 20 ? 1 : 0.8;
-  const dynamicSL = atr * 1.5 * (1 / trendStrength);
-  const dynamicTP = atr * 3 * trendStrength;
+
+  // SL: tight ATR-based stop — no penalty for weak trends (keeps SL precise)
+  const dynamicSL = atr * 1.2;
+
+  // TP: scale with trend strength, always ≥ 3.0× ATR so minimum R:R is 2.5
+  const rawTP = atr * Math.max(3.0, 3.6 * trendStrength);
+  // Hard floor: TP must be at least 2.5× the SL distance
+  const dynamicTP = Math.max(rawTP, dynamicSL * 2.5);
+
   const riskReward = dynamicTP / Math.max(0.0001, dynamicSL);
 
   return { kellyFraction, optimalSize, dynamicSL, dynamicTP, riskReward: Math.round(riskReward * 100) / 100 };
@@ -708,11 +715,34 @@ export function getQuantumSignal(symbol: string, price: number, data: BinanceKli
   confidence = Math.min(98, confidence + confluenceBonus);
 
   const marketPrice = data[data.length - 1].close;
-  if (Math.abs(entryPrice - marketPrice) / marketPrice > 0.1) entryPrice = marketPrice;
+
+  // ── Entry price sanity clamp ───────────────────────────────────────────────
+  // Rule 1: LONG entry must NEVER be above market price (would require price to
+  //         rise before entry — nonsensical for immediate-fill signals).
+  //         SHORT entry must NEVER be below market price.
+  if (type === 'LONG' && entryPrice > marketPrice) {
+    entryPrice = marketPrice * 0.998; // 0.2% below market
+  } else if (type === 'SHORT' && entryPrice < marketPrice) {
+    entryPrice = marketPrice * 1.002; // 0.2% above market
+  }
+
+  // Rule 2: Even after directional fix, clamp to max 0.5% from market so entries
+  //         are always close to current price regardless of timeframe.
+  const MAX_ENTRY_DEVIATION = 0.005; // 0.5%
+  if (Math.abs(entryPrice - marketPrice) / marketPrice > MAX_ENTRY_DEVIATION) {
+    entryPrice = type === 'LONG'
+      ? marketPrice * 0.997  // 0.3% below market
+      : marketPrice * 1.003; // 0.3% above market
+  }
 
   const { dynamicSL, dynamicTP, riskReward, kellyFraction } = analysis.adaptiveRisk;
   const tp = type === 'LONG' ? entryPrice + dynamicTP : entryPrice - dynamicTP;
   const sl = type === 'LONG' ? entryPrice - dynamicSL : entryPrice + dynamicSL;
+
+  // Composite signal score: 65% AI confidence + 35% R:R quality
+  // R:R quality: 0 at 1.5, 100 at 4.0+ (normalized)
+  const rrQuality = Math.min(100, Math.max(0, ((riskReward - 1.5) / 2.5) * 100));
+  const signalScore = Math.round(confidence * 0.65 + rrQuality * 0.35);
 
   return {
     id: Math.random().toString(36).substr(2, 9),
@@ -724,6 +754,7 @@ export function getQuantumSignal(symbol: string, price: number, data: BinanceKli
     tp, sl,
     timeframe: '15m',
     confidence,
+    signalScore,
     timestamp: 'Just now',
     status: 'PENDING',
     indicators: {

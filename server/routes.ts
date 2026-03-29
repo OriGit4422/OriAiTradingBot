@@ -47,7 +47,26 @@ export async function registerRoutes(
   // ─── AI Analysis ──────────────────────────────────────────
   app.post("/api/ai/analyze-signal", async (req, res) => {
     try {
-      const result = await analyzeSignalWithAI(req.body);
+      const signalData = req.body;
+      // Enrich with news context if NewsAPI key is available
+      let enrichedData = { ...signalData };
+      try {
+        const s = await storage.getSettings();
+        const newsApiKey = (s as any)?.newsApiKey || process.env.NEWS_API_KEY || 'd66b436737204e49a72f1cafb522d483';
+        if (newsApiKey) {
+          const { articles, sentiment } = await getCoinNews(signalData.coin, newsApiKey, 5)
+            .then(arts => ({ articles: arts, sentiment: aggregateSentiment(arts) }));
+          if (articles.length) {
+            enrichedData.agentContext = {
+              ...enrichedData.agentContext,
+              newsImpact: sentiment.overall,
+              newsTopHeadlines: articles.slice(0, 3).map((a: any) => a.title),
+            };
+          }
+        }
+      } catch (_e) { /* non-fatal: news enrichment is best-effort */ }
+
+      const result = await analyzeSignalWithAI(enrichedData);
       res.json(result);
     } catch (e: any) {
       res.status(500).json({ message: e.message });
@@ -469,6 +488,259 @@ export async function registerRoutes(
       res.status(204).send();
     } catch (e: any) {
       res.status(500).json({ message: e.message });
+    }
+  });
+
+  // ─── AI Intelligence Endpoints ────────────────────────────────────────────
+
+  // GET /api/intelligence/status — which agents are configured
+  app.get("/api/intelligence/status", async (_req, res) => {
+    try {
+      const s = await storage.getSettings();
+      res.json({
+        agents: {
+          claude:     { name: "Claude AI",    active: true,              role: "Primary signal analysis & cross-validation" },
+          coinglass:  { name: "Coinglass",    active: !!s?.coinglassApiKey,  role: "Derivatives: funding rates, long/short ratios" },
+          perplexity: { name: "Perplexity",   active: !!s?.perplexityApiKey, role: "Real-time news sentiment filter" },
+          arkham:     { name: "Arkham",       active: !!s?.arkhamApiKey,     role: "Whale & smart money on-chain tracking" },
+        },
+        totalActive: 1 + [s?.coinglassApiKey, s?.perplexityApiKey, s?.arkhamApiKey].filter(Boolean).length,
+      });
+    } catch (e: any) {
+      res.status(500).json({ message: e.message });
+    }
+  });
+
+  // GET /api/intelligence/coinglass/:coin
+  app.get("/api/intelligence/coinglass/:coin", async (req, res) => {
+    try {
+      const data = await getCoinglassData(req.params.coin.toUpperCase());
+      res.json(data);
+    } catch (e: any) {
+      res.status(500).json({ message: e.message });
+    }
+  });
+
+  // GET /api/intelligence/news/:coin
+  app.get("/api/intelligence/news/:coin", async (req, res) => {
+    try {
+      const data = await getNewsSentiment(req.params.coin.toUpperCase());
+      res.json(data);
+    } catch (e: any) {
+      res.status(500).json({ message: e.message });
+    }
+  });
+
+  // GET /api/intelligence/whale/:coin
+  app.get("/api/intelligence/whale/:coin", async (req, res) => {
+    try {
+      const data = await getWhaleActivity(req.params.coin.toUpperCase());
+      res.json(data);
+    } catch (e: any) {
+      res.status(500).json({ message: e.message });
+    }
+  });
+
+  // POST /api/intelligence/validate — full multi-agent signal validation
+  app.post("/api/intelligence/validate", async (req, res) => {
+    try {
+      const result = await runMultiAgentValidation(req.body);
+      res.json(result);
+    } catch (e: any) {
+      res.status(500).json({ message: e.message });
+    }
+  });
+
+  // ─── Gold Extended Routes ─────────────────────────────────────────────────
+
+  // GET /api/gold/candles/:interval  (1m | 5m | 15m | 30m | 1h | 4h | 1d)
+  app.get("/api/gold/candles/:interval", async (req, res) => {
+    try {
+      const interval = req.params.interval || '1h';
+      const limit = parseInt(req.query.limit as string) || 200;
+      const candles = await getGoldCandles(interval, limit);
+      res.json(candles);
+    } catch (e: any) {
+      res.status(500).json({ message: e.message });
+    }
+  });
+
+  // GET /api/gold/signal/:timeframe
+  app.get("/api/gold/signal/:timeframe", async (req, res) => {
+    try {
+      const signal = await analyzeGold(req.params.timeframe || '1h');
+      res.json(signal);
+    } catch (e: any) {
+      res.status(500).json({ message: e.message });
+    }
+  });
+
+  // POST /api/gold/trade  — place auto trade via MT5
+  app.post("/api/gold/trade", async (req, res) => {
+    try {
+      const s = await storage.getSettings();
+      if (!s?.metaApiToken || !s?.metaApiAccountId) {
+        return res.status(400).json({ message: "MT5 not connected. Add MetaApi token and account ID in Settings." });
+      }
+      if (!s.goldAutoTradingEnabled) {
+        return res.status(400).json({ message: "Auto trading is disabled. Enable it in Settings → MT5." });
+      }
+      const { type, entry, tp, sl, confidence, lotSize } = req.body;
+      if (!type || !entry || !tp || !sl) {
+        return res.status(400).json({ message: "Missing required trade fields (type, entry, tp, sl)" });
+      }
+      if (confidence < (s.goldMinConfidence ?? 75)) {
+        return res.status(400).json({ message: `Signal confidence ${confidence}% below minimum ${s.goldMinConfidence}%` });
+      }
+      const result = await placeMT5Order(s.metaApiToken, s.metaApiAccountId, {
+        symbol: 'XAUUSD',
+        type: type === 'BUY' ? 'ORDER_TYPE_BUY' : 'ORDER_TYPE_SELL',
+        volume: lotSize ?? s.goldLotSize ?? 0.01,
+        stopLoss: sl,
+        takeProfit: tp,
+      });
+      res.json(result);
+    } catch (e: any) {
+      res.status(500).json({ message: e.message });
+    }
+  });
+
+  // ─── MT5 Account ──────────────────────────────────────────────────────────
+
+  // GET /api/mt5/account
+  app.get("/api/mt5/account", async (_req, res) => {
+    try {
+      const s = await storage.getSettings();
+      if (!s?.metaApiToken || !s?.metaApiAccountId) {
+        return res.json({ connected: false, message: "MT5 credentials not configured" });
+      }
+      const info = await getMT5AccountInfo(s.metaApiToken, s.metaApiAccountId);
+      res.json(info);
+    } catch (e: any) {
+      res.status(500).json({ message: e.message, connected: false });
+    }
+  });
+
+  // GET /api/mt5/positions
+  app.get("/api/mt5/positions", async (_req, res) => {
+    try {
+      const s = await storage.getSettings();
+      if (!s?.metaApiToken || !s?.metaApiAccountId) {
+        return res.json([]);
+      }
+      const positions = await getMT5OpenPositions(s.metaApiToken, s.metaApiAccountId);
+      res.json(positions);
+    } catch (e: any) {
+      res.status(500).json({ message: e.message });
+    }
+  });
+
+  // ─── Exchange Auto-Trading ────────────────────────────────────────────────
+
+  // POST /api/exchange/:exchange/test  — verify credentials
+  app.post("/api/exchange/:exchange/test", async (req, res) => {
+    try {
+      const exchange = req.params.exchange as ExchangeName;
+      if (!["binance", "bybit", "mexc"].includes(exchange)) {
+        return res.status(400).json({ ok: false, message: "Unknown exchange" });
+      }
+      const { apiKey, apiSecret } = req.body;
+      if (!apiKey || !apiSecret) return res.status(400).json({ ok: false, message: "apiKey and apiSecret required" });
+      const result = await testExchangeConnection(exchange, apiKey, apiSecret);
+      // Persist connected status to settings
+      if (result.ok) {
+        const patch: Record<string, any> = {};
+        patch[`${exchange}Connected`] = true;
+        await storage.upsertSettings(patch as any);
+      }
+      res.json(result);
+    } catch (e: any) {
+      res.status(500).json({ ok: false, message: e.message });
+    }
+  });
+
+  // GET /api/exchange/:exchange/balance
+  app.get("/api/exchange/:exchange/balance", async (req, res) => {
+    try {
+      const exchange = req.params.exchange as ExchangeName;
+      const s = await storage.getSettings();
+      if (!s) return res.status(400).json({ ok: false, message: "Settings not found" });
+      const keyMap: Record<string, [string | null | undefined, string | null | undefined]> = {
+        binance: [s.binanceApiKey, s.binanceApiSecret],
+        bybit:   [s.bybitApiKey,   s.bybitApiSecret],
+        mexc:    [s.mexcApiKey,    s.mexcApiSecret],
+      };
+      const [apiKey, apiSecret] = keyMap[exchange] ?? [];
+      if (!apiKey || !apiSecret) return res.json({ ok: false, exchange, message: "API keys not configured", totalWalletBalance: 0, availableBalance: 0, unrealizedPnl: 0, currency: "USDT" });
+      let bal;
+      if (exchange === "binance") bal = await getBinanceBalance(apiKey, apiSecret);
+      else if (exchange === "bybit") bal = await getBybitBalance(apiKey, apiSecret);
+      else bal = await getMexcBalance(apiKey, apiSecret);
+      res.json(bal);
+    } catch (e: any) {
+      res.status(500).json({ ok: false, message: e.message });
+    }
+  });
+
+  // POST /api/exchange/:exchange/trade  — manual / auto-triggered trade
+  app.post("/api/exchange/:exchange/trade", async (req, res) => {
+    try {
+      const exchange = req.params.exchange as ExchangeName;
+      const s = await storage.getSettings();
+      if (!s) return res.status(400).json({ ok: false, message: "Settings not found" });
+      const keyMap: Record<string, [string | null | undefined, string | null | undefined]> = {
+        binance: [s.binanceApiKey, s.binanceApiSecret],
+        bybit:   [s.bybitApiKey,   s.bybitApiSecret],
+        mexc:    [s.mexcApiKey,    s.mexcApiSecret],
+      };
+      const [apiKey, apiSecret] = keyMap[exchange] ?? [];
+      if (!apiKey || !apiSecret) return res.status(400).json({ ok: false, message: `${exchange} API keys not configured in Settings` });
+
+      const cfgMap: Record<string, { lev: number; margin: string; maxUsdt: number; auto: boolean; minConf: number }> = {
+        binance: { lev: s.binanceLeverage ?? 10, margin: s.binanceMarginType ?? "ISOLATED", maxUsdt: s.binanceMaxPositionUsdt ?? 100, auto: s.binanceAutoTrading ?? false, minConf: 70 },
+        bybit:   { lev: s.bybitLeverage ?? 10,   margin: s.bybitMarginType ?? "ISOLATED",   maxUsdt: s.bybitMaxPositionUsdt ?? 100,   auto: s.bybitAutoTrading ?? false,   minConf: 70 },
+        mexc:    { lev: s.mexcLeverage ?? 10,    margin: s.mexcMarginType ?? "ISOLATED",    maxUsdt: s.mexcMaxPositionUsdt ?? 100,    auto: s.mexcAutoTrading ?? false,    minConf: 70 },
+      };
+      const cfg = cfgMap[exchange];
+
+      const result = await autoTradeSignal(exchange, apiKey, apiSecret, req.body, {
+        leverage: cfg.lev,
+        marginType: cfg.margin as "ISOLATED" | "CROSSED",
+        maxPositionUsdt: cfg.maxUsdt,
+        minConfidence: cfg.minConf,
+      });
+      res.json(result);
+    } catch (e: any) {
+      res.status(500).json({ ok: false, message: e.message });
+    }
+  });
+
+  // ── NEWS ROUTES ──────────────────────────────────────────────────────────────
+
+  // GET /api/news/market — general crypto market news + aggregate sentiment
+  app.get("/api/news/market", async (req, res) => {
+    try {
+      const s = await storage.getSettings();
+      const apiKey = (s as any)?.newsApiKey || process.env.NEWS_API_KEY || 'd66b436737204e49a72f1cafb522d483';
+      const articles = await getMarketNews(apiKey, 10);
+      const sentiment = aggregateSentiment(articles);
+      res.json({ articles, sentiment });
+    } catch (e: any) {
+      res.status(500).json({ message: e.message, articles: [], sentiment: null });
+    }
+  });
+
+  // GET /api/news/:coin — coin-specific news (BTC, ETH, XAUUSD, etc.)
+  app.get("/api/news/:coin", async (req, res) => {
+    try {
+      const s = await storage.getSettings();
+      const apiKey = (s as any)?.newsApiKey || process.env.NEWS_API_KEY || 'd66b436737204e49a72f1cafb522d483';
+      const limit = parseInt(req.query.limit as string) || 5;
+      const articles = await getCoinNews(req.params.coin, apiKey, limit);
+      const sentiment = aggregateSentiment(articles);
+      res.json({ articles, sentiment });
+    } catch (e: any) {
+      res.status(500).json({ message: e.message, articles: [], sentiment: null });
     }
   });
 

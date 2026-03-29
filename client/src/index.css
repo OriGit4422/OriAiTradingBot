@@ -6,56 +6,62 @@
   --font-sans: 'Inter', sans-serif;
   --font-display: 'Rajdhani', sans-serif;
 
-  /* Dark Future Theme: Deep slate/black backgrounds, neon accents */
-  --background: 222 47% 11%; /* #0f172a - Slate 900 */
-  --foreground: 210 40% 98%; /* Slate 50 */
+  /* ── Professional White / Grey / Black Theme ─────────────────── */
 
-  --card: 222 47% 11%;
-  --card-foreground: 210 40% 98%;
+  /* Page background: very light warm grey */
+  --background: 210 20% 97%;           /* #f4f6f8 */
+  --foreground: 222 47% 8%;            /* #0e1420 near-black */
 
-  --popover: 222 47% 11%;
-  --popover-foreground: 210 40% 98%;
+  /* Cards: pure white with elevation */
+  --card: 0 0% 100%;                   /* #ffffff */
+  --card-foreground: 222 47% 8%;
 
-  /* Primary: Neon Cyan/Blue */
-  --primary: 199 89% 48%; /* #0ea5e9 - Sky 500 */
-  --primary-foreground: 222 47% 11%;
+  --popover: 0 0% 100%;
+  --popover-foreground: 222 47% 8%;
 
-  /* Secondary: Deep Blue/Slate */
-  --secondary: 217 33% 17%; /* Slate 800 */
-  --secondary-foreground: 210 40% 98%;
+  /* Primary accent: deep professional blue */
+  --primary: 221 83% 40%;              /* #1345bf */
+  --primary-foreground: 0 0% 100%;
 
-  /* Muted: Subtle slate */
-  --muted: 217 33% 17%;
-  --muted-foreground: 215 20.2% 65.1%;
+  /* Secondary: light grey tint */
+  --secondary: 210 20% 93%;            /* #eaeff4 */
+  --secondary-foreground: 222 47% 15%;
 
-  /* Accent: Neon Purple/Pink for special indicators */
-  --accent: 262 80% 50%;
-  --accent-foreground: 210 40% 98%;
+  /* Muted surfaces and text */
+  --muted: 210 20% 93%;
+  --muted-foreground: 215 20% 48%;     /* #6b7d9a — readable medium blue-grey */
 
-  /* Destructive: Neon Red */
-  --destructive: 0 84% 60%;
-  --destructive-foreground: 210 40% 98%;
+  /* Accent: same as primary for consistency */
+  --accent: 221 83% 40%;
+  --accent-foreground: 0 0% 100%;
 
-  --border: 217 33% 20%; /* Slate 800/700 */
-  --input: 217 33% 17%;
-  --ring: 199 89% 48%;
+  /* Destructive: clean red */
+  --destructive: 0 72% 51%;            /* #d92d20 */
+  --destructive-foreground: 0 0% 100%;
 
-  --radius: 0.25rem;
+  /* Borders: subtle light grey */
+  --border: 214 24% 88%;               /* #dce3ec */
+  --input: 214 24% 93%;
+  --ring: 221 83% 40%;
 
-  --chart-1: 199 89% 48%; /* Cyan */
-  --chart-2: 142 71% 45%; /* Green */
-  --chart-3: 0 84% 60%;   /* Red */
-  --chart-4: 262 80% 50%; /* Purple */
-  --chart-5: 47 95% 57%;  /* Yellow */
+  --radius: 0.5rem;
 
-  --sidebar: 222 47% 10%; /* Slightly darker than bg */
-  --sidebar-foreground: 210 40% 98%;
-  --sidebar-primary: 199 89% 48%;
+  /* Charts */
+  --chart-1: 221 83% 40%;  /* Blue */
+  --chart-2: 142 71% 35%;  /* Green */
+  --chart-3: 0 72% 51%;    /* Red */
+  --chart-4: 262 80% 50%;  /* Purple */
+  --chart-5: 32 95% 44%;   /* Amber */
+
+  /* Sidebar: slightly darker than page, very light grey */
+  --sidebar: 210 33% 97%;              /* #f5f8fb */
+  --sidebar-foreground: 222 47% 8%;
+  --sidebar-primary: 221 83% 40%;
   --sidebar-primary-foreground: 0 0% 100%;
-  --sidebar-accent: 217 33% 17%;
-  --sidebar-accent-foreground: 210 40% 98%;
-  --sidebar-border: 217 33% 20%;
-  --sidebar-ring: 199 89% 48%;
+  --sidebar-accent: 210 20% 91%;
+  --sidebar-accent-foreground: 222 47% 8%;
+  --sidebar-border: 214 24% 87%;
+  --sidebar-ring: 221 83% 40%;
 }
 
 @layer base {
@@ -64,8 +70,6 @@
   }
   body {
     @apply font-sans antialiased bg-background text-foreground;
-    background-image: radial-gradient(circle at center, hsla(199, 89%, 48%, 0.03) 1px, transparent 1px);
-    background-size: 24px 24px;
   }
   h1, h2, h3, h4, h5, h6, .font-display {
     font-family: var(--font-display);
@@ -73,6 +77,7 @@
   }
 }
 
+/* ── Scrollbar ───────────────────────────────────────────────── */
 .custom-scrollbar::-webkit-scrollbar {
   width: 4px;
 }
@@ -80,9 +85,9 @@
   background: transparent;
 }
 .custom-scrollbar::-webkit-scrollbar-thumb {
-  background: hsl(217 33% 25%);
+  background: hsl(214 24% 78%);
   border-radius: 2px;
 }
 .custom-scrollbar::-webkit-scrollbar-thumb:hover {
-  background: hsl(217 33% 35%);
+  background: hsl(214 24% 60%);
 }

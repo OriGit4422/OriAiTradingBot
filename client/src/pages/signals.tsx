@@ -78,7 +78,7 @@ export default function Signals() {
       })
     );
 
-    const newSignals = results
+    const cryptoSignals = results
       .filter((r): r is PromiseFulfilledResult<any> => r.status === 'fulfilled' && r.value !== null)
       .map(r => r.value)
       .filter(s => {
@@ -90,7 +90,7 @@ export default function Signals() {
     const sorted = aiConfirmed.sort((a, b) => b.confidence - a.confidence);
     setLiveSignals(sorted);
 
-    const confluence = calculateMultiTFConfluence(sorted);
+    const confluence = calculateMultiTFConfluence(sorted.filter(s => s.coin !== 'XAUUSD'));
     setConfluenceData(confluence);
     setIsAnalyzing(false);
 
@@ -113,9 +113,14 @@ export default function Signals() {
     return merged.sort((a, b) => b.confidence - a.confidence);
   })();
 
+  const getDisplaySymbol = (coin: string) => coin === 'XAUUSD' ? 'XAU/USD' : `${coin}/USDT`;
+  const getCoinAvatar = (coin: string) => coin === 'XAUUSD' ? '🥇' : coin.substring(0, 1);
+
   const filteredSignals = mergedSignals.filter(signal => {
     if (searchQuery && !signal.coin.toLowerCase().includes(searchQuery.toLowerCase()) && !signal.strategy?.toLowerCase().includes(searchQuery.toLowerCase())) return false;
     if (filter === 'ALL') return true;
+    if (filter === 'GOLD') return signal.coin === 'XAUUSD';
+    if (filter === 'CRYPTO') return signal.coin !== 'XAUUSD';
     if (filter === 'SCALP') return ['1m', '5m', '15m'].includes(signal.timeframe);
     if (filter === 'SWING') return ['1h', '4h', '1d'].includes(signal.timeframe);
     if (filter === 'HIGH CONF') return signal.confidence >= 85;
@@ -185,7 +190,14 @@ export default function Signals() {
           <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-3">
             <div>
               <h1 className="text-2xl md:text-3xl font-display font-bold text-primary mb-1" data-testid="text-page-title">Signal Feed</h1>
-              <p className="text-sm text-muted-foreground">AI-generated trading opportunities with multi-timeframe confluence analysis.</p>
+              <p className="text-sm text-muted-foreground">
+                AI-generated trading opportunities with multi-timeframe confluence analysis.
+                {liveSignals.filter(s => s.coin === 'XAUUSD').length > 0 && (
+                  <span className="ml-2 text-amber-500 font-semibold">
+                    🥇 {liveSignals.filter(s => s.coin === 'XAUUSD').length} Gold signal{liveSignals.filter(s => s.coin === 'XAUUSD').length > 1 ? 's' : ''} live
+                  </span>
+                )}
+              </p>
             </div>
             <div className="flex gap-2">
               <Button
@@ -250,7 +262,7 @@ export default function Signals() {
               />
             </div>
             <div className="flex gap-1 flex-wrap">
-              {['ALL', 'SCALP', 'SWING', 'HIGH CONF', 'LONG', 'SHORT'].map(status => (
+              {['ALL', 'GOLD', 'CRYPTO', 'SCALP', 'SWING', 'HIGH CONF', 'LONG', 'SHORT'].map(status => (
                 <Button
                   key={status}
                   variant={filter === status ? 'default' : 'outline'}
@@ -281,22 +293,28 @@ export default function Signals() {
                 filteredSignals.map((signal, index) => (
                   <div
                     key={signal.id || `signal-${index}`}
-                    className="bg-card border border-border rounded-lg p-4 md:p-5 hover:border-primary/50 transition-all group relative overflow-hidden"
+                    className={cn(
+                      "bg-card border rounded-lg p-4 md:p-5 hover:border-primary/50 transition-all group relative overflow-hidden",
+                      signal.coin === 'XAUUSD' ? "border-amber-500/30 bg-amber-500/[0.02]" : "border-border"
+                    )}
                     data-testid={`card-signal-${signal.coin}-${signal.timeframe}`}
                   >
                     <div className={cn(
                       "absolute left-0 top-0 w-1 h-full",
-                      signal.type === 'LONG' ? "bg-green-500" : "bg-red-500"
+                      signal.coin === 'XAUUSD' ? "bg-amber-400" : signal.type === 'LONG' ? "bg-green-500" : "bg-red-500"
                     )} />
 
                     <div className="flex items-start justify-between">
                       <div className="flex items-center gap-3">
-                        <div className="w-10 h-10 bg-muted/30 rounded-lg flex items-center justify-center font-bold text-lg">
-                          {signal.coin.substring(0, 1)}
+                        <div className={cn(
+                          "w-10 h-10 rounded-lg flex items-center justify-center font-bold text-lg",
+                          signal.coin === 'XAUUSD' ? "bg-amber-500/15 text-xl" : "bg-muted/30"
+                        )}>
+                          {getCoinAvatar(signal.coin)}
                         </div>
                         <div>
                           <div className="flex items-center gap-2 flex-wrap">
-                            <h3 className="font-display font-bold text-lg" data-testid={`text-coin-${signal.coin}`}>{signal.coin}/USDT</h3>
+                            <h3 className="font-display font-bold text-lg" data-testid={`text-coin-${signal.coin}`}>{getDisplaySymbol(signal.coin)}</h3>
                             <Badge variant={signal.type === 'LONG' ? 'default' : 'destructive'} className="text-[10px] font-bold" data-testid={`badge-type-${signal.coin}`}>
                               {signal.type === 'LONG' ? <TrendingUp className="w-3 h-3 mr-1" /> : <TrendingDown className="w-3 h-3 mr-1" />}
                               {signal.type}
@@ -304,6 +322,11 @@ export default function Signals() {
                             <Badge variant="outline" className="text-[10px] font-mono uppercase bg-background" data-testid={`badge-timeframe-${signal.coin}`}>
                               {signal.timeframe}
                             </Badge>
+                            {signal.coin === 'XAUUSD' && (
+                              <Badge className="bg-amber-500/10 text-amber-500 border-amber-500/20 text-[10px]">
+                                🥇 GOLD
+                              </Badge>
+                            )}
                             {signal.confidence >= 90 && (
                               <Badge className="bg-orange-500/10 text-orange-500 border-orange-500/20 gap-1">
                                 <Flame className="w-3 h-3" /> ULTRA
@@ -415,6 +438,21 @@ export default function Signals() {
                       )}>
                         <Activity className="w-3 h-3" />
                         RSI Divergence Detected: {signal.indicators.rsiDivergence}
+                      </div>
+                    )}
+
+                    {/* Gold AI reasoning panel */}
+                    {signal.coin === 'XAUUSD' && (signal.goldReasoning || signal.aiConfirmation?.reasoning) && (
+                      <div className="mt-2 px-3 py-2 rounded bg-amber-500/5 border border-amber-500/15 text-[11px] text-muted-foreground leading-relaxed">
+                        <span className="font-semibold text-amber-500">Claude AI Analysis: </span>
+                        {signal.aiConfirmation?.reasoning || signal.goldReasoning}
+                      </div>
+                    )}
+                    {/* Crypto AI reasoning panel */}
+                    {signal.coin !== 'XAUUSD' && signal.aiConfirmation?.reasoning && (
+                      <div className="mt-2 px-3 py-2 rounded bg-primary/5 border border-primary/10 text-[11px] text-muted-foreground leading-relaxed">
+                        <span className="font-semibold text-primary">Claude AI: </span>
+                        {signal.aiConfirmation.reasoning}
                       </div>
                     )}
 

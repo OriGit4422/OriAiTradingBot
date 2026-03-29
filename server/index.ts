@@ -2,6 +2,7 @@ import express, { type Request, Response, NextFunction } from "express";
 import { registerRoutes } from "./routes";
 import { serveStatic } from "./static";
 import { createServer } from "http";
+import { pool } from "./db";
 
 const app = express();
 const httpServer = createServer(app);
@@ -60,6 +61,65 @@ app.use((req, res, next) => {
 });
 
 (async () => {
+  // Auto-migrate: add new columns that may not exist in older DB deployments
+  try {
+    await pool.query(`
+      ALTER TABLE settings
+        ADD COLUMN IF NOT EXISTS coinglass_api_key              TEXT,
+        ADD COLUMN IF NOT EXISTS perplexity_api_key             TEXT,
+        ADD COLUMN IF NOT EXISTS arkham_api_key                 TEXT,
+        ADD COLUMN IF NOT EXISTS meta_api_token                 TEXT,
+        ADD COLUMN IF NOT EXISTS meta_api_account_id            TEXT,
+        ADD COLUMN IF NOT EXISTS gold_auto_trading_enabled      BOOLEAN NOT NULL DEFAULT false,
+        ADD COLUMN IF NOT EXISTS gold_lot_size                  REAL    NOT NULL DEFAULT 0.01,
+        ADD COLUMN IF NOT EXISTS gold_max_daily_trades          INTEGER NOT NULL DEFAULT 5,
+        ADD COLUMN IF NOT EXISTS gold_min_confidence            INTEGER NOT NULL DEFAULT 75,
+        ADD COLUMN IF NOT EXISTS binance_api_secret             TEXT,
+        ADD COLUMN IF NOT EXISTS binance_auto_trading           BOOLEAN NOT NULL DEFAULT false,
+        ADD COLUMN IF NOT EXISTS binance_leverage               INTEGER NOT NULL DEFAULT 10,
+        ADD COLUMN IF NOT EXISTS binance_margin_type            TEXT    NOT NULL DEFAULT 'ISOLATED',
+        ADD COLUMN IF NOT EXISTS binance_max_position_usdt      REAL    NOT NULL DEFAULT 100,
+        ADD COLUMN IF NOT EXISTS bybit_api_secret               TEXT,
+        ADD COLUMN IF NOT EXISTS bybit_auto_trading             BOOLEAN NOT NULL DEFAULT false,
+        ADD COLUMN IF NOT EXISTS bybit_leverage                 INTEGER NOT NULL DEFAULT 10,
+        ADD COLUMN IF NOT EXISTS bybit_margin_type              TEXT    NOT NULL DEFAULT 'ISOLATED',
+        ADD COLUMN IF NOT EXISTS bybit_max_position_usdt        REAL    NOT NULL DEFAULT 100,
+        ADD COLUMN IF NOT EXISTS mexc_api_key                   TEXT,
+        ADD COLUMN IF NOT EXISTS mexc_api_secret                TEXT,
+        ADD COLUMN IF NOT EXISTS mexc_connected                 BOOLEAN NOT NULL DEFAULT false,
+        ADD COLUMN IF NOT EXISTS mexc_auto_trading              BOOLEAN NOT NULL DEFAULT false,
+        ADD COLUMN IF NOT EXISTS mexc_leverage                  INTEGER NOT NULL DEFAULT 10,
+        ADD COLUMN IF NOT EXISTS mexc_margin_type               TEXT    NOT NULL DEFAULT 'ISOLATED',
+        ADD COLUMN IF NOT EXISTS mexc_max_position_usdt         REAL    NOT NULL DEFAULT 100,
+        ADD COLUMN IF NOT EXISTS news_api_key                   TEXT;
+    `);
+  } catch (e: any) {
+    // Non-fatal: table may not exist yet on first boot (db:push handles full init)
+    console.warn("[migration] settings column check skipped:", e.message);
+  }
+
+  // Auto-migrate: create gold_trades table if not exists
+  try {
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS gold_trades (
+        id               VARCHAR PRIMARY KEY DEFAULT gen_random_uuid(),
+        type             TEXT    NOT NULL,
+        lot_size         REAL    NOT NULL,
+        entry_price      REAL    NOT NULL,
+        tp               REAL    NOT NULL,
+        sl               REAL    NOT NULL,
+        confidence       INTEGER NOT NULL,
+        status           TEXT    NOT NULL DEFAULT 'OPEN',
+        mt5_order_id     TEXT,
+        pnl              REAL,
+        closed_at        TIMESTAMP,
+        created_at       TIMESTAMP NOT NULL DEFAULT NOW()
+      );
+    `);
+  } catch (e: any) {
+    console.warn("[migration] gold_trades table check skipped:", e.message);
+  }
+
   await registerRoutes(httpServer, app);
 
   app.use((err: any, _req: Request, res: Response, next: NextFunction) => {

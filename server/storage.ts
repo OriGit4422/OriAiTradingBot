@@ -45,6 +45,42 @@ export interface IStorage {
 }
 
 export class DatabaseStorage implements IStorage {
+  private readonly defaultStrategies: InsertStrategy[] = [
+    {
+      name: "SMC Liquidity Sweep",
+      description: "Smart Money Concepts setup using liquidity grabs and BOS confirmation.",
+      status: "active",
+      risk: "Medium",
+      winRate: 68,
+      totalPnl: 1240,
+      totalTrades: 87,
+      pairs: ["BTCUSDT", "ETHUSDT", "SOLUSDT"],
+      config: { timeframe: "15m-1h", confirmations: ["BOS", "OrderBlock", "RSI Divergence"] },
+    },
+    {
+      name: "ICT Session Bias",
+      description: "ICT killzone/session model with FVG + premium/discount arrays.",
+      status: "active",
+      risk: "High",
+      winRate: 63,
+      totalPnl: 980,
+      totalTrades: 59,
+      pairs: ["BTCUSDT", "XRPUSDT", "BNBUSDT"],
+      config: { timeframe: "5m-15m", sessions: ["London", "NY"], confirmations: ["FVG", "CHOCH"] },
+    },
+    {
+      name: "Trend Continuation EMA",
+      description: "Momentum continuation using EMA stack + volume expansion.",
+      status: "active",
+      risk: "Low",
+      winRate: 71,
+      totalPnl: 1640,
+      totalTrades: 112,
+      pairs: ["BTCUSDT", "ETHUSDT", "DOGEUSDT", "ADAUSDT"],
+      config: { timeframe: "1h-4h", confirmations: ["EMA9/21/50", "MACD", "Volume"] },
+    },
+  ];
+
   async getWallet(): Promise<Wallet> {
     let [w] = await db.select().from(wallet);
     if (!w) {
@@ -93,7 +129,11 @@ export class DatabaseStorage implements IStorage {
   }
 
   async getStrategies(): Promise<Strategy[]> {
-    return db.select().from(strategies);
+    const rows = await db.select().from(strategies);
+    if (rows.length > 0) return rows;
+
+    const seeded = await db.insert(strategies).values(this.defaultStrategies).returning();
+    return seeded;
   }
 
   async getStrategy(id: string): Promise<Strategy | undefined> {

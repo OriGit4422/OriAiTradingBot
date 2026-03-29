@@ -3,9 +3,11 @@ import { Badge } from '@/components/ui/badge';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { getQuantumSignal, calculateMultiTFConfluence } from '@/lib/strategies';
 import { fetchKlines } from '@/lib/binance';
+import { enhanceSignalsWithAI } from '@/lib/signal-ai';
 import { cn } from '@/lib/utils';
-import { Clock, Loader2, BrainCircuit, Zap, Flame, Send, TrendingUp, TrendingDown, BarChart3, RefreshCw, ChevronDown, ChevronRight, Activity, X, Target, Shield } from 'lucide-react';
+import { Clock, Loader2, BrainCircuit, Zap, Flame, Send, TrendingUp, TrendingDown, BarChart3, RefreshCw, ChevronDown, ChevronRight, Activity, X, Target, Shield, Search } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
 import { toast } from '@/hooks/use-toast';
 import { apiRequest, queryClient } from '@/lib/queryClient';
 import {
@@ -23,6 +25,7 @@ import {
   TabsList,
   TabsTrigger
 } from '@/components/ui/tabs';
+import { useIsMobile } from '@/hooks/use-mobile';
 
 const SIGNAL_COINS = ['BTC', 'ETH', 'SOL', 'BNB', 'XRP', 'ADA', 'DOGE', 'AVAX'];
 const TIMEFRAMES = ['5m', '15m', '1h', '4h'];
@@ -33,22 +36,27 @@ interface SignalFeedProps {
 }
 
 export function SignalFeed({ compact = false, onSelectCoin }: SignalFeedProps) {
+  const isMobile = useIsMobile();
   const [allSignals, setAllSignals] = useState<any[]>([]);
   const [confluenceData, setConfluenceData] = useState<any[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [selectedTF, setSelectedTF] = useState('ALL');
   const [selectedSignal, setSelectedSignal] = useState<any | null>(null);
+  const [searchQuery, setSearchQuery] = useState('');
 
   const generateAllSignals = useCallback(async () => {
     setIsLoading(true);
+    const coins = isMobile ? SIGNAL_COINS.slice(0, 6) : SIGNAL_COINS;
+    const tfs = isMobile ? ['15m', '1h', '4h'] : TIMEFRAMES;
+    const candleLimit = isMobile ? 120 : 180;
 
-    const tasks = SIGNAL_COINS.flatMap(coin =>
-      TIMEFRAMES.map(tf => ({ coin, tf }))
+    const tasks = coins.flatMap(coin =>
+      tfs.map(tf => ({ coin, tf }))
     );
 
     const results = await Promise.allSettled(
       tasks.map(async ({ coin, tf }) => {
-        const data = await fetchKlines(coin, tf, 200);
+        const data = await fetchKlines(coin, tf, candleLimit);
         if (data.length > 50) {
           const signal = getQuantumSignal(coin, data[data.length - 1].close, data);
           signal.timeframe = tf;
@@ -62,11 +70,12 @@ export function SignalFeed({ compact = false, onSelectCoin }: SignalFeedProps) {
       .filter((r): r is PromiseFulfilledResult<any> => r.status === 'fulfilled' && r.value !== null)
       .map(r => r.value);
 
-    setAllSignals(newSignals);
-    const confluence = calculateMultiTFConfluence(newSignals);
+    const aiConfirmed = await enhanceSignalsWithAI(newSignals, isMobile ? 6 : 10);
+    setAllSignals(aiConfirmed);
+    const confluence = calculateMultiTFConfluence(aiConfirmed);
     setConfluenceData(confluence);
     setIsLoading(false);
-  }, []);
+  }, [isMobile]);
 
   useEffect(() => {
     generateAllSignals();
@@ -74,9 +83,12 @@ export function SignalFeed({ compact = false, onSelectCoin }: SignalFeedProps) {
     return () => clearInterval(interval);
   }, [generateAllSignals]);
 
-  const filteredSignals = selectedTF === 'ALL'
-    ? allSignals.sort((a, b) => b.confidence - a.confidence)
-    : allSignals.filter(s => s.timeframe === selectedTF).sort((a, b) => b.confidence - a.confidence);
+  const filteredSignals = (selectedTF === 'ALL'
+    ? allSignals
+    : allSignals.filter(s => s.timeframe === selectedTF))
+    .filter((s) => !searchQuery || s.coin.toLowerCase().includes(searchQuery.toLowerCase()))
+    .sort((a, b) => b.confidence - a.confidence);
+  const visibleSignals = filteredSignals.slice(0, 10);
 
   const handleExecuteTrade = async (signal: any) => {
     try {
@@ -166,6 +178,19 @@ export function SignalFeed({ compact = false, onSelectCoin }: SignalFeedProps) {
           </div>
         )}
 
+        <div className="px-2 py-1.5 border-b border-border/50">
+          <div className="relative">
+            <Search className="absolute left-2.5 top-2 h-3.5 w-3.5 text-muted-foreground" />
+            <Input
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              placeholder="Search coin (e.g. BTC)"
+              className="h-8 pl-8 text-xs"
+              data-testid="input-quantum-search"
+            />
+          </div>
+        </div>
+
         <ScrollArea className="flex-1">
           <div className="divide-y divide-border/30">
             {isLoading ? (
@@ -176,7 +201,7 @@ export function SignalFeed({ compact = false, onSelectCoin }: SignalFeedProps) {
             ) : filteredSignals.length === 0 ? (
               <div className="flex justify-center py-12 text-muted-foreground text-xs">No signals found</div>
             ) : (
-              filteredSignals.map((signal) => (
+              visibleSignals.map((signal) => (
                 <div
                   key={`${signal.coin}-${signal.timeframe}-${signal.id}`}
                   className="px-3 py-2.5 hover:bg-primary/5 transition-all cursor-pointer group relative overflow-hidden"
@@ -206,15 +231,30 @@ export function SignalFeed({ compact = false, onSelectCoin }: SignalFeedProps) {
                     </div>
                   </div>
 
-                  <div className="flex items-center gap-1 mb-1.5">
-                    <Badge variant="outline" className="text-[8px] h-4 px-1 border-primary/30 bg-primary/5 text-primary font-bold">
-                      {signal.strategy}
-                    </Badge>
-                    {signal.indicators?.rsiDivergence !== 'NONE' && (
-                      <Badge variant="outline" className={cn("text-[8px] h-4 px-1", signal.indicators.rsiDivergence === 'BULLISH' ? 'text-green-500 border-green-500/30' : 'text-red-500 border-red-500/30')}>
-                        RSI DIV
+                    <div className="flex items-center gap-1 mb-1.5">
+                      <Badge variant="outline" className="text-[8px] h-4 px-1 border-primary/30 bg-primary/5 text-primary font-bold">
+                        {signal.strategy}
                       </Badge>
-                    )}
+                      {signal.aiConfirmation?.verdict && (
+                        <Badge
+                          variant="outline"
+                          className={cn(
+                            "text-[8px] h-4 px-1",
+                            signal.aiConfirmation.verdict.includes('BUY')
+                              ? 'text-green-500 border-green-500/30'
+                              : signal.aiConfirmation.verdict.includes('SELL')
+                                ? 'text-red-500 border-red-500/30'
+                                : 'text-yellow-500 border-yellow-500/30'
+                          )}
+                        >
+                          AI {signal.aiConfirmation.verdict.replace('STRONG_', 'S_')}
+                        </Badge>
+                      )}
+                      {signal.indicators?.rsiDivergence !== 'NONE' && (
+                        <Badge variant="outline" className={cn("text-[8px] h-4 px-1", signal.indicators.rsiDivergence === 'BULLISH' ? 'text-green-500 border-green-500/30' : 'text-red-500 border-red-500/30')}>
+                          RSI DIV
+                        </Badge>
+                      )}
                     {signal.indicators?.marketStructure !== 'RANGING' && (
                       <Badge variant="outline" className={cn("text-[8px] h-4 px-1", signal.indicators.marketStructure === 'BULLISH' ? 'text-green-500 border-green-500/30' : 'text-red-500 border-red-500/30')}>
                         {signal.indicators.marketStructure === 'BULLISH' ? 'HH/HL' : 'LH/LL'}

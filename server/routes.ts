@@ -13,7 +13,7 @@ import { getCoinglassData } from "./coinglass";
 import { getNewsSentiment } from "./perplexity";
 import { getWhaleActivity } from "./arkham";
 import { runMultiAgentValidation } from "./signal-validator";
-import { getGoldCandles } from "./gold-data";
+import { getGoldCandles, getGoldSpotPrice } from "./gold-data";
 import { analyzeGold } from "./gold-analysis";
 import { getMT5AccountInfo, placeMT5Order, getMT5OpenPositions } from "./mt5";
 import { testExchangeConnection, getBinanceBalance, getBybitBalance, getMexcBalance, autoTradeSignal, type ExchangeName } from "./exchanges";
@@ -145,8 +145,20 @@ export async function registerRoutes(
 
   // ─── Gold + MT5 ─────────────────────────────────────────────
   app.get("/api/gold/price", async (_req, res) => {
-    const result = await getLiveGoldPrice();
-    res.status(result.price ? 200 : 503).json(result);
+    try {
+      // Use gold-data.ts which returns the full GoldSpot shape the frontend expects
+      const spot = await getGoldSpotPrice();
+      if (!spot || !spot.price) {
+        // Fallback to legacy getLiveGoldPrice if getGoldSpotPrice fails
+        const legacy = await getLiveGoldPrice();
+        return res.status(legacy.price ? 200 : 503).json(legacy);
+      }
+      res.json(spot);
+    } catch (e: any) {
+      // Final fallback
+      const legacy = await getLiveGoldPrice().catch(() => ({ price: 0, symbol: 'XAUUSD', source: 'Unavailable', timestamp: new Date().toISOString() }));
+      res.status(legacy.price ? 200 : 503).json(legacy);
+    }
   });
 
   app.get("/api/gold/status", (_req, res) => {

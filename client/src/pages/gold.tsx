@@ -3,6 +3,8 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { apiRequest } from '@/lib/queryClient';
 import { toast } from '@/hooks/use-toast';
 import { Sidebar } from '@/components/layout/Sidebar';
+import { GoldChart } from '@/components/dashboard/GoldChart';
+import { NewsBar } from '@/components/dashboard/NewsBar';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -263,27 +265,46 @@ export default function GoldPage() {
             </CardContent>
           </Card>
 
+          {/* ── Live Chart ─────────────────────────────────────────────────── */}
+          <Card className="bg-white border-amber-200 shadow-sm overflow-hidden">
+            <CardHeader className="pb-0 pt-3 px-4">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <span className="text-xs font-black uppercase tracking-widest text-amber-700">XAU/USD Live Chart</span>
+                  <span className="text-[10px] text-muted-foreground">· Yahoo Finance GC=F</span>
+                </div>
+                {/* Timeframe selector in chart header */}
+                <div className="flex items-center gap-1">
+                  {TIMEFRAMES.map(tf => (
+                    <button
+                      key={tf}
+                      onClick={() => setActiveTimeframe(tf)}
+                      className={cn(
+                        'px-2.5 py-1 rounded text-[11px] font-mono font-bold transition-all',
+                        activeTimeframe === tf
+                          ? 'bg-amber-500 text-white shadow-sm'
+                          : 'text-muted-foreground hover:bg-amber-50 hover:text-amber-700'
+                      )}
+                    >
+                      {tf.toUpperCase()}
+                    </button>
+                  ))}
+                  {signalFetching && <Loader2 className="w-3.5 h-3.5 animate-spin text-amber-500 ml-1" />}
+                </div>
+              </div>
+            </CardHeader>
+            <CardContent className="p-0 pt-2">
+              <GoldChart timeframe={activeTimeframe} />
+            </CardContent>
+          </Card>
+
+          {/* ── News bar ───────────────────────────────────────────────────── */}
+          <NewsBar coin="XAUUSD" />
+
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
 
             {/* ── Signal Panel ───────────────────────────────────────────── */}
             <div className="lg:col-span-2 space-y-4">
-
-              {/* Timeframe selector */}
-              <div className="flex items-center gap-2">
-                <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mr-1">Timeframe:</span>
-                {TIMEFRAMES.map(tf => (
-                  <Button
-                    key={tf}
-                    size="sm"
-                    variant={activeTimeframe === tf ? 'default' : 'outline'}
-                    className={cn('h-7 px-3 text-xs font-bold', activeTimeframe === tf && 'bg-primary text-white')}
-                    onClick={() => setActiveTimeframe(tf)}
-                  >
-                    {tf.toUpperCase()}
-                  </Button>
-                ))}
-                {signalFetching && <Loader2 className="w-4 h-4 animate-spin text-primary ml-1" />}
-              </div>
 
               {/* Signal card */}
               <Card className="bg-white border-border shadow-sm">

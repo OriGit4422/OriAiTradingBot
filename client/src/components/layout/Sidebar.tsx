@@ -13,6 +13,7 @@ import {
   X,
   CheckCircle2,
   Trophy,
+  Download,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
@@ -31,9 +32,35 @@ export function Sidebar() {
     { icon: Settings, label: 'Settings', path: '/settings' },
   ];
 
+  const [downloading, setDownloading] = useState(false);
+
   const handleLogout = () => {
     localStorage.removeItem('winm_auth');
     window.location.reload();
+  };
+
+  const handleDownloadProject = async () => {
+    if (downloading) return;
+    setDownloading(true);
+    try {
+      const response = await fetch('/api/export/project');
+      if (!response.ok) throw new Error('Export failed');
+      const blob = await response.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      const disposition = response.headers.get('Content-Disposition') || '';
+      const match = disposition.match(/filename="([^"]+)"/);
+      a.download = match ? match[1] : 'OriAiTradingBot-source.zip';
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    } catch (e) {
+      console.error('Download failed:', e);
+    } finally {
+      setDownloading(false);
+    }
   };
 
   const handleNav = (path: string) => {
@@ -119,6 +146,18 @@ export function Sidebar() {
               <span>AI Engine Active</span>
             </div>
           </div>
+
+          <Button
+            variant="ghost"
+            className="w-full justify-start gap-3 text-sm text-muted-foreground hover:text-primary hover:bg-primary/8 disabled:opacity-60"
+            onClick={handleDownloadProject}
+            disabled={downloading}
+            data-testid="button-download-project"
+            title="Download project ZIP for Google AI Studio"
+          >
+            <Download className={`h-4 w-4 ${downloading ? 'animate-bounce' : ''}`} />
+            <span>{downloading ? 'Preparing…' : 'Download for AI Studio'}</span>
+          </Button>
 
           <Button
             variant="ghost"

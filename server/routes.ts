@@ -1,6 +1,8 @@
 import type { Express } from "express";
 import { createServer, type Server } from "http";
 import { readFileSync } from "fs";
+import { resolve, join } from "path";
+import archiver from "archiver";
 import { storage } from "./storage";
 import { insertSettingsSchema, insertStrategySchema, insertSignalSchema, insertPositionSchema, insertUserAccessSchema } from "@shared/schema";
 import { z } from "zod";
@@ -765,6 +767,55 @@ export async function registerRoutes(
       res.json({ articles, sentiment });
     } catch (e: any) {
       res.status(500).json({ message: e.message, articles: [], sentiment: null });
+    }
+  });
+
+  // GET /api/export/project — download full source as ZIP for Google AI Studio
+  app.get("/api/export/project", (_req, res) => {
+    try {
+      const root = resolve(join(new URL('.', import.meta.url).pathname, '..'));
+      const filename = `OriAiTradingBot-source-${Date.now()}.zip`;
+
+      res.setHeader('Content-Type', 'application/zip');
+      res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+
+      const archive = archiver('zip', { zlib: { level: 6 } });
+
+      archive.on('error', (err: Error) => {
+        console.error('[export] archiver error:', err.message);
+        if (!res.headersSent) res.status(500).end();
+      });
+
+      archive.pipe(res);
+
+      const EXCLUDE = [
+        'node_modules', '.git', 'dist', 'attached_assets',
+        '.cache', 'coverage', '.nyc_output', 'tmp',
+      ];
+
+      const INCLUDE_DIRS = ['client', 'server', 'shared', 'docs', 'script'];
+      const INCLUDE_ROOT_FILES = [
+        'package.json', 'package-lock.json', 'tsconfig.json',
+        'vite.config.ts', 'tailwind.config.ts', 'postcss.config.js',
+        'drizzle.config.ts', 'components.json', '.replit', '.gitignore',
+      ];
+
+      for (const dir of INCLUDE_DIRS) {
+        archive.glob(`${dir}/**/*`, {
+          cwd: root,
+          dot: true,
+          ignore: EXCLUDE.flatMap(ex => [`${dir}/**/${ex}/**`, `${dir}/${ex}/**`]),
+        });
+      }
+
+      for (const file of INCLUDE_ROOT_FILES) {
+        archive.file(join(root, file), { name: file });
+      }
+
+      archive.finalize();
+    } catch (e: any) {
+      console.error('[export] failed:', e.message);
+      if (!res.headersSent) res.status(500).json({ message: e.message });
     }
   });
 

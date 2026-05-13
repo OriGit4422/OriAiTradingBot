@@ -773,7 +773,7 @@ export async function registerRoutes(
   // GET /api/export/project — download full source as ZIP for Google AI Studio
   app.get("/api/export/project", (_req, res) => {
     try {
-      const root = resolve(join(new URL('.', import.meta.url).pathname, '..'));
+      const root = resolve(process.cwd());
       const filename = `OriAiTradingBot-source-${Date.now()}.zip`;
 
       res.setHeader('Content-Type', 'application/zip');

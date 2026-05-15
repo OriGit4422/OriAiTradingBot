@@ -1,11 +1,11 @@
 /**
  * Gold market data module
- * - Spot price: metals.live API (free, no key)
+ * - Spot price: Yahoo Finance XAUUSD=X (spot) → GC=F (futures) → metals.live → goldprice.org
  * - OHLCV candles: Yahoo Finance GC=F (free, no key)
  */
 
 export interface GoldCandle {
-  time: number; // Unix timestamp (seconds)
+  time: number; // Unix timestamp seconds — required by lightweight-charts
   open: number;
   high: number;
   low: number;
@@ -24,71 +24,126 @@ export interface GoldSpot {
 
 // ── Spot price ────────────────────────────────────────────────────────────────
 
-// Cached spot to avoid hammering APIs on every request
 let cachedSpot: { data: GoldSpot; at: number } | null = null;
-const SPOT_CACHE_MS = 30_000;
+const SPOT_CACHE_MS = 15_000; // 15s for more responsive real-time data
 
 export async function getGoldSpotPrice(): Promise<GoldSpot> {
   if (cachedSpot && Date.now() - cachedSpot.at < SPOT_CACHE_MS) {
     return cachedSpot.data;
   }
 
-  // Try Yahoo Finance first (most reliable for gold spot)
+  // 1. Yahoo Finance XAUUSD=X (true spot gold, most accurate)
   try {
-    const yf = await fetchYahooQuote();
+    const yf = await fetchYahooSpotQuote('XAUUSD=X');
     if (yf.price > 0) {
       const spot = { ...yf, timestamp: Date.now() };
       cachedSpot = { data: spot, at: Date.now() };
       return spot;
     }
-  } catch { /* continue to next source */ }
+  } catch { /* fall through */ }
 
-  // Try metals.live
+  // 2. Yahoo Finance GC=F (gold futures, close proxy)
+  try {
+    const yf = await fetchYahooSpotQuote('GC=F');
+    if (yf.price > 0) {
+      const spot = { ...yf, timestamp: Date.now() };
+      cachedSpot = { data: spot, at: Date.now() };
+      return spot;
+    }
+  } catch { /* fall through */ }
+
+  // 3. goldprice.org data feed (free, no key)
+  try {
+    const res = await fetch('https://data-asg.goldprice.org/dbXRates/USD', {
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120.0.0.0 Safari/537.36',
+        'Accept': 'application/json',
+        'Referer': 'https://goldprice.org/',
+      },
+      signal: AbortSignal.timeout(8000),
+    });
+    if (res.ok) {
+      const data = await res.json();
+      // Response: { ts, tsj, date, items: [{ curr, xauPrice, xagPrice, chgXau, ... }] }
+      const item = data?.items?.find((i: any) => i.curr === 'USD');
+      const price = item?.xauPrice ? parseFloat(item.xauPrice) : 0;
+      if (price > 0) {
+        const change24h = item?.chgXau ? parseFloat(item.chgXau) : 0;
+        const changePct24h = item?.pcXau ? parseFloat(item.pcXau) : 0;
+        const spot: GoldSpot = {
+          price,
+          change24h,
+          changePct24h,
+          high24h: price + Math.abs(change24h),
+          low24h: price - Math.abs(change24h),
+          timestamp: Date.now(),
+        };
+        cachedSpot = { data: spot, at: Date.now() };
+        return spot;
+      }
+    }
+  } catch { /* fall through */ }
+
+  // 4. metals.live (free, no key)
   try {
     const res = await fetch('https://api.metals.live/v1/spot', {
-      headers: { 'User-Agent': 'Mozilla/5.0', 'Accept': 'application/json' },
+      headers: {
+        'User-Agent': 'Mozilla/5.0',
+        'Accept': 'application/json',
+      },
       signal: AbortSignal.timeout(8000),
     });
     if (res.ok) {
       const data = await res.json();
       const price = parseFloat(data.gold ?? data.XAU ?? 0);
       if (price > 0) {
-        const spot = { price, change24h: 0, changePct24h: 0, high24h: price, low24h: price, timestamp: Date.now() };
+        const spot: GoldSpot = {
+          price,
+          change24h: 0,
+          changePct24h: 0,
+          high24h: price,
+          low24h: price,
+          timestamp: Date.now(),
+        };
         cachedSpot = { data: spot, at: Date.now() };
         return spot;
       }
     }
-  } catch { /* continue */ }
+  } catch { /* fall through */ }
 
-  // Final fallback: use last cached value or a reasonable static estimate
+  // Final fallback: stale cache or static estimate
   if (cachedSpot) return cachedSpot.data;
-  const fallback = { price: 3320, change24h: 0, changePct24h: 0, high24h: 3330, low24h: 3310, timestamp: Date.now() };
+  const fallback: GoldSpot = {
+    price: 3320,
+    change24h: 0,
+    changePct24h: 0,
+    high24h: 3330,
+    low24h: 3310,
+    timestamp: Date.now(),
+  };
   cachedSpot = { data: fallback, at: Date.now() };
   return fallback;
 }
 
-async function fetchYahooQuote(): Promise<Omit<GoldSpot, 'timestamp'>> {
-  const headers = {
-    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120.0.0.0 Safari/537.36',
-    'Accept': 'application/json',
-    'Accept-Language': 'en-US,en;q=0.9',
-  };
+const YAHOO_HEADERS = {
+  'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120.0.0.0 Safari/537.36',
+  'Accept': 'application/json',
+  'Accept-Language': 'en-US,en;q=0.9',
+};
 
-  // Try v8 first, fall back to v10
+async function fetchYahooSpotQuote(ticker: string): Promise<Omit<GoldSpot, 'timestamp'>> {
   const urls = [
-    'https://query1.finance.yahoo.com/v8/finance/chart/GC=F?interval=1d&range=2d',
-    'https://query2.finance.yahoo.com/v8/finance/chart/GC=F?interval=1d&range=2d',
-    'https://query1.finance.yahoo.com/v10/finance/quoteSummary/GC=F?modules=price',
+    `https://query1.finance.yahoo.com/v8/finance/chart/${ticker}?interval=1d&range=2d`,
+    `https://query2.finance.yahoo.com/v8/finance/chart/${ticker}?interval=1d&range=2d`,
   ];
 
-  let lastErr: any;
+  let lastErr: unknown;
   for (const url of urls) {
     try {
-      const res = await fetch(url, { headers, signal: AbortSignal.timeout(10000) });
-      if (!res.ok) { lastErr = new Error(`Yahoo ${res.status}`); continue; }
+      const res = await fetch(url, { headers: YAHOO_HEADERS, signal: AbortSignal.timeout(10000) });
+      if (!res.ok) { lastErr = new Error(`Yahoo ${res.status} for ${ticker}`); continue; }
       const json = await res.json();
 
-      // v8 chart response
       const result = json?.chart?.result?.[0];
       if (result) {
         const meta = result.meta;
@@ -102,24 +157,11 @@ async function fetchYahooQuote(): Promise<Omit<GoldSpot, 'timestamp'>> {
           return { price, change24h, changePct24h, high24h, low24h };
         }
       }
-
-      // v10 quoteSummary response
-      const priceModule = json?.quoteSummary?.result?.[0]?.price;
-      if (priceModule) {
-        const price = priceModule.regularMarketPrice?.raw ?? 0;
-        if (price > 0) {
-          const change24h = priceModule.regularMarketChange?.raw ?? 0;
-          const changePct24h = priceModule.regularMarketChangePercent?.raw ? priceModule.regularMarketChangePercent.raw * 100 : 0;
-          const high24h = priceModule.regularMarketDayHigh?.raw ?? price;
-          const low24h = priceModule.regularMarketDayLow?.raw ?? price;
-          return { price, change24h, changePct24h, high24h, low24h };
-        }
-      }
     } catch (e) {
       lastErr = e;
     }
   }
-  throw lastErr ?? new Error('All Yahoo Finance endpoints failed');
+  throw lastErr ?? new Error(`All Yahoo Finance endpoints failed for ${ticker}`);
 }
 
 // ── OHLCV candles ─────────────────────────────────────────────────────────────
@@ -130,7 +172,7 @@ const INTERVAL_MAP: Record<string, string> = {
   '15m': '15m',
   '30m': '30m',
   '1h':  '60m',
-  '4h':  '1h',   // Yahoo doesn't have 4h; we resample 1h
+  '4h':  '60m',  // Yahoo has no 4h; resample from 1h
   '1d':  '1d',
 };
 
@@ -148,22 +190,20 @@ export async function getGoldCandles(interval: string = '1h', limit = 200): Prom
   const yfInterval = INTERVAL_MAP[interval] ?? '60m';
   const range = RANGE_MAP[interval] ?? '1mo';
 
-  const headers = {
-    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120.0.0.0 Safari/537.36',
-    'Accept': 'application/json',
-  };
   const urls = [
     `https://query1.finance.yahoo.com/v8/finance/chart/GC=F?interval=${yfInterval}&range=${range}`,
     `https://query2.finance.yahoo.com/v8/finance/chart/GC=F?interval=${yfInterval}&range=${range}`,
   ];
+
   let res: Response | null = null;
   for (const url of urls) {
     try {
-      const r = await fetch(url, { headers, signal: AbortSignal.timeout(12000) });
+      const r = await fetch(url, { headers: YAHOO_HEADERS, signal: AbortSignal.timeout(12000) });
       if (r.ok) { res = r; break; }
     } catch { continue; }
   }
-  if (!res) throw new Error(`Yahoo Finance candles: all endpoints failed`);
+  if (!res) throw new Error('Yahoo Finance candles: all endpoints failed');
+
   const json = await res.json();
   const result = json?.chart?.result?.[0];
   if (!result) throw new Error('No Yahoo Finance candles result');
@@ -176,16 +216,17 @@ export async function getGoldCandles(interval: string = '1h', limit = 200): Prom
   const closes: number[]  = q.close  ?? [];
   const volumes: number[] = q.volume ?? [];
 
-  let candles: GoldCandle[] = timestamps.map((t, i) => ({
-    time: t,
-    open:   opens[i]   ?? closes[i] ?? 0,
-    high:   highs[i]   ?? closes[i] ?? 0,
-    low:    lows[i]    ?? closes[i] ?? 0,
-    close:  closes[i]  ?? 0,
-    volume: volumes[i] ?? 0,
-  })).filter(c => c.close > 0);
+  let candles: GoldCandle[] = timestamps
+    .map((t, i) => ({
+      time: t,                            // Unix seconds — do not convert
+      open:   opens[i]   ?? closes[i] ?? 0,
+      high:   highs[i]   ?? closes[i] ?? 0,
+      low:    lows[i]    ?? closes[i] ?? 0,
+      close:  closes[i]  ?? 0,
+      volume: volumes[i] ?? 0,
+    }))
+    .filter(c => c.close > 0 && Number.isFinite(c.close));
 
-  // Resample 1h → 4h if needed
   if (interval === '4h') {
     candles = resampleTo4h(candles);
   }

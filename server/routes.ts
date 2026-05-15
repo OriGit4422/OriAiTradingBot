@@ -10,7 +10,7 @@ import { analyzeSignalWithAI, getMarketInsight } from "./ai-analysis";
 import { notifySignal, sendTestNotifications, validateSignalBestPractice } from "./notifications";
 import { testBinanceConnectivity, testBybitConnectivity } from "./exchange-connectivity";
 import { evaluateSignalsPerformance } from "./signal-performance";
-import { connectMt5, disconnectMt5, generateGoldSignal, getGoldCandles, getGoldTradingStatus, getLiveGoldPrice, runGoldAutoTradeOnce, setGoldAutoTrading } from "./gold-trading";
+import { connectMt5, disconnectMt5, getGoldCandles, getGoldTradingStatus, getLiveGoldPrice, runGoldAutoTradeOnce, setGoldAutoTrading } from "./gold-trading";
 import { getCoinNews, getLatestCryptoNews } from "./news";
 import { type ExchangeName, testExchangeConnection, getBinanceBalance, getBybitBalance, getMexcBalance, autoTradeSignal } from "./exchanges";
 import { analyzeGold } from "./gold-analysis";
@@ -170,17 +170,16 @@ export async function registerRoutes(
 
   app.post("/api/gold/signal", async (req, res) => {
     try {
-      const signal = await generateGoldSignal(req.body?.timeframe || "15m");
+      const signal = await analyzeGold(req.body?.timeframe || "15m");
       res.json(signal);
     } catch (e: any) {
       res.status(500).json({ message: e.message });
     }
   });
 
-  // Legacy endpoint kept for backward compatibility
   app.get("/api/gold/signal/:timeframe", async (req, res) => {
     try {
-      const signal = await generateGoldSignal(req.params.timeframe || "1h");
+      const signal = await analyzeGold(req.params.timeframe || "1h");
       res.json(signal);
     } catch (e: any) {
       res.status(500).json({ message: e.message });
@@ -594,18 +593,6 @@ export async function registerRoutes(
   });
 
   // ─── Gold Extended Routes ─────────────────────────────────────────────────
-
-  // /api/gold/candles/:interval is handled above (line ~167)
-
-  // GET /api/gold/signal/:timeframe
-  app.get("/api/gold/signal/:timeframe", async (req, res) => {
-    try {
-      const signal = await analyzeGold(req.params.timeframe || '1h');
-      res.json(signal);
-    } catch (e: any) {
-      res.status(500).json({ message: e.message });
-    }
-  });
 
   // POST /api/gold/trade  — place auto trade via MT5
   app.post("/api/gold/trade", async (req, res) => {

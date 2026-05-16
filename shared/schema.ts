@@ -58,6 +58,22 @@ export const settings = pgTable("settings", {
   mexcLeverage: integer("mexc_leverage").notNull().default(10),
   mexcMarginType: text("mexc_margin_type").notNull().default("ISOLATED"),
   mexcMaxPositionUsdt: real("mexc_max_position_usdt").notNull().default(100),
+  // Custom AI Provider 1 (OpenAI-compatible)
+  customAi1Enabled: boolean("custom_ai1_enabled").notNull().default(false),
+  customAi1Name: text("custom_ai1_name").default("Custom AI 1"),
+  customAi1BaseUrl: text("custom_ai1_base_url"),
+  customAi1ApiKey: text("custom_ai1_api_key"),
+  customAi1Model: text("custom_ai1_model").default("gpt-4o"),
+  // Custom AI Provider 2 (OpenAI-compatible)
+  customAi2Enabled: boolean("custom_ai2_enabled").notNull().default(false),
+  customAi2Name: text("custom_ai2_name").default("Custom AI 2"),
+  customAi2BaseUrl: text("custom_ai2_base_url"),
+  customAi2ApiKey: text("custom_ai2_api_key"),
+  customAi2Model: text("custom_ai2_model").default("gpt-4o"),
+  // Google Gemini
+  geminiEnabled: boolean("gemini_enabled").notNull().default(false),
+  geminiApiKey: text("gemini_api_key"),
+  geminiModel: text("gemini_model").default("gemini-1.5-pro"),
   // AI Agent integrations
   coinglassApiKey: text("coinglass_api_key"),
   perplexityApiKey: text("perplexity_api_key"),

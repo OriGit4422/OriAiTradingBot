@@ -83,6 +83,22 @@ export default function SettingsPage() {
   const [newsApiKey, setNewsApiKey] = useState('');
   const [metaApiToken, setMetaApiToken] = useState('');
   const [metaApiAccountId, setMetaApiAccountId] = useState('');
+  // Custom AI Provider 1
+  const [customAi1Enabled, setCustomAi1Enabled] = useState(false);
+  const [customAi1Name, setCustomAi1Name] = useState('');
+  const [customAi1BaseUrl, setCustomAi1BaseUrl] = useState('');
+  const [customAi1ApiKey, setCustomAi1ApiKey] = useState('');
+  const [customAi1Model, setCustomAi1Model] = useState('');
+  // Custom AI Provider 2
+  const [customAi2Enabled, setCustomAi2Enabled] = useState(false);
+  const [customAi2Name, setCustomAi2Name] = useState('');
+  const [customAi2BaseUrl, setCustomAi2BaseUrl] = useState('');
+  const [customAi2ApiKey, setCustomAi2ApiKey] = useState('');
+  const [customAi2Model, setCustomAi2Model] = useState('');
+  // Gemini
+  const [geminiEnabled, setGeminiEnabled] = useState(false);
+  const [geminiApiKey, setGeminiApiKey] = useState('');
+  const [geminiModel, setGeminiModel] = useState('');
   // Gold auto-trading states
   const [goldLotSize, setGoldLotSize] = useState('0.01');
   const [goldMaxDailyTrades, setGoldMaxDailyTrades] = useState('5');
@@ -138,6 +154,20 @@ export default function SettingsPage() {
       setPerplexityApiKey(settings.perplexityApiKey ?? '');
       setArkhamApiKey(settings.arkhamApiKey ?? '');
       setNewsApiKey((settings as any).newsApiKey ?? '');
+      // Custom AI providers
+      setCustomAi1Enabled(!!(settings as any).customAi1Enabled);
+      setCustomAi1Name((settings as any).customAi1Name ?? 'Custom AI 1');
+      setCustomAi1BaseUrl((settings as any).customAi1BaseUrl ?? '');
+      setCustomAi1ApiKey((settings as any).customAi1ApiKey ?? '');
+      setCustomAi1Model((settings as any).customAi1Model ?? 'gpt-4o');
+      setCustomAi2Enabled(!!(settings as any).customAi2Enabled);
+      setCustomAi2Name((settings as any).customAi2Name ?? 'Custom AI 2');
+      setCustomAi2BaseUrl((settings as any).customAi2BaseUrl ?? '');
+      setCustomAi2ApiKey((settings as any).customAi2ApiKey ?? '');
+      setCustomAi2Model((settings as any).customAi2Model ?? 'gpt-4o');
+      setGeminiEnabled(!!(settings as any).geminiEnabled);
+      setGeminiApiKey((settings as any).geminiApiKey ?? '');
+      setGeminiModel((settings as any).geminiModel ?? 'gemini-1.5-pro');
       setMetaApiToken(settings.metaApiToken ?? '');
       setMetaApiAccountId(settings.metaApiAccountId ?? '');
       setGoldLotSize(String(settings.goldLotSize ?? 0.01));
@@ -1051,7 +1081,8 @@ export default function SettingsPage() {
 
             <TabsContent value="ai-agents">
               <div className="space-y-4">
-                {/* Overview card */}
+
+                {/* Overview */}
                 <Card className="bg-card border-border">
                   <CardHeader>
                     <div className="flex items-center gap-3">
@@ -1059,16 +1090,17 @@ export default function SettingsPage() {
                         <Brain className="w-5 h-5 text-violet-400" />
                       </div>
                       <div>
-                        <CardTitle>AI Intelligence Agents</CardTitle>
-                        <CardDescription>Add API keys to activate agents that sharpen signal accuracy through multi-source validation.</CardDescription>
+                        <CardTitle>Multi-AI Intelligence System</CardTitle>
+                        <CardDescription>Connect your own AI APIs (OpenAI-compatible or Gemini). When multiple providers are active, their analyses are aggregated for maximum accuracy.</CardDescription>
                       </div>
                     </div>
                   </CardHeader>
                   <CardContent>
-                    <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mb-2">
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
                       {[
-                        { label: 'Claude AI', desc: 'Always active — primary analysis', color: 'text-violet-400', bg: 'bg-violet-500/10', Icon: Brain, active: true },
-                        { label: 'NewsAPI', desc: 'Live news impact on signals', color: 'text-blue-400', bg: 'bg-blue-500/10', Icon: Globe, active: !!(settings as any).newsApiKey },
+                        { label: 'Custom AI 1', desc: 'Any OpenAI-compatible API', color: 'text-violet-400', bg: 'bg-violet-500/10', Icon: Brain, active: !!(settings as any).customAi1Enabled && !!(settings as any).customAi1ApiKey },
+                        { label: 'Custom AI 2', desc: 'Second AI provider (parallel analysis)', color: 'text-purple-400', bg: 'bg-purple-500/10', Icon: Brain, active: !!(settings as any).customAi2Enabled && !!(settings as any).customAi2ApiKey },
+                        { label: 'Gemini', desc: 'Google Gemini (1.5 Pro / Flash)', color: 'text-green-400', bg: 'bg-green-500/10', Icon: Zap, active: !!(settings as any).geminiEnabled && !!(settings as any).geminiApiKey },
                         { label: 'Coinglass', desc: 'Funding rates & long/short data', color: 'text-orange-400', bg: 'bg-orange-500/10', Icon: Activity, active: !!settings.coinglassApiKey },
                         { label: 'Perplexity', desc: 'Real-time news sentiment', color: 'text-sky-400', bg: 'bg-sky-500/10', Icon: Globe, active: !!settings.perplexityApiKey },
                         { label: 'Arkham', desc: 'Whale & smart money tracking', color: 'text-cyan-400', bg: 'bg-cyan-500/10', Icon: Zap, active: !!settings.arkhamApiKey },
@@ -1086,6 +1118,179 @@ export default function SettingsPage() {
                           </div>
                         </div>
                       ))}
+                    </div>
+                    <div className="mt-3 p-3 rounded-lg bg-violet-500/5 border border-violet-500/20">
+                      <p className="text-[11px] text-muted-foreground">
+                        <span className="font-semibold text-violet-400">Multi-AI mode:</span> When 2+ AI providers are active, they run in parallel and their confidence scores & verdicts are averaged — producing more accurate, less biased signals.
+                      </p>
+                    </div>
+                  </CardContent>
+                </Card>
+
+                {/* Custom AI 1 */}
+                <Card className="bg-card border-border">
+                  <CardHeader>
+                    <div className="flex items-center gap-3">
+                      <div className="w-10 h-10 bg-violet-500/10 rounded-lg flex items-center justify-center">
+                        <Brain className="w-5 h-5 text-violet-400" />
+                      </div>
+                      <div>
+                        <CardTitle className="text-base">Custom AI Provider 1</CardTitle>
+                        <CardDescription>Any OpenAI-compatible API: OpenAI, Groq, Together AI, Mistral, local Ollama, etc.</CardDescription>
+                      </div>
+                      <div className="ml-auto flex items-center gap-2">
+                        <div className={`text-xs font-semibold px-2 py-1 rounded-full ${(settings as any).customAi1Enabled && (settings as any).customAi1ApiKey ? 'bg-green-500/10 text-green-500' : 'bg-secondary text-muted-foreground'}`}>
+                          {(settings as any).customAi1Enabled && (settings as any).customAi1ApiKey ? 'Active' : 'Inactive'}
+                        </div>
+                        <Switch
+                          checked={customAi1Enabled}
+                          onCheckedChange={(v) => {
+                            setCustomAi1Enabled(v);
+                            updateMutation.mutate({ customAi1Enabled: v } as any);
+                          }}
+                        />
+                      </div>
+                    </div>
+                  </CardHeader>
+                  <CardContent className="space-y-3">
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                      <div className="space-y-1">
+                        <Label className="text-xs">Display Name</Label>
+                        <Input value={customAi1Name} onChange={(e) => setCustomAi1Name(e.target.value)} placeholder="e.g. OpenAI GPT-4o" className="bg-secondary text-xs" />
+                      </div>
+                      <div className="space-y-1">
+                        <Label className="text-xs">Model ID</Label>
+                        <Input value={customAi1Model} onChange={(e) => setCustomAi1Model(e.target.value)} placeholder="e.g. gpt-4o" className="bg-secondary font-mono text-xs" />
+                      </div>
+                    </div>
+                    <div className="space-y-1">
+                      <Label className="text-xs">Base URL (OpenAI-compatible endpoint)</Label>
+                      <Input value={customAi1BaseUrl} onChange={(e) => setCustomAi1BaseUrl(e.target.value)} placeholder="https://api.openai.com/v1" className="bg-secondary font-mono text-xs" />
+                    </div>
+                    <div className="space-y-1">
+                      <Label className="text-xs">API Key</Label>
+                      <div className="flex gap-2">
+                        <Input type="password" value={customAi1ApiKey} onChange={(e) => setCustomAi1ApiKey(e.target.value)} placeholder="sk-..." className="bg-secondary font-mono text-xs" />
+                        <Button size="sm" onClick={() => updateMutation.mutate({ customAi1Name, customAi1BaseUrl, customAi1ApiKey, customAi1Model, customAi1Enabled } as any)} disabled={updateMutation.isPending}>
+                          Save
+                        </Button>
+                      </div>
+                    </div>
+                    <div className="rounded-lg bg-violet-500/5 border border-violet-500/20 p-3 space-y-1">
+                      <p className="text-[11px] font-semibold text-violet-400">Compatible providers:</p>
+                      <p className="text-[11px] text-muted-foreground">OpenAI · Groq · Together AI · Mistral · Perplexity · Anyscale · Ollama (local) · LM Studio · any OpenAI-compatible endpoint</p>
+                    </div>
+                  </CardContent>
+                </Card>
+
+                {/* Custom AI 2 */}
+                <Card className="bg-card border-border">
+                  <CardHeader>
+                    <div className="flex items-center gap-3">
+                      <div className="w-10 h-10 bg-purple-500/10 rounded-lg flex items-center justify-center">
+                        <Brain className="w-5 h-5 text-purple-400" />
+                      </div>
+                      <div>
+                        <CardTitle className="text-base">Custom AI Provider 2</CardTitle>
+                        <CardDescription>Second AI provider — runs in parallel with Provider 1 and Gemini. Averaged results = better accuracy.</CardDescription>
+                      </div>
+                      <div className="ml-auto flex items-center gap-2">
+                        <div className={`text-xs font-semibold px-2 py-1 rounded-full ${(settings as any).customAi2Enabled && (settings as any).customAi2ApiKey ? 'bg-green-500/10 text-green-500' : 'bg-secondary text-muted-foreground'}`}>
+                          {(settings as any).customAi2Enabled && (settings as any).customAi2ApiKey ? 'Active' : 'Inactive'}
+                        </div>
+                        <Switch
+                          checked={customAi2Enabled}
+                          onCheckedChange={(v) => {
+                            setCustomAi2Enabled(v);
+                            updateMutation.mutate({ customAi2Enabled: v } as any);
+                          }}
+                        />
+                      </div>
+                    </div>
+                  </CardHeader>
+                  <CardContent className="space-y-3">
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                      <div className="space-y-1">
+                        <Label className="text-xs">Display Name</Label>
+                        <Input value={customAi2Name} onChange={(e) => setCustomAi2Name(e.target.value)} placeholder="e.g. Groq Llama-3" className="bg-secondary text-xs" />
+                      </div>
+                      <div className="space-y-1">
+                        <Label className="text-xs">Model ID</Label>
+                        <Input value={customAi2Model} onChange={(e) => setCustomAi2Model(e.target.value)} placeholder="e.g. llama3-70b-8192" className="bg-secondary font-mono text-xs" />
+                      </div>
+                    </div>
+                    <div className="space-y-1">
+                      <Label className="text-xs">Base URL</Label>
+                      <Input value={customAi2BaseUrl} onChange={(e) => setCustomAi2BaseUrl(e.target.value)} placeholder="https://api.groq.com/openai/v1" className="bg-secondary font-mono text-xs" />
+                    </div>
+                    <div className="space-y-1">
+                      <Label className="text-xs">API Key</Label>
+                      <div className="flex gap-2">
+                        <Input type="password" value={customAi2ApiKey} onChange={(e) => setCustomAi2ApiKey(e.target.value)} placeholder="gsk_..." className="bg-secondary font-mono text-xs" />
+                        <Button size="sm" onClick={() => updateMutation.mutate({ customAi2Name, customAi2BaseUrl, customAi2ApiKey, customAi2Model, customAi2Enabled } as any)} disabled={updateMutation.isPending}>
+                          Save
+                        </Button>
+                      </div>
+                    </div>
+                  </CardContent>
+                </Card>
+
+                {/* Gemini */}
+                <Card className="bg-card border-border">
+                  <CardHeader>
+                    <div className="flex items-center gap-3">
+                      <div className="w-10 h-10 bg-green-500/10 rounded-lg flex items-center justify-center">
+                        <Zap className="w-5 h-5 text-green-400" />
+                      </div>
+                      <div>
+                        <CardTitle className="text-base">Google Gemini</CardTitle>
+                        <CardDescription>Google's Gemini 1.5 Pro or Flash. Adds a third independent AI analysis layer for cross-validation.</CardDescription>
+                      </div>
+                      <div className="ml-auto flex items-center gap-2">
+                        <div className={`text-xs font-semibold px-2 py-1 rounded-full ${(settings as any).geminiEnabled && (settings as any).geminiApiKey ? 'bg-green-500/10 text-green-500' : 'bg-secondary text-muted-foreground'}`}>
+                          {(settings as any).geminiEnabled && (settings as any).geminiApiKey ? 'Active' : 'Inactive'}
+                        </div>
+                        <Switch
+                          checked={geminiEnabled}
+                          onCheckedChange={(v) => {
+                            setGeminiEnabled(v);
+                            updateMutation.mutate({ geminiEnabled: v } as any);
+                          }}
+                        />
+                      </div>
+                    </div>
+                  </CardHeader>
+                  <CardContent className="space-y-3">
+                    <div className="space-y-1">
+                      <Label className="text-xs">Model</Label>
+                      <Select value={geminiModel || 'gemini-1.5-pro'} onValueChange={setGeminiModel}>
+                        <SelectTrigger className="bg-secondary text-xs">
+                          <SelectValue placeholder="Select model" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="gemini-1.5-pro">gemini-1.5-pro (most capable)</SelectItem>
+                          <SelectItem value="gemini-1.5-flash">gemini-1.5-flash (faster)</SelectItem>
+                          <SelectItem value="gemini-pro">gemini-pro (legacy)</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div className="space-y-1">
+                      <Label className="text-xs">API Key (Google AI Studio)</Label>
+                      <div className="flex gap-2">
+                        <Input type="password" value={geminiApiKey} onChange={(e) => setGeminiApiKey(e.target.value)} placeholder="AIza..." className="bg-secondary font-mono text-xs" />
+                        <Button size="sm" onClick={() => updateMutation.mutate({ geminiApiKey, geminiModel: geminiModel || 'gemini-1.5-pro', geminiEnabled } as any)} disabled={updateMutation.isPending}>
+                          Save
+                        </Button>
+                      </div>
+                    </div>
+                    <div className="rounded-lg bg-green-500/5 border border-green-500/20 p-3 space-y-1">
+                      <p className="text-[11px] font-semibold text-green-400">How to get your Gemini API key:</p>
+                      <ol className="text-[11px] text-muted-foreground space-y-0.5 list-decimal list-inside">
+                        <li>Go to aistudio.google.com and sign in with Google</li>
+                        <li>Click "Get API Key" → "Create API Key"</li>
+                        <li>Copy the key (starts with "AIza") and paste above</li>
+                        <li>Enable the toggle and Save</li>
+                      </ol>
                     </div>
                   </CardContent>
                 </Card>
@@ -1110,18 +1315,8 @@ export default function SettingsPage() {
                     <div className="space-y-1">
                       <Label className="text-xs">API Key (coinglassSecret)</Label>
                       <div className="flex gap-2">
-                        <Input
-                          type="password"
-                          value={coinglassApiKey}
-                          onChange={(e) => setCoinglassApiKey(e.target.value)}
-                          placeholder="Enter Coinglass API key"
-                          className="bg-secondary font-mono text-xs"
-                        />
-                        <Button
-                          size="sm"
-                          onClick={() => updateMutation.mutate({ coinglassApiKey: coinglassApiKey || null } as any)}
-                          disabled={updateMutation.isPending || coinglassApiKey === (settings.coinglassApiKey ?? '')}
-                        >
+                        <Input type="password" value={coinglassApiKey} onChange={(e) => setCoinglassApiKey(e.target.value)} placeholder="Enter Coinglass API key" className="bg-secondary font-mono text-xs" />
+                        <Button size="sm" onClick={() => updateMutation.mutate({ coinglassApiKey: coinglassApiKey || null } as any)} disabled={updateMutation.isPending || coinglassApiKey === (settings.coinglassApiKey ?? '')}>
                           Save
                         </Button>
                       </div>
@@ -1129,7 +1324,7 @@ export default function SettingsPage() {
                     <div className="rounded-lg bg-orange-500/5 border border-orange-500/20 p-3 space-y-1">
                       <p className="text-[11px] font-semibold text-orange-400">How to get your Coinglass API key:</p>
                       <ol className="text-[11px] text-muted-foreground space-y-0.5 list-decimal list-inside">
-                        <li>Sign up at coinglass.com and go to your account settings</li>
+                        <li>Sign up at coinglass.com and go to account settings</li>
                         <li>Navigate to API section and generate a key</li>
                         <li>Copy the key labeled "coinglassSecret" and paste above</li>
                       </ol>
@@ -1157,18 +1352,8 @@ export default function SettingsPage() {
                     <div className="space-y-1">
                       <Label className="text-xs">API Key</Label>
                       <div className="flex gap-2">
-                        <Input
-                          type="password"
-                          value={perplexityApiKey}
-                          onChange={(e) => setPerplexityApiKey(e.target.value)}
-                          placeholder="pplx-..."
-                          className="bg-secondary font-mono text-xs"
-                        />
-                        <Button
-                          size="sm"
-                          onClick={() => updateMutation.mutate({ perplexityApiKey: perplexityApiKey || null } as any)}
-                          disabled={updateMutation.isPending || perplexityApiKey === (settings.perplexityApiKey ?? '')}
-                        >
+                        <Input type="password" value={perplexityApiKey} onChange={(e) => setPerplexityApiKey(e.target.value)} placeholder="pplx-..." className="bg-secondary font-mono text-xs" />
+                        <Button size="sm" onClick={() => updateMutation.mutate({ perplexityApiKey: perplexityApiKey || null } as any)} disabled={updateMutation.isPending || perplexityApiKey === (settings.perplexityApiKey ?? '')}>
                           Save
                         </Button>
                       </div>
@@ -1205,18 +1390,8 @@ export default function SettingsPage() {
                     <div className="space-y-1">
                       <Label className="text-xs">API Key</Label>
                       <div className="flex gap-2">
-                        <Input
-                          type="password"
-                          value={arkhamApiKey}
-                          onChange={(e) => setArkhamApiKey(e.target.value)}
-                          placeholder="Enter Arkham API key"
-                          className="bg-secondary font-mono text-xs"
-                        />
-                        <Button
-                          size="sm"
-                          onClick={() => updateMutation.mutate({ arkhamApiKey: arkhamApiKey || null } as any)}
-                          disabled={updateMutation.isPending || arkhamApiKey === (settings.arkhamApiKey ?? '')}
-                        >
+                        <Input type="password" value={arkhamApiKey} onChange={(e) => setArkhamApiKey(e.target.value)} placeholder="Enter Arkham API key" className="bg-secondary font-mono text-xs" />
+                        <Button size="sm" onClick={() => updateMutation.mutate({ arkhamApiKey: arkhamApiKey || null } as any)} disabled={updateMutation.isPending || arkhamApiKey === (settings.arkhamApiKey ?? '')}>
                           Save
                         </Button>
                       </div>
@@ -1242,7 +1417,7 @@ export default function SettingsPage() {
                       </div>
                       <div>
                         <CardTitle className="text-base">NewsAPI — Live News Impact</CardTitle>
-                        <CardDescription>Real-time news articles for each coin. Feeds headline sentiment into Claude signal analysis. Powers the news bar on the dashboard.</CardDescription>
+                        <CardDescription>Real-time news articles for each coin. Feeds headline sentiment into AI signal analysis. Powers the news bar on the dashboard.</CardDescription>
                       </div>
                       <div className={`ml-auto text-xs font-semibold px-2 py-1 rounded-full ${(settings as any).newsApiKey ? 'bg-green-500/10 text-green-500' : 'bg-secondary text-muted-foreground'}`}>
                         {(settings as any).newsApiKey ? 'Active' : 'Inactive'}
@@ -1253,18 +1428,8 @@ export default function SettingsPage() {
                     <div className="space-y-1">
                       <Label className="text-xs">API Key</Label>
                       <div className="flex gap-2">
-                        <Input
-                          type="password"
-                          value={newsApiKey}
-                          onChange={(e) => setNewsApiKey(e.target.value)}
-                          placeholder="Enter NewsAPI key..."
-                          className="bg-secondary font-mono text-xs"
-                        />
-                        <Button
-                          size="sm"
-                          onClick={() => updateMutation.mutate({ newsApiKey: newsApiKey || null } as any)}
-                          disabled={updateMutation.isPending || newsApiKey === ((settings as any).newsApiKey ?? '')}
-                        >
+                        <Input type="password" value={newsApiKey} onChange={(e) => setNewsApiKey(e.target.value)} placeholder="Enter NewsAPI key..." className="bg-secondary font-mono text-xs" />
+                        <Button size="sm" onClick={() => updateMutation.mutate({ newsApiKey: newsApiKey || null } as any)} disabled={updateMutation.isPending || newsApiKey === ((settings as any).newsApiKey ?? '')}>
                           Save
                         </Button>
                       </div>
@@ -1274,13 +1439,8 @@ export default function SettingsPage() {
                       <ol className="text-[11px] text-muted-foreground space-y-0.5 list-decimal list-inside">
                         <li>Sign up free at newsapi.org</li>
                         <li>Your API key is shown on the dashboard after registration</li>
-                        <li>Paste above and Save — news will appear on the dashboard immediately</li>
+                        <li>Paste above and Save</li>
                       </ol>
-                    </div>
-                    <div className="rounded-lg bg-secondary/40 border border-border p-3">
-                      <p className="text-[11px] text-muted-foreground">
-                        <span className="font-semibold text-foreground">What this powers:</span> News ticker bar below every chart, per-coin headline sentiment injection into Claude AI signal analysis, X/social sentiment layer in market intelligence.
-                      </p>
                     </div>
                   </CardContent>
                 </Card>

@@ -1,9 +1,4 @@
-import Anthropic from "@anthropic-ai/sdk";
-
-const anthropic = new Anthropic({
-  apiKey: process.env.AI_INTEGRATIONS_ANTHROPIC_API_KEY,
-  baseURL: process.env.AI_INTEGRATIONS_ANTHROPIC_BASE_URL,
-});
+import { callMultiAI, streamChatResponse, type AIMessage } from './ai-providers';
 
 export interface AISignalResult {
   pair: string;
@@ -31,7 +26,7 @@ export interface AIStrategyReview {
   review: string;
 }
 
-export async function generateAISignal(pair: string, marketData?: any): Promise<AISignalResult> {
+export async function generateAISignal(pair: string, _marketData?: any): Promise<AISignalResult> {
   const prompt = `You are an expert cryptocurrency trading analyst AI. Generate a detailed trading signal for ${pair}.
 
 Consider the following in your analysis:
@@ -58,36 +53,27 @@ Respond in this exact JSON format only, no other text:
 Use realistic current approximate prices for ${pair}. BTC around 65000-70000, ETH around 3200-3500, SOL around 140-175, BNB around 580-620, XRP around 0.50-0.70, ADA around 0.40-0.55, DOGE around 0.07-0.12, AVAX around 30-42.`;
 
   try {
-    const message = await anthropic.messages.create({
-      model: "claude-sonnet-4-6",
-      max_tokens: 1024,
-      messages: [{ role: "user", content: prompt }],
-    });
-
-    const content = message.content[0];
-    if (content.type !== "text") throw new Error("Unexpected response type");
-
-    const jsonMatch = content.text.match(/\{[\s\S]*\}/);
-    if (!jsonMatch) throw new Error("Could not parse AI response");
-
+    const { text } = await callMultiAI([{ role: 'user', content: prompt }], 1024);
+    const jsonMatch = text.match(/\{[\s\S]*\}/);
+    if (!jsonMatch) throw new Error('Could not parse AI response');
     const parsed = JSON.parse(jsonMatch[0]);
 
     return {
       pair,
-      type: parsed.type || "long",
+      type: parsed.type || 'long',
       entry: Number(parsed.entry) || 0,
       target: Number(parsed.target) || 0,
       stopLoss: Number(parsed.stopLoss) || 0,
       confidence: Math.min(0.95, Math.max(0.5, Number(parsed.confidence) || 0.7)),
-      aiAnalysis: parsed.aiAnalysis || "AI analysis completed.",
-      aiValidation: parsed.aiValidation || "Signal validated by Claude AI.",
+      aiAnalysis: parsed.aiAnalysis || 'AI analysis completed.',
+      aiValidation: parsed.aiValidation || 'Signal validated by AI.',
       aiRiskScore: Math.min(10, Math.max(1, Number(parsed.aiRiskScore) || 5)),
-      riskReward: parsed.riskReward || "1:2",
-      marketContext: parsed.marketContext || "Market conditions analyzed.",
+      riskReward: parsed.riskReward || '1:2',
+      marketContext: parsed.marketContext || 'Market conditions analyzed.',
     };
   } catch (error: any) {
-    console.error("AI Signal generation error:", error.message);
-    throw new Error("Failed to generate AI signal: " + error.message);
+    console.error('AI Signal generation error:', error.message);
+    throw new Error('Failed to generate AI signal: ' + error.message);
   }
 }
 
@@ -121,32 +107,23 @@ Respond in this exact JSON format only:
 }`;
 
   try {
-    const message = await anthropic.messages.create({
-      model: "claude-haiku-4-5",
-      max_tokens: 512,
-      messages: [{ role: "user", content: prompt }],
-    });
-
-    const content = message.content[0];
-    if (content.type !== "text") throw new Error("Unexpected response type");
-
-    const jsonMatch = content.text.match(/\{[\s\S]*\}/);
-    if (!jsonMatch) throw new Error("Could not parse AI response");
-
+    const { text } = await callMultiAI([{ role: 'user', content: prompt }], 512);
+    const jsonMatch = text.match(/\{[\s\S]*\}/);
+    if (!jsonMatch) throw new Error('Could not parse AI response');
     const parsed = JSON.parse(jsonMatch[0]);
     return {
       isValid: parsed.isValid ?? true,
       riskScore: Math.min(10, Math.max(1, Number(parsed.riskScore) || 5)),
-      validation: parsed.validation || "Validation complete.",
-      suggestions: parsed.suggestions || "No additional suggestions.",
+      validation: parsed.validation || 'Validation complete.',
+      suggestions: parsed.suggestions || 'No additional suggestions.',
     };
   } catch (error: any) {
-    console.error("AI Validation error:", error.message);
+    console.error('AI Validation error:', error.message);
     return {
       isValid: true,
       riskScore: 5,
-      validation: "AI validation temporarily unavailable. Signal generated with standard parameters.",
-      suggestions: "Please review signal manually.",
+      validation: 'AI validation temporarily unavailable. Signal generated with standard parameters.',
+      suggestions: 'Please review signal manually.',
     };
   }
 }
@@ -169,8 +146,8 @@ export async function reviewStrategy(strategy: {
 
 Strategy Name: ${strategy.name}
 Type: ${strategy.type}
-Trading Pairs: ${strategy.pairs.join(", ")}
-Indicators: ${strategy.indicators.join(", ")}
+Trading Pairs: ${strategy.pairs.join(', ')}
+Indicators: ${strategy.indicators.join(', ')}
 Timeframe: ${strategy.timeframe}
 Risk Level: ${strategy.riskLevel}
 Take Profit: ${strategy.takeProfit}%
@@ -193,37 +170,25 @@ Respond in this exact JSON format only:
 }`;
 
   try {
-    const message = await anthropic.messages.create({
-      model: "claude-sonnet-4-6",
-      max_tokens: 512,
-      messages: [{ role: "user", content: prompt }],
-    });
-
-    const content = message.content[0];
-    if (content.type !== "text") throw new Error("Unexpected response type");
-
-    const jsonMatch = content.text.match(/\{[\s\S]*\}/);
-    if (!jsonMatch) throw new Error("Could not parse AI response");
-
+    const { text } = await callMultiAI([{ role: 'user', content: prompt }], 512);
+    const jsonMatch = text.match(/\{[\s\S]*\}/);
+    if (!jsonMatch) throw new Error('Could not parse AI response');
     const parsed = JSON.parse(jsonMatch[0]);
     return {
       score: Math.min(10, Math.max(1, Number(parsed.score) || 5)),
-      review: parsed.review || "Strategy review complete.",
+      review: parsed.review || 'Strategy review complete.',
     };
   } catch (error: any) {
-    console.error("AI Strategy review error:", error.message);
-    return {
-      score: 5,
-      review: "AI review temporarily unavailable. Please try again later.",
-    };
+    console.error('AI Strategy review error:', error.message);
+    return { score: 5, review: 'AI review temporarily unavailable. Please try again later.' };
   }
 }
 
 export async function chatWithAI(
-  messages: Array<{ role: "user" | "assistant"; content: string }>,
-  userId: string
+  messages: Array<{ role: 'user' | 'assistant'; content: string }>,
+  _userId: string,
 ): Promise<string> {
-  const systemPrompt = `You are WINM AI, an expert cryptocurrency trading assistant. You help traders with:
+  const system = `You are WINM AI, an expert cryptocurrency trading assistant. You help traders with:
 - Market analysis and technical analysis
 - Trading strategy recommendations
 - Risk management advice
@@ -236,19 +201,18 @@ Be concise, data-driven, and practical. Always emphasize risk management. Never 
 
 Important: You are part of the WINM AI Trading Bot platform. The user is a crypto trader looking for insights.`;
 
-  try {
-    const message = await anthropic.messages.create({
-      model: "claude-sonnet-4-6",
-      max_tokens: 2048,
-      system: systemPrompt,
-      messages: messages,
-    });
+  const fullMessages: AIMessage[] = [
+    { role: 'system', content: system },
+    ...messages,
+  ];
 
-    const content = message.content[0];
-    if (content.type !== "text") throw new Error("Unexpected response type");
-    return content.text;
+  try {
+    const { text } = await callMultiAI(fullMessages, 2048);
+    return text;
   } catch (error: any) {
-    console.error("AI Chat error:", error.message);
-    throw new Error("AI assistant temporarily unavailable: " + error.message);
+    console.error('AI Chat error:', error.message);
+    throw new Error('AI assistant temporarily unavailable: ' + error.message);
   }
 }
+
+export { streamChatResponse };

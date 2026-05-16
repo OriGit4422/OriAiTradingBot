@@ -38,10 +38,10 @@ export interface MultiAgentValidation {
   adjustments: AgentAdjustment[];
   summary: string;
   agents: {
-    coinglass: CoinglassData;
-    news:      NewsSentiment;
-    whale:     WhaleActivity;
-    claude:    AISignalAnalysis;
+    coinglass:  CoinglassData;
+    news:       NewsSentiment;
+    whale:      WhaleActivity;
+    primaryAI:  AISignalAnalysis;
   };
 }
 
@@ -76,22 +76,22 @@ export async function runMultiAgentValidation(
   const direction = signal.type as 'LONG' | 'SHORT';
 
   // Fire all agents in parallel — any single failure must NOT block the rest
-  const [cgRes, newsRes, whaleRes, claudeRes] = await Promise.allSettled([
+  const [cgRes, newsRes, whaleRes, aiRes] = await Promise.allSettled([
     getCoinglassData(signal.coin),
     getNewsSentiment(signal.coin),
     getWhaleActivity(signal.coin),
     analyzeSignalWithAI(signal),
   ]);
 
-  const coinglass = cgRes.status    === 'fulfilled' ? cgRes.value    : fallbackCoinglass(signal.coin);
-  const news      = newsRes.status  === 'fulfilled' ? newsRes.value  : fallbackNews(signal.coin);
-  const whale     = whaleRes.status === 'fulfilled' ? whaleRes.value : fallbackWhale(signal.coin);
-  const claude    = claudeRes.status === 'fulfilled' ? claudeRes.value : fallbackClaude(signal);
+  const coinglass = cgRes.status   === 'fulfilled' ? cgRes.value    : fallbackCoinglass(signal.coin);
+  const news      = newsRes.status === 'fulfilled' ? newsRes.value  : fallbackNews(signal.coin);
+  const whale     = whaleRes.status=== 'fulfilled' ? whaleRes.value : fallbackWhale(signal.coin);
+  const primaryAI = aiRes.status   === 'fulfilled' ? aiRes.value    : fallbackClaude(signal);
 
-  // Start from Claude's adjusted confidence (already incorporates TA)
-  let conf = claude.adjustedConfidence;
+  // Start from primaryAI's adjusted confidence (already incorporates TA)
+  let conf = primaryAI.adjustedConfidence;
   const adjustments: AgentAdjustment[] = [];
-  let agentsActive = 1; // Claude always counts
+  let agentsActive = 1; // primaryAI always counts
 
   // ── 1. Coinglass (weight ±8, bonus penalty for extreme funding) ──
   if (coinglass.available) {
@@ -153,7 +153,7 @@ export async function runMultiAgentValidation(
     coin: signal.coin, direction, originalConfidence: signal.confidence,
     adjustedConfidence, delta, finalVerdict, shouldTrade,
     agentsActive, adjustments, summary,
-    agents: { coinglass, news, whale, claude },
+    agents: { coinglass, news, whale, primaryAI },
   };
 }
 

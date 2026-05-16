@@ -1,51 +1,13 @@
-import Anthropic from "@anthropic-ai/sdk";
+import { callMultiAI, type AIMessage } from './ai-providers';
 
-const anthropic = new Anthropic({
-  apiKey: process.env.AI_INTEGRATIONS_ANTHROPIC_API_KEY,
-  baseURL: process.env.AI_INTEGRATIONS_ANTHROPIC_BASE_URL,
-});
-
-const AI_PROVIDER_COOLDOWN_MS = 15 * 60 * 1000;
+const AI_PROVIDER_COOLDOWN_MS = 5 * 60 * 1000;
 let aiProviderDisabledUntil = 0;
-let lastAIAuthErrorLogAt = 0;
-
-function isAnthropicAuthenticationError(error: any): boolean {
-  const status = error?.status;
-  const faultString = error?.error?.fault?.faultstring || "";
-  const errorCode = error?.error?.fault?.detail?.errorcode || "";
-  const message = error?.message || "";
-  return (
-    status === 401 ||
-    /ApiKey not approved/i.test(faultString) ||
-    /ApiKeyNotApproved/i.test(errorCode) ||
-    /authentication/i.test(message)
-  );
-}
-
-function getAIFallback(signalData: {
-  type: string;
-  confidence: number;
-  sl: number;
-  tp: number;
-}): AISignalAnalysis {
-  const isLong = signalData.type?.toUpperCase() === "LONG";
-  const isShort = signalData.type?.toUpperCase() === "SHORT";
-
-  return {
-    verdict: isLong ? "BUY" : isShort ? "SELL" : signalData.confidence >= 85 ? "BUY" : "NEUTRAL",
-    adjustedConfidence: signalData.confidence,
-    reasoning: "AI analysis temporarily unavailable - using base signal data",
-    riskLevel: "MEDIUM",
-    keyLevels: { support: signalData.sl, resistance: signalData.tp },
-    marketSentiment: "Calculating...",
-  };
-}
 
 export interface AISignalAnalysis {
-  verdict: "STRONG_BUY" | "BUY" | "NEUTRAL" | "SELL" | "STRONG_SELL";
+  verdict: 'STRONG_BUY' | 'BUY' | 'NEUTRAL' | 'SELL' | 'STRONG_SELL';
   adjustedConfidence: number;
   reasoning: string;
-  riskLevel: "LOW" | "MEDIUM" | "HIGH";
+  riskLevel: 'LOW' | 'MEDIUM' | 'HIGH';
   keyLevels: { support: number; resistance: number };
   marketSentiment: string;
 }
@@ -58,11 +20,29 @@ export interface AgentContext {
   newsSentiment?:    string;
   newsHeadline?:     string;
   newsRiskLevel?:    string;
-  newsImpact?:       string;      // NewsAPI aggregate sentiment (BULLISH/BEARISH/NEUTRAL)
-  newsTopHeadlines?: string[];    // Up to 3 most impactful headlines
+  newsImpact?:       string;
+  newsTopHeadlines?: string[];
   whaleBias?:        string;
   whaleSignal?:      string;
-  xSentiment?:       string;      // Social/X sentiment
+  xSentiment?:       string;
+}
+
+function getAIFallback(signalData: {
+  type: string;
+  confidence: number;
+  sl: number;
+  tp: number;
+}): AISignalAnalysis {
+  const isLong = signalData.type?.toUpperCase() === 'LONG';
+  const isShort = signalData.type?.toUpperCase() === 'SHORT';
+  return {
+    verdict: isLong ? 'BUY' : isShort ? 'SELL' : signalData.confidence >= 85 ? 'BUY' : 'NEUTRAL',
+    adjustedConfidence: signalData.confidence,
+    reasoning: 'AI analysis temporarily unavailable - using base signal data',
+    riskLevel: 'MEDIUM',
+    keyLevels: { support: signalData.sl, resistance: signalData.tp },
+    marketSentiment: 'Calculating...',
+  };
 }
 
 export async function analyzeSignalWithAI(signalData: {
@@ -77,10 +57,6 @@ export async function analyzeSignalWithAI(signalData: {
   strategy: string;
   agentContext?: AgentContext;
 }): Promise<AISignalAnalysis> {
-  if (!process.env.AI_INTEGRATIONS_ANTHROPIC_API_KEY) {
-    return getAIFallback(signalData);
-  }
-
   if (Date.now() < aiProviderDisabledUntil) {
     return getAIFallback(signalData);
   }
@@ -89,7 +65,6 @@ export async function analyzeSignalWithAI(signalData: {
     const rr = (Math.abs(signalData.tp - signalData.entry) / Math.abs(signalData.entry - signalData.sl)).toFixed(2);
     const ctx = signalData.agentContext;
 
-    // Build the optional multi-agent context block
     const agentBlock = ctx ? `
 Multi-Agent Intelligence (already gathered — use this to sharpen your assessment):
 ${ctx.coinglassBias    ? `- Derivatives (Coinglass): Bias=${ctx.coinglassBias}, Signal="${ctx.coinglassSignal}", Funding=${ctx.fundingRate?.toFixed(5)}%, Longs=${ctx.longPercent?.toFixed(0)}%` : ''}
@@ -128,53 +103,38 @@ Respond in JSON only:
   "marketSentiment": "<brief 1-sentence sentiment>"
 }`;
 
-    const message = await anthropic.messages.create({
-      model: "claude-sonnet-4-6",
-      max_tokens: 300,
-      messages: [{ role: "user", content: prompt }],
-    });
+    const messages: AIMessage[] = [{ role: 'user', content: prompt }];
+    const { text } = await callMultiAI(messages, 400);
 
-    const content = message.content[0];
-    if (content.type !== "text") throw new Error("Unexpected response type");
-
-    const jsonMatch = content.text.match(/\{[\s\S]*\}/);
-    if (!jsonMatch) throw new Error("Could not parse AI response");
+    const jsonMatch = text.match(/\{[\s\S]*\}/);
+    if (!jsonMatch) throw new Error('Could not parse AI response');
 
     const parsed = JSON.parse(jsonMatch[0]);
-    
     return {
-      verdict: parsed.verdict || "NEUTRAL",
+      verdict: parsed.verdict || 'NEUTRAL',
       adjustedConfidence: Math.min(100, Math.max(0, parsed.adjustedConfidence || signalData.confidence)),
-      reasoning: parsed.reasoning || "Analysis unavailable",
-      riskLevel: parsed.riskLevel || "MEDIUM",
+      reasoning: parsed.reasoning || 'Analysis unavailable',
+      riskLevel: parsed.riskLevel || 'MEDIUM',
       keyLevels: parsed.keyLevels || { support: signalData.sl, resistance: signalData.tp },
-      marketSentiment: parsed.marketSentiment || "Neutral",
+      marketSentiment: parsed.marketSentiment || 'Neutral',
     };
-  } catch (error) {
-    if (isAnthropicAuthenticationError(error)) {
+  } catch (error: any) {
+    if (error.message?.includes('No AI providers configured')) {
       aiProviderDisabledUntil = Date.now() + AI_PROVIDER_COOLDOWN_MS;
-      if (Date.now() - lastAIAuthErrorLogAt > 60 * 1000) {
-        lastAIAuthErrorLogAt = Date.now();
-        console.warn(
-          "AI analysis auth error (Anthropic 401). Using fallback for 15 minutes before retry."
-        );
-      }
-      return getAIFallback(signalData);
     }
-
-    console.error("AI analysis error:", error);
+    console.error('AI analysis error:', error?.message || error);
     return getAIFallback(signalData);
   }
 }
 
 export interface CoinInsight {
   coin: string;
-  sentiment: "BULLISH" | "BEARISH" | "NEUTRAL";
+  sentiment: 'BULLISH' | 'BEARISH' | 'NEUTRAL';
   shortAnalysis: string;
   keyLevel: string;
-  action: "BUY" | "SELL" | "HOLD" | "WATCH";
+  action: 'BUY' | 'SELL' | 'HOLD' | 'WATCH';
   xSentiment?: string;
-  fomoLevel?: "LOW" | "MEDIUM" | "HIGH";
+  fomoLevel?: 'LOW' | 'MEDIUM' | 'HIGH';
   liquidityView?: string;
   psychologicalLevels?: string;
   newsBias?: string;
@@ -182,7 +142,7 @@ export interface CoinInsight {
 
 export interface UpcomingTrade {
   coin: string;
-  direction: "LONG" | "SHORT";
+  direction: 'LONG' | 'SHORT';
   reason: string;
   confidence: number;
   timeframe: string;
@@ -198,45 +158,38 @@ export interface MarketInsightResult {
 
 export async function getMarketInsight(coins: string[], marketData?: any[]): Promise<MarketInsightResult> {
   const fallbackResult: MarketInsightResult = {
-    overview: "Crypto markets are showing mixed signals. Monitor key support and resistance levels across major pairs for breakout opportunities.",
+    overview: 'Crypto markets are showing mixed signals. Monitor key support and resistance levels across major pairs for breakout opportunities.',
     coins: coins.map(c => ({
       coin: c,
-      sentiment: "NEUTRAL" as const,
-      shortAnalysis: "Consolidating near key levels. Watch for volume confirmation.",
-      keyLevel: "Support/Resistance zone active",
-      action: "WATCH" as const,
-      xSentiment: "Neutral social sentiment",
-      fomoLevel: "MEDIUM" as const,
-      liquidityView: "Balanced",
-      psychologicalLevels: "Near round-number pivots",
-      newsBias: "No strong catalyst",
+      sentiment: 'NEUTRAL' as const,
+      shortAnalysis: 'Consolidating near key levels. Watch for volume confirmation.',
+      keyLevel: 'Support/Resistance zone active',
+      action: 'WATCH' as const,
+      xSentiment: 'Neutral social sentiment',
+      fomoLevel: 'MEDIUM' as const,
+      liquidityView: 'Balanced',
+      psychologicalLevels: 'Near round-number pivots',
+      newsBias: 'No strong catalyst',
     })),
     upcomingTrades: [
-      { coin: "BTC", direction: "LONG", reason: "Holding above key support with increasing volume", confidence: 75, timeframe: "4h" },
-      { coin: "ETH", direction: "LONG", reason: "Bullish divergence on RSI with accumulation signs", confidence: 70, timeframe: "1h" },
-      { coin: "SOL", direction: "SHORT", reason: "Rejection at resistance with declining momentum", confidence: 68, timeframe: "15m" },
+      { coin: 'BTC', direction: 'LONG', reason: 'Holding above key support with increasing volume', confidence: 75, timeframe: '4h' },
+      { coin: 'ETH', direction: 'LONG', reason: 'Bullish divergence on RSI with accumulation signs', confidence: 70, timeframe: '1h' },
+      { coin: 'SOL', direction: 'SHORT', reason: 'Rejection at resistance with declining momentum', confidence: 68, timeframe: '15m' },
     ],
-    marketMood: "Cautiously Optimistic",
+    marketMood: 'Cautiously Optimistic',
     timestamp: new Date().toISOString(),
   };
 
-  if (!process.env.AI_INTEGRATIONS_ANTHROPIC_API_KEY || Date.now() < aiProviderDisabledUntil) {
-    return fallbackResult;
-  }
+  if (Date.now() < aiProviderDisabledUntil) return fallbackResult;
 
   try {
     const marketContext = marketData?.length
       ? marketData.map(d => `${d.symbol}: Current Price $${d.price}, 24h Change ${d.change > 0 ? '+' : ''}${d.change.toFixed(2)}%, 24h Volume $${(d.volume / 1e6).toFixed(0)}M`).join('\n')
       : coins.map(c => `${c}: price data unavailable`).join('\n');
 
-    const message = await anthropic.messages.create({
-      model: "claude-sonnet-4-6",
-      max_tokens: 8192,
-      system: "You are a professional crypto market analyst providing real-time analysis. Return ONLY valid JSON. No markdown, no code blocks. CRITICAL: Use the EXACT current prices provided below in your analysis. Key levels must be near the actual current price - not generic round numbers. For example if BTC is at $67,800, key levels should be around $66,500-$69,000 range, NOT $60,000.",
-      messages: [
-        {
-          role: "user",
-          content: `Analyze these live crypto markets using the REAL prices below. Your key levels and analysis MUST reference prices close to the actual current values.
+    const system = 'You are a professional crypto market analyst providing real-time analysis. Return ONLY valid JSON. No markdown, no code blocks. CRITICAL: Use the EXACT current prices provided below in your analysis. Key levels must be near the actual current price - not generic round numbers. For example if BTC is at $67,800, key levels should be around $66,500-$69,000 range, NOT $60,000.';
+
+    const userMsg = `Analyze these live crypto markets using the REAL prices below. Your key levels and analysis MUST reference prices close to the actual current values.
 
 LIVE MARKET DATA:
 ${marketContext}
@@ -254,67 +207,52 @@ Return this exact JSON structure:
 }
 
 RULES:
-- Include ALL coins: ${coins.join(", ")}
+- Include ALL coins: ${coins.join(', ')}
 - Sentiment MUST match the 24h change: positive change (>1%) = BULLISH, negative (<-1%) = BEARISH, small change = NEUTRAL
 - Key levels MUST be within 5% of the current price shown above
 - Generate 3-5 upcoming trade ideas with realistic entry/exit levels
 - Confidence should reflect how strong the setup is (60-95 range)
-- Be specific about prices, not generic`
-        }
-      ],
-    });
+- Be specific about prices, not generic`;
 
-    const content = message.content[0];
-    if (content.type !== "text") {
-      console.error("Market insight: unexpected response type");
-      return fallbackResult;
-    }
+    const messages: AIMessage[] = [
+      { role: 'system', content: system },
+      { role: 'user', content: userMsg },
+    ];
 
-    const jsonMatch = content.text.match(/\{[\s\S]*\}/);
-    if (!jsonMatch) {
-      console.error("Market insight: could not parse JSON from response");
-      return fallbackResult;
-    }
+    const { text } = await callMultiAI(messages, 8192);
+    const jsonMatch = text.match(/\{[\s\S]*\}/);
+    if (!jsonMatch) return fallbackResult;
 
     const parsed = JSON.parse(jsonMatch[0]);
-
     return {
       overview: parsed.overview || fallbackResult.overview,
       coins: (parsed.coins || []).map((c: any) => ({
-        coin: c.coin || "BTC",
-        sentiment: (["BULLISH", "BEARISH", "NEUTRAL"].includes(c.sentiment) ? c.sentiment : "NEUTRAL") as "BULLISH" | "BEARISH" | "NEUTRAL",
-        shortAnalysis: c.shortAnalysis || "Analysis pending",
-        keyLevel: c.keyLevel || "Key levels being calculated",
-        action: (["BUY", "SELL", "HOLD", "WATCH"].includes(c.action) ? c.action : "WATCH") as "BUY" | "SELL" | "HOLD" | "WATCH",
-        xSentiment: c.xSentiment || "Neutral social sentiment",
-        fomoLevel: (["LOW", "MEDIUM", "HIGH"].includes(c.fomoLevel) ? c.fomoLevel : "MEDIUM") as "LOW" | "MEDIUM" | "HIGH",
-        liquidityView: c.liquidityView || "Liquidity balanced near VWAP",
-        psychologicalLevels: c.psychologicalLevels || "Round numbers and weekly pivots",
-        newsBias: c.newsBias || "No strong catalyst",
+        coin: c.coin || 'BTC',
+        sentiment: (['BULLISH', 'BEARISH', 'NEUTRAL'].includes(c.sentiment) ? c.sentiment : 'NEUTRAL') as 'BULLISH' | 'BEARISH' | 'NEUTRAL',
+        shortAnalysis: c.shortAnalysis || 'Analysis pending',
+        keyLevel: c.keyLevel || 'Key levels being calculated',
+        action: (['BUY', 'SELL', 'HOLD', 'WATCH'].includes(c.action) ? c.action : 'WATCH') as 'BUY' | 'SELL' | 'HOLD' | 'WATCH',
+        xSentiment: c.xSentiment || 'Neutral social sentiment',
+        fomoLevel: (['LOW', 'MEDIUM', 'HIGH'].includes(c.fomoLevel) ? c.fomoLevel : 'MEDIUM') as 'LOW' | 'MEDIUM' | 'HIGH',
+        liquidityView: c.liquidityView || 'Liquidity balanced near VWAP',
+        psychologicalLevels: c.psychologicalLevels || 'Round numbers and weekly pivots',
+        newsBias: c.newsBias || 'No strong catalyst',
       })),
       upcomingTrades: (parsed.upcomingTrades || []).map((t: any) => ({
-        coin: t.coin || "BTC",
-        direction: t.direction === "SHORT" ? "SHORT" as const : "LONG" as const,
-        reason: t.reason || "Technical setup forming",
+        coin: t.coin || 'BTC',
+        direction: t.direction === 'SHORT' ? 'SHORT' as const : 'LONG' as const,
+        reason: t.reason || 'Technical setup forming',
         confidence: Math.min(100, Math.max(0, t.confidence || 70)),
-        timeframe: t.timeframe || "1h",
+        timeframe: t.timeframe || '1h',
       })),
-      marketMood: parsed.marketMood || "Neutral",
+      marketMood: parsed.marketMood || 'Neutral',
       timestamp: new Date().toISOString(),
     };
   } catch (error: any) {
-    if (isAnthropicAuthenticationError(error)) {
+    if (error.message?.includes('No AI providers configured')) {
       aiProviderDisabledUntil = Date.now() + AI_PROVIDER_COOLDOWN_MS;
-      if (Date.now() - lastAIAuthErrorLogAt > 60 * 1000) {
-        lastAIAuthErrorLogAt = Date.now();
-        console.warn(
-          "Market insight auth error (Anthropic 401). Using fallback for 15 minutes before retry."
-        );
-      }
-      return fallbackResult;
     }
-
-    console.error("Market insight error:", error?.message || error);
+    console.error('Market insight error:', error?.message || error);
     return fallbackResult;
   }
 }

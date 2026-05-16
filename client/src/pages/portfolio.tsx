@@ -1,9 +1,10 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useMemo } from 'react';
 import { useQuery, useMutation } from '@tanstack/react-query';
 import { Sidebar } from '@/components/layout/Sidebar';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Progress } from '@/components/ui/progress';
+import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import {
@@ -14,20 +15,29 @@ import {
   DialogDescription,
   DialogFooter,
 } from '@/components/ui/dialog';
-import { 
-  PieChart, 
-  Wallet, 
-  ArrowUpRight, 
-  ArrowDownRight, 
+import {
+  PieChart,
+  Wallet,
+  ArrowUpRight,
+  ArrowDownRight,
   History,
   Download,
   Loader2,
   Plus,
   DollarSign,
+  TrendingUp,
+  BarChart3,
+  Shield,
+  Activity,
 } from 'lucide-react';
+import {
+  LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip,
+  ResponsiveContainer, ReferenceLine,
+} from 'recharts';
 import { fetch24hTicker } from '@/lib/binance';
 import { apiRequest, queryClient } from '@/lib/queryClient';
 import { toast } from '@/hooks/use-toast';
+import { cn } from '@/lib/utils';
 import type { Position } from '@shared/schema';
 
 export default function Portfolio() {
@@ -110,6 +120,45 @@ export default function Portfolio() {
   const winningTrades = closedPositions.filter(p => (p.pnl ?? 0) > 0).length;
   const winRate = closedPositions.length > 0 ? (winningTrades / closedPositions.length) * 100 : 0;
 
+  const advancedMetrics = useMemo(() => {
+    if (closedPositions.length === 0) return { profitFactor: 0, maxDrawdown: 0, avgWin: 0, avgLoss: 0 };
+    const wins = closedPositions.filter(p => (p.pnl ?? 0) > 0);
+    const losses = closedPositions.filter(p => (p.pnl ?? 0) < 0);
+    const grossProfit = wins.reduce((s, p) => s + (p.pnl ?? 0), 0);
+    const grossLoss = Math.abs(losses.reduce((s, p) => s + (p.pnl ?? 0), 0));
+    const sorted = [...closedPositions].sort(
+      (a, b) => new Date(a.closedAt!).getTime() - new Date(b.closedAt!).getTime()
+    );
+    let cum = 0, peak = 0, maxDD = 0;
+    for (const p of sorted) {
+      cum += p.pnl ?? 0;
+      if (cum > peak) peak = cum;
+      const dd = peak > 0 ? (peak - cum) / peak * 100 : 0;
+      if (dd > maxDD) maxDD = dd;
+    }
+    return {
+      profitFactor: grossLoss > 0 ? grossProfit / grossLoss : 0,
+      maxDrawdown: maxDD,
+      avgWin: wins.length > 0 ? grossProfit / wins.length : 0,
+      avgLoss: losses.length > 0 ? grossLoss / losses.length : 0,
+    };
+  }, [closedPositions]);
+
+  const equityCurve = useMemo(() => {
+    const base = walletData?.balance || 10000;
+    const sorted = [...closedPositions].sort(
+      (a, b) => new Date(a.closedAt!).getTime() - new Date(b.closedAt!).getTime()
+    );
+    let cum = 0;
+    return [
+      { date: 'Start', equity: base },
+      ...sorted.map(p => {
+        cum += p.pnl ?? 0;
+        return { date: new Date(p.closedAt!).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }), equity: base + cum };
+      }),
+    ];
+  }, [closedPositions, walletData]);
+
   const handleClose = (position: Position) => {
     const pnl = calculatePnL(position);
     closePositionMutation.mutate({ id: position.id, pnl });
@@ -144,8 +193,8 @@ export default function Portfolio() {
             </div>
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-            <Card className="bg-card border-border" data-testid="card-total-balance">
+          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
+            <Card className="bg-card border-border col-span-2 md:col-span-1" data-testid="card-total-balance">
                <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
                   <CardTitle className="text-sm font-medium text-muted-foreground">Total Balance</CardTitle>
                   <Wallet className="h-4 w-4 text-primary" />
@@ -162,7 +211,7 @@ export default function Portfolio() {
             <Card className="bg-card border-border" data-testid="card-unrealized-pnl">
                <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
                   <CardTitle className="text-sm font-medium text-muted-foreground">Unrealized PnL</CardTitle>
-                  <PieChart className="h-4 w-4 text-primary" />
+                  <Activity className="h-4 w-4 text-primary" />
                </CardHeader>
                <CardContent>
                   {isLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : (
@@ -171,7 +220,7 @@ export default function Portfolio() {
                     </div>
                   )}
                   <p className="text-xs text-muted-foreground mt-1" data-testid="text-positions-count">
-                     Across {positions.length} open positions
+                     {positions.length} open positions
                   </p>
                </CardContent>
             </Card>
@@ -183,9 +232,80 @@ export default function Portfolio() {
                <CardContent>
                   <div className="text-2xl font-bold font-mono" data-testid="text-win-rate">{winRate.toFixed(1)}%</div>
                   <Progress value={winRate} className="h-2 mt-2" />
+                  <p className="text-xs text-muted-foreground mt-1">{closedPositions.length} closed trades</p>
+               </CardContent>
+            </Card>
+            <Card className="bg-card border-border">
+               <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                  <CardTitle className="text-sm font-medium text-muted-foreground">Profit Factor</CardTitle>
+                  <BarChart3 className="h-4 w-4 text-green-500" />
+               </CardHeader>
+               <CardContent>
+                  <div className={cn('text-2xl font-bold font-mono', advancedMetrics.profitFactor >= 1.5 ? 'text-green-500' : advancedMetrics.profitFactor >= 1 ? 'text-yellow-500' : 'text-red-500')}>
+                    {advancedMetrics.profitFactor.toFixed(2)}
+                  </div>
+                  <p className="text-xs text-muted-foreground mt-1">Gross profit / loss</p>
+               </CardContent>
+            </Card>
+            <Card className="bg-card border-border">
+               <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                  <CardTitle className="text-sm font-medium text-muted-foreground">Max Drawdown</CardTitle>
+                  <Shield className="h-4 w-4 text-orange-500" />
+               </CardHeader>
+               <CardContent>
+                  <div className={cn('text-2xl font-bold font-mono', advancedMetrics.maxDrawdown < 10 ? 'text-green-500' : advancedMetrics.maxDrawdown < 20 ? 'text-yellow-500' : 'text-red-500')}>
+                    {advancedMetrics.maxDrawdown.toFixed(1)}%
+                  </div>
+                  <p className="text-xs text-muted-foreground mt-1">Peak-to-trough</p>
+               </CardContent>
+            </Card>
+            <Card className="bg-card border-border">
+               <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                  <CardTitle className="text-sm font-medium text-muted-foreground">Avg Win / Loss</CardTitle>
+                  <TrendingUp className="h-4 w-4 text-blue-500" />
+               </CardHeader>
+               <CardContent>
+                  <div className="text-lg font-bold font-mono">
+                    <span className="text-green-500">${advancedMetrics.avgWin.toFixed(0)}</span>
+                    <span className="text-muted-foreground mx-1">/</span>
+                    <span className="text-red-500">${advancedMetrics.avgLoss.toFixed(0)}</span>
+                  </div>
+                  <p className="text-xs text-muted-foreground mt-1">Per trade average</p>
                </CardContent>
             </Card>
           </div>
+
+          {/* Equity Curve */}
+          {equityCurve.length > 1 && (
+            <Card className="bg-card border-border">
+              <CardHeader className="pb-2">
+                <div className="flex items-center gap-2">
+                  <TrendingUp className="h-4 w-4 text-primary" />
+                  <CardTitle className="text-sm font-medium">Equity Curve</CardTitle>
+                  <Badge variant="outline" className={cn('text-[10px] ml-auto', totalPnL >= 0 ? 'text-green-600 border-green-200 bg-green-50' : 'text-red-500 border-red-200 bg-red-50')}>
+                    {totalPnL >= 0 ? '+' : ''}${totalPnL.toFixed(2)} realized
+                  </Badge>
+                </div>
+              </CardHeader>
+              <CardContent>
+                <div className="h-40">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <LineChart data={equityCurve} margin={{ left: -10, right: 10, top: 5, bottom: 5 }}>
+                      <CartesianGrid strokeDasharray="3 3" stroke="rgba(148,163,184,0.1)" />
+                      <XAxis dataKey="date" tick={{ fontSize: 9, fill: '#94a3b8' }} axisLine={false} tickLine={false} />
+                      <YAxis tick={{ fontSize: 9, fill: '#94a3b8' }} axisLine={false} tickLine={false}
+                        tickFormatter={v => `$${(v / 1000).toFixed(1)}k`} />
+                      <Tooltip formatter={(v: any) => [`$${parseFloat(v).toLocaleString(undefined, { maximumFractionDigits: 2 })}`, 'Equity']}
+                        labelStyle={{ fontSize: '11px' }} contentStyle={{ fontSize: '11px', border: '1px solid #e2e8f0', borderRadius: '8px' }} />
+                      <ReferenceLine y={walletData?.balance || 10000} stroke="#94a3b8" strokeDasharray="4 4" />
+                      <Line type="monotone" dataKey="equity" stroke={totalPnL >= 0 ? '#10b981' : '#ef4444'}
+                        strokeWidth={2} dot={false} activeDot={{ r: 3 }} />
+                    </LineChart>
+                  </ResponsiveContainer>
+                </div>
+              </CardContent>
+            </Card>
+          )}
 
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
              <div className="lg:col-span-2 bg-card border border-border rounded-lg overflow-hidden" data-testid="table-open-positions">

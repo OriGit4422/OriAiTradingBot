@@ -1,15 +1,10 @@
 /**
  * Gold trading analysis module
- * Technical indicators + Claude AI for XAUUSD signals
+ * Technical indicators + Multi-AI for XAUUSD signals
  */
 
-import Anthropic from "@anthropic-ai/sdk";
+import { callMultiAI } from './ai-providers';
 import { getGoldCandles, GoldCandle } from "./gold-data";
-
-const anthropic = new Anthropic({
-  apiKey: process.env.AI_INTEGRATIONS_ANTHROPIC_API_KEY,
-  baseURL: process.env.AI_INTEGRATIONS_ANTHROPIC_BASE_URL,
-});
 
 export interface GoldSignal {
   type: 'BUY' | 'SELL' | 'NEUTRAL';
@@ -191,23 +186,18 @@ Proposed Signal: ${signalType} @ $${currentPrice.toFixed(2)}
   let finalConfidence = confidence;
 
   try {
-    const completion = await anthropic.messages.create({
-      model: "claude-opus-4-6",
-      max_tokens: 400,
-      messages: [{
-        role: "user",
-        content: `You are a gold trading expert. Analyze this technical setup and provide:
+    const { text } = await callMultiAI([{
+      role: 'user',
+      content: `You are a gold trading expert. Analyze this technical setup and provide:
 1. A confidence score (0-100) for the proposed signal
 2. Brief reasoning (2-3 sentences)
 
 ${indicatorSummary}
 
 Respond in JSON only:
-{"confidence": <number>, "reasoning": "<string>", "verdict": "STRONG_${signalType}"|"${signalType}"|"NEUTRAL"|"AVOID"}`
-      }]
-    });
+{"confidence": <number>, "reasoning": "<string>", "verdict": "STRONG_${signalType}" or "${signalType}" or "NEUTRAL" or "AVOID"}`,
+    }], 400);
 
-    const text = completion.content[0].type === 'text' ? completion.content[0].text : '';
     const match = text.match(/\{[\s\S]*\}/);
     if (match) {
       const parsed = JSON.parse(match[0]);

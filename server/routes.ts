@@ -539,14 +539,30 @@ export async function registerRoutes(
   app.get("/api/intelligence/status", async (_req, res) => {
     try {
       const s = await storage.getSettings();
+      const ss = s as any;
+      const ai1Active  = !!(ss?.customAi1Enabled && ss?.customAi1ApiKey);
+      const ai2Active  = !!(ss?.customAi2Enabled && ss?.customAi2ApiKey);
+      const geminiActive = !!(ss?.geminiEnabled && ss?.geminiApiKey);
+      const anyAiActive  = ai1Active || ai2Active || geminiActive;
+      const primaryName = ai1Active
+        ? (ss.customAi1Name || 'Custom AI 1')
+        : ai2Active
+          ? (ss.customAi2Name || 'Custom AI 2')
+          : geminiActive ? 'Gemini' : 'AI (not configured)';
+
       res.json({
         agents: {
-          claude:     { name: "Claude AI",    active: true,              role: "Primary signal analysis & cross-validation" },
-          coinglass:  { name: "Coinglass",    active: !!s?.coinglassApiKey,  role: "Derivatives: funding rates, long/short ratios" },
-          perplexity: { name: "Perplexity",   active: !!s?.perplexityApiKey, role: "Real-time news sentiment filter" },
-          arkham:     { name: "Arkham",       active: !!s?.arkhamApiKey,     role: "Whale & smart money on-chain tracking" },
+          primaryAI:  { name: primaryName, active: anyAiActive, role: 'Primary signal analysis & cross-validation' },
+          coinglass:  { name: 'Coinglass',  active: !!s?.coinglassApiKey,  role: 'Derivatives: funding rates, long/short ratios' },
+          perplexity: { name: 'Perplexity', active: !!s?.perplexityApiKey, role: 'Real-time news sentiment filter' },
+          arkham:     { name: 'Arkham',     active: !!s?.arkhamApiKey,     role: 'Whale & smart money on-chain tracking' },
         },
-        totalActive: 1 + [s?.coinglassApiKey, s?.perplexityApiKey, s?.arkhamApiKey].filter(Boolean).length,
+        aiProviders: {
+          customAi1: { name: ss?.customAi1Name || 'Custom AI 1', active: ai1Active, model: ss?.customAi1Model || '' },
+          customAi2: { name: ss?.customAi2Name || 'Custom AI 2', active: ai2Active, model: ss?.customAi2Model || '' },
+          gemini:    { name: 'Gemini', active: geminiActive, model: ss?.geminiModel || 'gemini-1.5-pro' },
+        },
+        totalActive: (anyAiActive ? 1 : 0) + [s?.coinglassApiKey, s?.perplexityApiKey, s?.arkhamApiKey].filter(Boolean).length,
       });
     } catch (e: any) {
       res.status(500).json({ message: e.message });

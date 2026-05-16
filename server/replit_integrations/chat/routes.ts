@@ -1,11 +1,6 @@
 import type { Express, Request, Response } from "express";
-import Anthropic from "@anthropic-ai/sdk";
+import { streamChatResponse, callMultiAI } from "../../ai-providers";
 import { chatStorage } from "./storage";
-
-const anthropic = new Anthropic({
-  apiKey: process.env.AI_INTEGRATIONS_ANTHROPIC_API_KEY,
-  baseURL: process.env.AI_INTEGRATIONS_ANTHROPIC_BASE_URL,
-});
 
 export function registerChatRoutes(app: Express): void {
   // Get all conversations
@@ -68,7 +63,7 @@ export function registerChatRoutes(app: Express): void {
       // Save user message
       await chatStorage.createMessage(conversationId, "user", content);
 
-      // Get conversation history for context
+      // Get conversation history
       const messages = await chatStorage.getMessagesByConversation(conversationId);
       const chatMessages = messages.map((m) => ({
         role: m.role as "user" | "assistant",
@@ -80,22 +75,25 @@ export function registerChatRoutes(app: Express): void {
       res.setHeader("Cache-Control", "no-cache");
       res.setHeader("Connection", "keep-alive");
 
-      // Stream response from Anthropic
-      const stream = anthropic.messages.stream({
-        model: "claude-sonnet-4-6",
-        max_tokens: 8192,
-        messages: chatMessages,
-      });
-
       let fullResponse = "";
 
-      for await (const event of stream) {
-        if (event.type === "content_block_delta" && event.delta.type === "text_delta") {
-          const content = event.delta.text;
-          if (content) {
-            fullResponse += content;
-            res.write(`data: ${JSON.stringify({ content })}\n\n`);
-          }
+      try {
+        await streamChatResponse(chatMessages, (chunk) => {
+          fullResponse += chunk;
+          res.write(`data: ${JSON.stringify({ content: chunk })}\n\n`);
+        });
+      } catch (streamErr: any) {
+        // Fallback: try non-streaming multi-AI call
+        console.error("Streaming failed, falling back to batch:", streamErr.message);
+        try {
+          const { text } = await callMultiAI(chatMessages, 4096);
+          fullResponse = text;
+          // Emit entire response as one chunk
+          res.write(`data: ${JSON.stringify({ content: text })}\n\n`);
+        } catch (batchErr: any) {
+          res.write(`data: ${JSON.stringify({ error: batchErr.message })}\n\n`);
+          res.end();
+          return;
         }
       }
 
@@ -106,7 +104,6 @@ export function registerChatRoutes(app: Express): void {
       res.end();
     } catch (error) {
       console.error("Error sending message:", error);
-      // Check if headers already sent (SSE streaming started)
       if (res.headersSent) {
         res.write(`data: ${JSON.stringify({ error: "Failed to send message" })}\n\n`);
         res.end();
@@ -116,4 +113,3 @@ export function registerChatRoutes(app: Express): void {
     }
   });
 }
-

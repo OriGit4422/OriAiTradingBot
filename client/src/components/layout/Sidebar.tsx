@@ -14,6 +14,7 @@ import {
   CheckCircle2,
   Trophy,
   Download,
+  BarChart2,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
@@ -28,7 +29,8 @@ export function Sidebar() {
     { icon: Brain, label: 'Strategies', path: '/strategies' },
     { icon: Activity, label: 'Signals', path: '/signals' },
     { icon: Wallet, label: 'Portfolio', path: '/portfolio' },
-    { icon: Trophy, label: 'Gold Trading', path: '/gold', badge: 'NEW' },
+    { icon: BarChart2, label: 'Analytics', path: '/analytics', badge: 'NEW' },
+    { icon: Trophy, label: 'Gold Trading', path: '/gold' },
     { icon: Settings, label: 'Settings', path: '/settings' },
   ];
 

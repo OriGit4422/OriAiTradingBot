@@ -9,6 +9,10 @@ import { OrderBook } from '@/components/dashboard/OrderBook';
 import { TopSignalsPanel } from '@/components/dashboard/TopSignalsPanel';
 import { AIAgentsPanel } from '@/components/dashboard/AIAgentsPanel';
 import { NewsBar } from '@/components/dashboard/NewsBar';
+import { RiskCalculator } from '@/components/dashboard/RiskCalculator';
+import { MarketHeatmap } from '@/components/dashboard/MarketHeatmap';
+import { WatchlistPanel } from '@/components/dashboard/WatchlistPanel';
+import { FundingRatesPanel } from '@/components/dashboard/FundingRatesPanel';
 import { Button } from '@/components/ui/button';
 import {
   Bell,
@@ -776,6 +780,26 @@ export default function Dashboard() {
           {/* AI Agents Status */}
           <div className="mt-2 md:mt-3">
             <AIAgentsPanel />
+          </div>
+
+          {/* Heatmap · Watchlist · Funding Rates · Risk Calculator */}
+          <div className="grid grid-cols-12 gap-2 md:gap-3 mt-2 md:mt-3">
+            <div className="col-span-12 lg:col-span-5 bg-white rounded-xl border border-border overflow-hidden shadow-sm" style={{ minHeight: '300px' }}>
+              <MarketHeatmap onSelectCoin={setSelectedCoin} />
+            </div>
+            <div className="col-span-12 md:col-span-6 lg:col-span-3 bg-white rounded-xl border border-border overflow-hidden shadow-sm" style={{ minHeight: '300px' }}>
+              <FundingRatesPanel />
+            </div>
+            <div className="col-span-12 md:col-span-6 lg:col-span-4 bg-white rounded-xl border border-border overflow-hidden shadow-sm" style={{ minHeight: '300px' }}>
+              <RiskCalculator defaultEntry={currentPrice} defaultSymbol={selectedCoin} />
+            </div>
+          </div>
+
+          {/* Watchlist */}
+          <div className="grid grid-cols-12 gap-2 md:gap-3">
+            <div className="col-span-12 md:col-span-6 lg:col-span-4 bg-white rounded-xl border border-border overflow-hidden shadow-sm" style={{ minHeight: '260px' }}>
+              <WatchlistPanel onSelectCoin={setSelectedCoin} />
+            </div>
           </div>
 
         </div>

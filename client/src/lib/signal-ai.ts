@@ -43,6 +43,8 @@ export async function enhanceSignalsWithAI(signals: any[], limit = 12): Promise<
       if (cached && Date.now() - cached.at < AI_RESULT_CACHE_TTL_MS) {
         ai = cached.data;
       } else {
+        const ind = signal.indicators || {};
+        const sd = ind.strategyDepth || {};
         const response = await apiRequest('POST', '/api/ai/analyze-signal', {
           coin: signal.coin,
           type: signal.type,
@@ -53,6 +55,23 @@ export async function enhanceSignalsWithAI(signals: any[], limit = 12): Promise<
           timeframe: signal.timeframe,
           confidence: signal.confidence,
           strategy: signal.strategy,
+          agentContext: {
+            smcStructure: ind.marketStructure,
+            rsiDivergence: ind.rsiDivergence,
+            ichimokuSignal: ind.ichimokuSignal,
+            volumeProfile: ind.volumeProfile,
+            volumeForecast: ind.volumeForecast,
+            whaleActivity: ind.whaleActivity,
+            marketPhase: ind.marketPhase,
+            liquidityClusters: ind.liquidityClusters,
+            ensembleDirection: ind.ensembleDirection,
+            ensembleConfidence: ind.ensembleConfidence,
+            smcScore: sd.smc,
+            ictScore: sd.ict,
+            quantumLiquidityScore: sd.quantum,
+            liquidityDepthScore: sd.liquidity,
+            crtScore: sd.crt,
+          },
         });
 
         ai = (await response.json()) as AISignalConfirmation;

@@ -28,7 +28,7 @@ import {
 import { useIsMobile } from '@/hooks/use-mobile';
 
 const SIGNAL_COINS = ['BTC', 'ETH', 'SOL', 'BNB', 'XRP', 'ADA', 'DOGE', 'AVAX'];
-const TIMEFRAMES = ['5m', '15m', '1h', '4h'];
+const TIMEFRAMES = ['15m', '1h', '4h', '1d', '1w'];
 
 interface SignalFeedProps {
   compact?: boolean;
@@ -47,7 +47,7 @@ export function SignalFeed({ compact = false, onSelectCoin }: SignalFeedProps) {
   const generateAllSignals = useCallback(async () => {
     setIsLoading(true);
     const coins = isMobile ? SIGNAL_COINS.slice(0, 6) : SIGNAL_COINS;
-    const tfs = isMobile ? ['15m', '1h', '4h'] : TIMEFRAMES;
+    const tfs = isMobile ? ['1h', '4h', '1d', '1w'] : TIMEFRAMES;
     const candleLimit = isMobile ? 120 : 180;
 
     const tasks = coins.flatMap(coin =>
@@ -138,7 +138,7 @@ export function SignalFeed({ compact = false, onSelectCoin }: SignalFeedProps) {
       </div>
 
       <Tabs value={selectedTF} onValueChange={setSelectedTF} className="flex flex-col flex-1 min-h-0">
-        <TabsList className="grid grid-cols-5 mx-2 mt-2 mb-1 h-7 bg-secondary">
+        <TabsList className="grid grid-cols-6 mx-2 mt-2 mb-1 h-7 bg-secondary">
           <TabsTrigger value="ALL" className="text-[10px] h-5 px-1 data-[state=active]:text-primary">ALL</TabsTrigger>
           {TIMEFRAMES.map(tf => (
             <TabsTrigger key={tf} value={tf} className="text-[10px] h-5 px-1 data-[state=active]:text-primary">{tf}</TabsTrigger>

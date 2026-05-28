@@ -29,6 +29,8 @@ export const INTERVAL_MAP: Record<string, string> = {
   '4h': '4h',
   '8h': '8h',
   '1d': '1d',
+  '3d': '3d',
+  '1w': '1w',
 };
 
 const TOP_SYMBOLS = [

@@ -6,7 +6,7 @@ import archiver from "archiver";
 import { storage } from "./storage";
 import { insertSettingsSchema, insertStrategySchema, insertSignalSchema, insertPositionSchema, insertUserAccessSchema } from "@shared/schema";
 import { z } from "zod";
-import { analyzeSignalWithAI, getMarketInsight } from "./ai-analysis";
+import { analyzeSignalWithAI, getMarketInsight, getDeepCoinAnalysis } from "./ai-analysis";
 import { notifySignal, sendTestNotifications, validateSignalBestPractice } from "./notifications";
 import { testBinanceConnectivity, testBybitConnectivity } from "./exchange-connectivity";
 import { evaluateSignalsPerformance } from "./signal-performance";
@@ -70,6 +70,39 @@ export async function registerRoutes(
       } catch (_e) { /* non-fatal: news enrichment is best-effort */ }
 
       const result = await analyzeSignalWithAI(enrichedData);
+      res.json(result);
+    } catch (e: any) {
+      res.status(500).json({ message: e.message });
+    }
+  });
+
+  app.post("/api/ai/coin-analysis", async (req, res) => {
+    try {
+      const { coin, timeframe, marketPrice, indicators } = req.body;
+      if (!coin || !marketPrice) {
+        return res.status(400).json({ message: "coin and marketPrice are required" });
+      }
+
+      let recentNews: string[] = [];
+      try {
+        const { articles } = await getCoinNews(coin, 5);
+        recentNews = articles.map((a: any) => a.title).filter(Boolean);
+      } catch (_e) { /* news enrichment best-effort */ }
+
+      let xSentiment: string | undefined;
+      try {
+        const news = await getNewsSentiment(coin);
+        xSentiment = news?.sentiment ? `${news.sentiment} (${news.headline || 'no headline'})` : undefined;
+      } catch (_e) { /* sentiment best-effort */ }
+
+      const result = await getDeepCoinAnalysis({
+        coin,
+        timeframe: timeframe || '1d',
+        marketPrice: Number(marketPrice),
+        indicators: indicators || {},
+        recentNews,
+        xSentiment,
+      });
       res.json(result);
     } catch (e: any) {
       res.status(500).json({ message: e.message });

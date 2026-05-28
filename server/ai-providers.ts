@@ -12,7 +12,7 @@ export interface AIMessage {
 
 export interface AIProviderConfig {
   name: string;
-  type: 'custom' | 'gemini';
+  type: 'custom' | 'gemini' | 'anthropic';
   baseUrl?: string;
   apiKey: string;
   model: string;
@@ -104,6 +104,50 @@ async function callGemini(
   return { text, provider: 'Gemini', model };
 }
 
+// ── Anthropic (Claude) API call ───────────────────────────────────────────────
+
+async function callAnthropic(
+  config: AIProviderConfig,
+  messages: AIMessage[],
+  maxTokens = 1024,
+): Promise<AIResponse> {
+  const baseUrl = (config.baseUrl || 'https://api.anthropic.com').replace(/\/$/, '');
+  const url = `${baseUrl}/v1/messages`;
+
+  const systemMsg = messages.find(m => m.role === 'system');
+  const chatMsgs = messages
+    .filter(m => m.role !== 'system')
+    .map(m => ({ role: m.role === 'assistant' ? 'assistant' : 'user', content: m.content }));
+
+  const body: any = {
+    model: config.model,
+    max_tokens: maxTokens,
+    messages: chatMsgs.length ? chatMsgs : [{ role: 'user', content: '' }],
+    temperature: 0.7,
+  };
+  if (systemMsg) body.system = systemMsg.content;
+
+  const response = await fetch(url, {
+    method: 'POST',
+    headers: {
+      'x-api-key': config.apiKey,
+      'anthropic-version': '2023-06-01',
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(body),
+    signal: AbortSignal.timeout(45_000),
+  });
+
+  if (!response.ok) {
+    const errText = await response.text().catch(() => response.statusText);
+    throw new Error(`${config.name} API ${response.status}: ${errText}`);
+  }
+
+  const data = await response.json();
+  const text: string = data.content?.[0]?.text ?? '';
+  return { text, provider: config.name, model: config.model };
+}
+
 // ── Unified caller ────────────────────────────────────────────────────────────
 
 export async function callAIProvider(
@@ -112,6 +156,7 @@ export async function callAIProvider(
   maxTokens = 1024,
 ): Promise<AIResponse> {
   if (config.type === 'gemini') return callGemini(config, messages, maxTokens);
+  if (config.type === 'anthropic') return callAnthropic(config, messages, maxTokens);
   return callOpenAICompatible(config, messages, maxTokens);
 }
 
@@ -149,6 +194,17 @@ export async function getActiveProviders(): Promise<AIProviderConfig[]> {
       type: 'gemini',
       apiKey: ss.geminiApiKey,
       model: ss.geminiModel || 'gemini-1.5-pro',
+    });
+  }
+
+  // Fallback: Replit Anthropic integration (env-var based)
+  if (providers.length === 0 && process.env.AI_INTEGRATIONS_ANTHROPIC_API_KEY) {
+    providers.push({
+      name: 'Claude (Replit Integration)',
+      type: 'anthropic',
+      apiKey: process.env.AI_INTEGRATIONS_ANTHROPIC_API_KEY,
+      baseUrl: process.env.AI_INTEGRATIONS_ANTHROPIC_BASE_URL || undefined,
+      model: process.env.AI_INTEGRATIONS_ANTHROPIC_MODEL || 'claude-sonnet-4-5',
     });
   }
 
@@ -242,10 +298,11 @@ export async function streamChatResponse(
 
   const config = providers[0];
 
-  if (config.type === 'gemini') {
-    // Gemini doesn't support streaming in the same way; get full response then stream
-    const r = await callGemini(config, messages, 4096);
-    // Emit in chunks to simulate streaming
+  if (config.type === 'gemini' || config.type === 'anthropic') {
+    // Non-streaming providers: fetch full response then emit in word chunks
+    const r = config.type === 'gemini'
+      ? await callGemini(config, messages, 4096)
+      : await callAnthropic(config, messages, 4096);
     const words = r.text.split(' ');
     for (const word of words) {
       onChunk(word + ' ');

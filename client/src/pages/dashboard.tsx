@@ -13,6 +13,7 @@ import { RiskCalculator } from '@/components/dashboard/RiskCalculator';
 import { MarketHeatmap } from '@/components/dashboard/MarketHeatmap';
 import { WatchlistPanel } from '@/components/dashboard/WatchlistPanel';
 import { FundingRatesPanel } from '@/components/dashboard/FundingRatesPanel';
+import { CoinAnalysisDialog } from '@/components/dashboard/CoinAnalysisDialog';
 import { Button } from '@/components/ui/button';
 import {
   Bell,
@@ -56,7 +57,7 @@ const CHART_COLORS = ['#0ea5e9', '#8b5cf6', '#10b981', '#f59e0b', '#ef4444', '#e
 
 export default function Dashboard() {
   const [selectedCoin, setSelectedCoin] = useState('BTC');
-  const [timeframe, setTimeframe] = useState('1h');
+  const [timeframe, setTimeframe] = useState('1d');
   const [currentPrice, setCurrentPrice] = useState<number>(0);
   const [change24h, setChange24h] = useState<number>(0);
   const [volume24h, setVolume24h] = useState<number>(0);
@@ -68,6 +69,7 @@ export default function Dashboard() {
   const [aiInsightLoading, setAiInsightLoading] = useState(true);
   const [topMovers, setTopMovers] = useState<any[]>([]);
   const [fearGreed, setFearGreed] = useState(55);
+  const [analysisOpen, setAnalysisOpen] = useState(false);
 
   const { data: positions = [] } = useQuery<any[]>({
     queryKey: ['/api/positions'],
@@ -295,7 +297,7 @@ export default function Dashboard() {
             </div>
             <div className="h-6 w-px bg-border mx-1" />
             <div className="flex gap-1">
-              {['1m', '5m', '15m', '30m', '1h', '4h', '1d'].map(tf => (
+              {['5m', '15m', '1h', '4h', '1d', '1w'].map(tf => (
                 <button
                   key={tf}
                   onClick={() => setTimeframe(tf)}
@@ -314,6 +316,16 @@ export default function Dashboard() {
           </div>
 
           <div className="flex items-center gap-3">
+            <Button
+              size="sm"
+              variant="default"
+              className="gap-1 h-8 bg-gradient-to-r from-primary to-purple-500 hover:from-primary/90 hover:to-purple-500/90"
+              onClick={() => setAnalysisOpen(true)}
+              data-testid="button-open-deep-analysis"
+            >
+              <Brain className="w-3.5 h-3.5" />
+              <span className="hidden sm:inline text-xs font-bold">AI Deep Analysis</span>
+            </Button>
             <div className="hidden md:flex items-center gap-2 px-3 py-1.5 bg-muted/30 rounded-full border border-border">
               {isConnected ? <Wifi className="w-3 h-3 text-green-500" /> : <WifiOff className="w-3 h-3 text-red-500" />}
               <span className="text-xs font-medium text-muted-foreground">{isConnected ? 'Live' : 'Offline'}</span>
@@ -804,6 +816,13 @@ export default function Dashboard() {
 
         </div>
       </main>
+
+      <CoinAnalysisDialog
+        open={analysisOpen}
+        onOpenChange={setAnalysisOpen}
+        defaultCoin={selectedCoin}
+        defaultTimeframe={timeframe}
+      />
     </div>
   );
 }

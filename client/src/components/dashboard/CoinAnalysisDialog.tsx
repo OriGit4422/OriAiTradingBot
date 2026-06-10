@@ -31,7 +31,7 @@ interface CoinAnalysisDialogProps {
   defaultTimeframe?: string;
 }
 
-const COINS = ['BTC', 'ETH', 'SOL', 'BNB', 'XRP', 'ADA', 'DOGE', 'AVAX', 'DOT', 'LINK', 'MATIC', 'AVAX', 'NEAR', 'APT', 'ARB', 'OP', 'SUI', 'TIA', 'INJ'];
+const COINS = ['BTC', 'ETH', 'SOL', 'BNB', 'XRP', 'ADA', 'DOGE', 'AVAX', 'DOT', 'LINK', 'MATIC', 'NEAR', 'APT', 'ARB', 'OP', 'SUI', 'TIA', 'INJ'];
 const TIMEFRAMES = ['15m', '1h', '4h', '1d', '1w'];
 
 export function CoinAnalysisDialog({ open, onOpenChange, defaultCoin = 'BTC', defaultTimeframe = '1d' }: CoinAnalysisDialogProps) {

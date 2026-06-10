@@ -1,0 +1,946 @@
+Build a full AI Trading Bot module inside my existing CryptoPro AI Signals app.
+
+App Name:
+CryptoPro AI Signals — AI Auto Trading Bot
+
+Main Goal:
+Create a professional AI-powered crypto futures trading bot that connects with Bybit and Binance, reads signals from the app’s deterministic signal engine, applies predefined professional trading strategies, and can optionally place trades automatically only when the signal is very strong and all safety checks pass.
+
+Important:
+This app is educational and risk-managed. It must not promise profit. It must not use guaranteed-profit language. It must prioritize capital protection, risk control, no-trade filters, and transparent execution.
+
+Core Exchanges:
+
+* Bybit Futures
+* Binance Futures
+* Binance market data
+* Bybit market data
+
+Trading Mode:
+Add 3 modes:
+
+* Paper Trading Mode
+* Bybit Testnet Mode
+* Live Trading Mode
+
+Default Mode:
+
+* Paper Trading Mode should be enabled by default
+* Live Trading must be disabled by default
+* User must manually enable live trading after accepting risk warnings
+
+Starting Account Preset:
+Create a preset called “$100 Small Account Safe Mode”.
+
+Preset Settings:
+
+* Starting balance assumption: $100 USDT
+* Risk per trade: 2% of wallet balance
+* Maximum risk per trade on $100: $2
+* Max open trades: 1
+* Max trades per day: 2
+* Max daily loss: 4%
+* Stop trading after 2 consecutive losses
+* Minimum signal grade: A+
+* Minimum confidence: 85%
+* Minimum Signal Quality Score: 85/100
+* Minimum Data Quality Score: 90/100
+* Minimum Execution Quality Score: 80/100
+* Minimum R:R: 1:2
+* Default leverage: 3x
+* Maximum leverage cap: 5x for small account mode
+* Hard leverage cap: 10x
+* Trade only BTCUSDT and ETHUSDT by default
+* Manual approval required by default
+* Auto live trading disabled by default
+
+Critical Risk Rule:
+The bot must risk only 2% of wallet balance per trade.
+Risk must be calculated from entry price to stop-loss price.
+Do not calculate position size from margin alone.
+Do not place any trade without a stop-loss.
+Do not place any trade if the calculated risk is above 2%.
+Do not use full wallet balance as margin.
+Do not use unrestricted maximum leverage.
+
+Position Size Formula:
+riskAmount = walletBalance * 0.02
+stopDistance = abs(entryPrice - stopLossPrice)
+positionSize = riskAmount / stopDistance
+notionalValue = positionSize * entryPrice
+requiredMargin = notionalValue / leverage
+
+Example:
+Wallet balance = $100
+Risk amount = $2
+Entry = 100
+Stop-loss = 98
+Stop distance = 2
+Position size = 2 / 2 = 1 unit
+Notional value = 1 * 100 = $100
+At 5x leverage, required margin = $20
+If required margin is too high, reduce size or block the trade.
+
+Main App Sections:
+
+1. Auto Trading Dashboard
+   Create a dashboard with:
+
+* Bot status: Active, Paused, Paper, Testnet, Live
+* Connected exchange: Bybit, Binance, or Both
+* Wallet balance
+* Available balance
+* Current risk per trade
+* Daily PnL
+* Daily loss limit used
+* Open positions
+* Pending orders
+* Last executed signal
+* Last rejected signal
+* API connection status
+* Market data status
+* Data freshness status
+* Emergency stop button
+* Manual pause button
+* Resume bot button
+* Live trading lock status
+
+2. Exchange Connection Center
+   Create a secure connection panel for:
+
+* Bybit API
+* Binance API
+
+Required Fields:
+
+* API key
+* API secret
+* Testnet toggle
+* Exchange selection
+* Permissions check
+* Connection status
+* Delete API key button
+
+Security Requirements:
+
+* API keys must be stored only on the backend
+* API secrets must be encrypted
+* Never expose API secrets in frontend code
+* Never log API secrets
+* Never request withdrawal permission
+* Show warning: “Use trading-only API keys with withdrawal disabled”
+* Recommend IP whitelist
+* Allow user to delete keys anytime
+* Require connection test before trading
+
+3. Trading Mode Controls
+   Add mode selector:
+
+* Paper Trading
+* Bybit Testnet
+* Binance Testnet
+* Bybit Live
+* Binance Live
+
+Live Trading Rules:
+Live trading must require:
+
+* User confirmation
+* Risk disclaimer acceptance
+* API connection test passed
+* At least 20 paper trades completed
+* Positive paper trading expectancy
+* Daily loss limit configured
+* Max open trades configured
+* Allowed symbols selected
+* Manual approval toggle reviewed
+
+4. Strategy Engine
+   Create predefined professional strategy modules.
+
+Include these strategy categories:
+
+SMC Strategy Module:
+
+* Market structure shift
+* Break of structure
+* Change of character
+* Higher high / higher low structure
+* Lower high / lower low structure
+* Premium and discount zones
+* Supply and demand zones
+* Order blocks
+* Breaker blocks
+* Mitigation blocks
+* Fair value gaps
+* Imbalance zones
+* Liquidity sweep confirmation
+* Stop-hunt detection
+* Internal and external liquidity
+* Displacement candle confirmation
+* Valid retracement zone
+
+ICT Strategy Module:
+
+* Killzone timing
+* London session logic
+* New York session logic
+* Asian range liquidity
+* Previous day high/low
+* Previous week high/low
+* Equal highs and equal lows
+* Buy-side liquidity
+* Sell-side liquidity
+* Fair value gap entry
+* Optimal trade entry zone
+* Order block confirmation
+* Judas swing detection
+* Market maker model logic
+* Power of three: accumulation, manipulation, distribution
+* Premium/discount array
+* Invalidation after liquidity grab failure
+
+CRT Strategy Module:
+
+* Candle range theory
+* Current range high
+* Current range low
+* Range expansion
+* Range compression
+* Range breakout
+* Range rejection
+* Candle body strength
+* Wick rejection
+* Break and retest
+* Range midpoint
+* Stop-loss outside range
+* No trade inside poor range location
+
+MMC Strategy Module:
+
+* Market maker cycle
+* Accumulation phase
+* Manipulation phase
+* Distribution phase
+* Stop raid detection
+* Trap move detection
+* Fake breakout detection
+* Liquidity engineering
+* Smart money reversal
+* Trend continuation after manipulation
+* Risk-off during unclear cycle
+
+DMC / DDMC Strategy Module:
+
+* Daily market cycle
+* Daily dealing range
+* Daily high/low mapping
+* Daily open bias
+* Daily manipulation leg
+* Daily expansion leg
+* Daily reversal zone
+* Daily liquidity objective
+* Multi-day range compression
+* Multi-day breakout confirmation
+* Daily candle displacement
+* Daily close confirmation
+
+SNR Strategy Module:
+
+* Support and resistance levels
+* Horizontal key levels
+* Previous swing highs
+* Previous swing lows
+* Breakout confirmation
+* Retest confirmation
+* Rejection confirmation
+* Failed breakout warning
+* Level strength score
+* Multi-touch level validation
+* HTF level priority
+* S/R flip confirmation
+
+Liquidity Strategy Module:
+
+* Buy-side liquidity
+* Sell-side liquidity
+* Equal highs
+* Equal lows
+* Resting stop zones
+* Liquidity pools
+* Liquidation clusters
+* Sweep and reclaim
+* Sweep and continuation
+* Wick rejection
+* Liquidity void
+* Imbalance fill
+* Price magnet zones
+
+Trend Strategy Module:
+
+* EMA 20/50/200 alignment
+* Higher timeframe trend
+* Trend continuation
+* Pullback entry
+* Momentum continuation
+* Trend exhaustion
+* Trend invalidation
+* Moving average reclaim
+* Moving average rejection
+
+Volume Strategy Module:
+
+* Volume spike
+* Volume dry-up
+* Volume confirmation
+* Breakout volume
+* Reversal volume
+* Volume divergence
+* Relative volume
+* Candle volume ratio
+* No trade on weak volume
+
+Momentum Strategy Module:
+
+* RSI momentum
+* RSI divergence
+* MACD optional confirmation
+* Momentum continuation
+* Momentum exhaustion
+* Bullish divergence
+* Bearish divergence
+* Overbought/oversold warning
+* No trade during weak momentum
+
+Derivatives Strategy Module:
+
+* Funding rate check
+* Open interest change
+* OI and price confirmation
+* OI divergence
+* Long/short ratio
+* Liquidation cluster proximity
+* Mark price vs index price
+* Perp premium
+* Crowded trade detection
+* Funding squeeze setup
+* Liquidation cascade setup
+
+Order Book Strategy Module:
+
+* Bid/ask imbalance
+* Liquidity wall detection
+* Spread check
+* Depth imbalance
+* Spoofing risk
+* Absorption
+* Thin liquidity warning
+* Slippage estimate
+* Execution quality score
+
+News and Macro Strategy Module:
+
+* High-impact news filter
+* Crypto news impact score
+* Macro event filter
+* CPI risk
+* FOMC risk
+* Fed speech risk
+* NFP risk
+* ETF news risk
+* Regulatory news risk
+* Exchange hack risk
+* Stablecoin depeg risk
+* Token unlock risk
+* Signal downgrade during high-risk events
+
+5. Master Confluence Engine
+   Create a master confluence score from all strategies.
+
+Scores:
+
+* SMC Score
+* ICT Score
+* CRT Score
+* MMC Score
+* DDMC Score
+* SNR Score
+* Liquidity Score
+* Trend Score
+* Volume Score
+* Momentum Score
+* Derivatives Score
+* Order Book Score
+* News Risk Score
+* Macro Risk Score
+* Execution Quality Score
+* Data Quality Score
+* Historical Edge Score
+
+Signal Grade Rules:
+
+* A+ = 85+ confluence score, 1:2+ R:R, clean data, clean execution, no major conflict
+* A = 75–84 confluence score, good but missing one confirmation
+* B = 65–74 confluence score, usable for manual review only
+* C = 50–64 confluence score, weak signal, no auto trade
+* No Trade = below 50 or any major risk filter active
+
+Auto Trading Eligibility:
+Only A+ signals can be auto-traded.
+A, B, and C signals are manual review only.
+No Trade signals must never execute.
+
+6. No-Trade Engine
+   Create a strict no-trade engine.
+
+Block trades if:
+
+* Signal grade is below A+
+* Confidence is below 85%
+* R:R is below 1:2
+* Stop-loss is missing
+* Take-profit is missing
+* Entry is missing
+* Price already moved too far
+* Entry is too close to TP1
+* Stop-loss is too wide
+* Stop-loss is too tight
+* Spread is too high
+* Slippage estimate is too high
+* Liquidity is too thin
+* Funding is extreme
+* OI is dangerously crowded
+* Higher timeframes conflict
+* Market is choppy
+* Market is sideways
+* Data is stale
+* API connection is unstable
+* Exchange is in maintenance
+* Major news is nearby
+* Macro risk is high
+* Token unlock risk is high
+* User hit daily loss limit
+* User has open correlated trade
+* User has 2 consecutive losses
+* Position size calculation fails
+* Required margin is too high
+* Liquidation price is too close to stop-loss
+* Signal expired
+* Signal invalidated
+* Manual pause is active
+* Emergency stop is active
+
+7. Signal Lifecycle
+   Every signal must have:
+
+* Signal ID
+* Symbol
+* Exchange
+* Timeframe
+* Strategy type
+* Direction
+* Entry zone
+* Stop-loss
+* TP1
+* TP2
+* TP3
+* R:R
+* Confidence
+* Grade
+* Confluence score
+* Signal quality score
+* Data quality score
+* Execution quality score
+* Historical edge score
+* Issued timestamp
+* Data timestamp
+* Expiry timestamp
+* Invalidation rule
+* No-trade conditions
+* Failure cases
+* Management rules
+
+Signal Statuses:
+
+* New
+* Waiting for entry
+* Auto-trade eligible
+* Manual approval required
+* Order placed
+* Entry triggered
+* TP1 hit
+* TP2 hit
+* TP3 hit
+* SL hit
+* Breakeven
+* Trailing
+* Expired
+* Invalidated
+* Cancelled
+* Closed
+
+8. Auto Execution Flow
+   When a new signal appears:
+
+9. Load latest market data
+
+10. Validate signal is not stale
+
+11. Validate A+ grade
+
+12. Validate confidence 85%+
+
+13. Validate minimum R:R 1:2
+
+14. Validate all no-trade filters
+
+15. Check exchange API connection
+
+16. Check wallet balance
+
+17. Check open positions
+
+18. Check daily loss limit
+
+19. Recalculate risk amount
+
+20. Recalculate position size
+
+21. Select safe leverage
+
+22. Confirm liquidation price is safe
+
+23. Confirm spread and slippage are acceptable
+
+24. Place entry order
+
+25. Attach stop-loss immediately
+
+26. Attach take-profit plan
+
+27. Save trade to journal
+
+28. Start trade monitoring
+
+29. Send alert to user
+
+30. Order Rules
+    Order Types:
+
+* Limit order by default
+* Market order only if user enables it
+* Stop order if strategy requires breakout trigger
+* Post-only optional for limit entries
+* Reduce-only for closing orders
+
+Every trade must include:
+
+* Entry
+* Stop-loss
+* TP1
+* TP2
+* TP3
+* Position size
+* Leverage
+* Invalidation rule
+* Expiry time
+* Order ID
+* Exchange
+* Strategy reason
+
+TP Management:
+
+* TP1: close 50% and move SL to breakeven
+* TP2: close 30% and trail stop
+* TP3: close remaining 20%
+* If TP1 is hit and reversal signal appears, protect remaining position
+* If signal invalidates before entry, cancel pending order
+* If signal expires before entry, cancel pending order
+
+Stop-Loss Rules:
+
+* Stop-loss must be placed immediately
+* If stop-loss order fails, cancel entry or close position
+* Stop-loss must be reduce-only
+* Stop-loss must use mark price trigger when available
+* Never remove stop-loss while position is open
+* Never average down after stop-loss movement
+
+10. Leverage Logic
+    Do not use maximum leverage automatically.
+
+Safe Leverage Rules:
+
+* Default leverage: 3x
+* Small account mode max: 5x
+* Hard cap: 10x
+* BTC/ETH max: 5x in small account mode
+* Altcoin max: 3x in small account mode
+* Reduce leverage during high volatility
+* Reduce leverage during high funding
+* Reduce leverage during low liquidity
+* Block trade if liquidation price is near stop-loss
+* Block trade if user-selected leverage is unsafe
+
+11. Bybit Integration
+    Create Bybit service:
+
+* bybit-api.service.ts
+* bybit-market-data.service.ts
+* bybit-auto-trader.service.ts
+
+Functions:
+
+* connectBybitApi()
+* validateBybitPermissions()
+* getBybitWalletBalance()
+* getBybitOpenPositions()
+* getBybitOpenOrders()
+* getBybitInstrumentInfo()
+* getBybitTicker()
+* getBybitKlines()
+* getBybitOrderBook()
+* getBybitFundingRate()
+* getBybitOpenInterest()
+* setBybitLeverage()
+* placeBybitOrder()
+* amendBybitOrder()
+* cancelBybitOrder()
+* setBybitTradingStop()
+* closeBybitPosition()
+* emergencyCloseBybitPosition()
+* monitorBybitPosition()
+* syncBybitTradeHistory()
+
+12. Binance Integration
+    Create Binance service:
+
+* binance-api.service.ts
+* binance-market-data.service.ts
+* binance-auto-trader.service.ts
+
+Functions:
+
+* connectBinanceApi()
+* validateBinancePermissions()
+* getBinanceFuturesBalance()
+* getBinanceOpenPositions()
+* getBinanceOpenOrders()
+* getBinanceExchangeInfo()
+* getBinanceTicker()
+* getBinanceKlines()
+* getBinanceOrderBook()
+* getBinanceFundingRate()
+* getBinanceOpenInterest()
+* setBinanceLeverage()
+* placeBinanceFuturesOrder()
+* cancelBinanceOrder()
+* closeBinancePosition()
+* emergencyCloseBinancePosition()
+* monitorBinancePosition()
+* syncBinanceTradeHistory()
+
+13. Exchange Selection Logic
+    Allow user to choose:
+
+* Bybit only
+* Binance only
+* Best execution mode
+
+Best Execution Mode:
+Compare:
+
+* Spread
+* Liquidity
+* Slippage estimate
+* Funding
+* Available balance
+* API health
+* Order book depth
+
+Choose the exchange with the safest execution, not the highest leverage.
+
+14. Trade Journal
+    Auto-save every bot trade.
+
+Journal Fields:
+
+* Trade ID
+* Signal ID
+* Exchange
+* Symbol
+* Direction
+* Timeframe
+* Strategy type
+* Entry
+* Stop-loss
+* TP1
+* TP2
+* TP3
+* Position size
+* Leverage
+* Margin used
+* Risk amount
+* Wallet balance before trade
+* Wallet balance after trade
+* Fees
+* Slippage
+* Final PnL
+* Final R
+* Signal grade
+* Confidence
+* Strategy scores
+* Entry reason
+* Exit reason
+* Mistake tag
+* Failure reason
+* Screenshot/chart snapshot if possible
+
+15. Bot Logs
+    Create detailed bot logs.
+
+Log Events:
+
+* API connected
+* API failed
+* Signal received
+* Signal rejected
+* Signal approved
+* No-trade filter triggered
+* Position size calculated
+* Leverage selected
+* Order submitted
+* Order confirmed
+* Stop-loss confirmed
+* Take-profit confirmed
+* Entry filled
+* TP1 filled
+* TP2 filled
+* TP3 filled
+* SL filled
+* Order cancelled
+* Signal expired
+* Signal invalidated
+* Emergency stop triggered
+* Bot paused
+* Bot resumed
+
+16. Performance Analytics
+    Add bot analytics:
+
+* Total bot trades
+* Win rate
+* Average R
+* Profit factor
+* Max drawdown
+* Daily PnL
+* Weekly PnL
+* Monthly PnL
+* Best strategy
+* Worst strategy
+* Best symbol
+* Worst symbol
+* Best timeframe
+* Worst timeframe
+* A+ signal performance
+* Confidence accuracy
+* Average slippage
+* Average fees
+* Most common failure reason
+* No-trade filter performance
+* Paper vs live performance
+
+17. AI Analyst Integration
+    AI Analyst must explain bot decisions.
+
+AI Analyst Rules:
+
+* AI cannot place trades by itself
+* AI cannot override risk rules
+* AI cannot change stop-loss to increase risk
+* AI cannot create trades from text only
+* AI must explain why a trade is eligible or blocked
+* AI must show exact strategy scores
+* AI must show missing data
+* AI must show data freshness
+* AI must show risk warnings
+* AI must explain no-trade conditions
+* AI must explain failure case
+* AI must never promise profit
+
+18. Manual Approval System
+    Add manual approval option.
+
+When enabled:
+Before placing a trade, show:
+
+* Symbol
+* Direction
+* Exchange
+* Entry
+* Stop-loss
+* TP levels
+* Risk amount
+* Position size
+* Leverage
+* Required margin
+* Liquidation estimate
+* R:R
+* Signal grade
+* Confidence
+* Strategy confluence
+* Why trade is valid
+* Why trade can fail
+* Approve button
+* Reject button
+
+19. Alerts
+    Create smart alerts:
+
+* Bot started
+* Bot paused
+* API disconnected
+* A+ signal detected
+* Trade needs approval
+* Trade executed
+* Entry filled
+* TP1 hit
+* TP2 hit
+* TP3 hit
+* Stop-loss hit
+* Breakeven moved
+* Trailing stop updated
+* Signal rejected
+* Signal expired
+* Daily loss limit reached
+* Emergency stop triggered
+* High news risk
+* High funding risk
+* Data stale
+* Exchange error
+
+20. Emergency Controls
+    Add emergency controls:
+
+* Pause bot
+* Cancel all pending orders
+* Close all open positions
+* Disable live trading
+* Delete API keys
+* Switch to paper mode
+* Lock bot after major error
+* Lock bot after daily loss limit
+* Lock bot after repeated API failure
+
+21. Database Tables
+    Create tables:
+
+* exchange_connections
+* bot_settings
+* strategy_scores
+* signals
+* auto_trade_candidates
+* orders
+* positions
+* trade_journal
+* bot_logs
+* risk_events
+* no_trade_events
+* performance_metrics
+* paper_trades
+
+22. Backend Architecture
+    Create backend modules:
+
+* signal-engine.ts
+* strategy-engine.ts
+* confluence-engine.ts
+* risk-engine.ts
+* no-trade-engine.ts
+* execution-engine.ts
+* exchange-router.ts
+* bybit-client.ts
+* binance-client.ts
+* order-manager.ts
+* position-manager.ts
+* journal-service.ts
+* bot-log-service.ts
+* analytics-service.ts
+* ai-explanation-service.ts
+
+23. Frontend Pages
+    Create pages:
+
+* Auto Trading Dashboard
+* Exchange Connections
+* Bot Settings
+* Strategy Builder
+* Signal Review
+* Manual Approval
+* Open Positions
+* Pending Orders
+* Trade Journal
+* Bot Logs
+* Performance Analytics
+* Risk Settings
+
+24. Default Bot Settings
+    Use these defaults:
+
+* Mode: Paper Trading
+* Live trading: Off
+* Manual approval: On
+* Risk per trade: 2%
+* Max daily loss: 4%
+* Max open trades: 1
+* Max trades per day: 2
+* Max leverage: 5x
+* Hard leverage cap: 10x
+* Minimum grade: A+
+* Minimum confidence: 85%
+* Minimum R:R: 1:2
+* Allowed symbols: BTCUSDT, ETHUSDT
+* Allowed exchanges: Bybit Testnet, Binance Testnet
+* Stop after 2 losses: On
+* News filter: On
+* Macro filter: On
+* Data stale filter: On
+* Liquidity filter: On
+* Spread filter: On
+
+25. Very Important Safety Rules
+    The bot must never:
+
+* Trade without stop-loss
+* Exceed 2% wallet risk per trade
+* Use full wallet balance as margin
+* Use unrestricted max leverage
+* Average down automatically
+* Revenge trade
+* Open more than max allowed positions
+* Trade when data is stale
+* Trade when API status is unhealthy
+* Trade during emergency stop
+* Trade after daily loss limit is reached
+* Trade if no-trade filter is active
+* Trade based only on AI chat text
+* Trade if deterministic signal engine does not approve
+* Trade if position size calculation fails
+* Trade if liquidation price is unsafe
+* Trade if user has not accepted risk disclaimer
+
+26. Best Final Behavior
+    The final app should work like this:
+
+* It scans the market
+* It finds possible setups using SMC, ICT, CRT, MMC, DDMC, SNR, liquidity, trend, volume, derivatives, order book, news, and macro filters
+* It grades each setup
+* It rejects weak setups
+* It explains why a signal is valid or blocked
+* It only allows auto-trading on A+ signals
+* It risks only 2% per trade
+* It places trades only with stop-loss and take-profit
+* It tracks every trade
+* It learns from performance
+* It protects the user from overtrading and overleverage
+* It starts safely in paper/testnet mode before live trading

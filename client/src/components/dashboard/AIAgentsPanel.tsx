@@ -24,8 +24,8 @@ interface IntelligenceStatus {
     arkham:     AgentStatus;
   };
   aiProviders?: {
-    customAi1: AIProvider;
-    customAi2: AIProvider;
+    openai:    AIProvider;
+    anthropic: AIProvider;
     gemini:    AIProvider;
   };
   totalActive: number;

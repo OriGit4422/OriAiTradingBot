@@ -572,14 +572,14 @@ export async function registerRoutes(
     try {
       const s = await storage.getSettings();
       const ss = s as any;
-      const ai1Active  = !!(ss?.customAi1Enabled && ss?.customAi1ApiKey);
-      const ai2Active  = !!(ss?.customAi2Enabled && ss?.customAi2ApiKey);
+      const openaiActive = !!(ss?.openaiEnabled && ss?.openaiApiKey);
+      const anthropicActive = !!(ss?.anthropicEnabled && ss?.anthropicApiKey);
       const geminiActive = !!(ss?.geminiEnabled && ss?.geminiApiKey);
-      const anyAiActive  = ai1Active || ai2Active || geminiActive;
-      const primaryName = ai1Active
-        ? (ss.customAi1Name || 'Custom AI 1')
-        : ai2Active
-          ? (ss.customAi2Name || 'Custom AI 2')
+      const anyAiActive  = openaiActive || anthropicActive || geminiActive;
+      const primaryName = openaiActive
+        ? 'OpenAI'
+        : anthropicActive
+          ? 'Claude'
           : geminiActive ? 'Gemini' : 'AI (not configured)';
 
       res.json({
@@ -590,8 +590,8 @@ export async function registerRoutes(
           arkham:     { name: 'Arkham',     active: !!s?.arkhamApiKey,     role: 'Whale & smart money on-chain tracking' },
         },
         aiProviders: {
-          customAi1: { name: ss?.customAi1Name || 'Custom AI 1', active: ai1Active, model: ss?.customAi1Model || '' },
-          customAi2: { name: ss?.customAi2Name || 'Custom AI 2', active: ai2Active, model: ss?.customAi2Model || '' },
+          openai:    { name: 'OpenAI', active: openaiActive, model: ss?.openaiModel || 'gpt-4o' },
+          anthropic: { name: 'Claude', active: anthropicActive, model: ss?.anthropicModel || 'claude-sonnet-4-5' },
           gemini:    { name: 'Gemini', active: geminiActive, model: ss?.geminiModel || 'gemini-1.5-pro' },
         },
         totalActive: (anyAiActive ? 1 : 0) + [s?.coinglassApiKey, s?.perplexityApiKey, s?.arkhamApiKey].filter(Boolean).length,

@@ -70,6 +70,14 @@ export const settings = pgTable("settings", {
   customAi2BaseUrl: text("custom_ai2_base_url"),
   customAi2ApiKey: text("custom_ai2_api_key"),
   customAi2Model: text("custom_ai2_model").default("gpt-4o"),
+  // OpenAI (direct)
+  openaiEnabled: boolean("openai_enabled").notNull().default(false),
+  openaiApiKey: text("openai_api_key"),
+  openaiModel: text("openai_model").default("gpt-4o"),
+  // Anthropic Claude (direct)
+  anthropicEnabled: boolean("anthropic_enabled").notNull().default(false),
+  anthropicApiKey: text("anthropic_api_key"),
+  anthropicModel: text("anthropic_model").default("claude-sonnet-4-5"),
   // Google Gemini
   geminiEnabled: boolean("gemini_enabled").notNull().default(false),
   geminiApiKey: text("gemini_api_key"),

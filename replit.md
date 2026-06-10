@@ -6,7 +6,7 @@ AI-powered cryptocurrency trading bot platform with Claude AI integration, live 
 ## Tech Stack
 - **Frontend**: React + TypeScript, Vite, TailwindCSS v3, shadcn/ui, wouter, TanStack Query, recharts, lightweight-charts
 - **Backend**: Express.js, PostgreSQL with Drizzle ORM
-- **AI**: Claude AI (Anthropic) via Replit AI Integrations (claude-sonnet-4-6 for analysis)
+- **AI**: User-supplied API keys — OpenAI (GPT-4o), Anthropic Claude (Sonnet/Opus), Google Gemini. Multiple active providers run in parallel and their analyses are aggregated. No Replit AI integration / env-var fallback.
 - **Auth**: Simple localStorage-based auth with hardcoded credentials (no sessions)
 - **Market Data**: Live Binance API (24h tickers, order book, klines)
 
@@ -52,7 +52,7 @@ shared/
 - **Signal Generation**: Claude generates trading signals with entry/target/stop-loss
 - **Strategy Review**: Claude evaluates strategy configurations
 - **AI Chat**: Interactive conversation about market analysis
-- Environment vars: AI_INTEGRATIONS_ANTHROPIC_API_KEY, AI_INTEGRATIONS_ANTHROPIC_BASE_URL
+- **AI Providers (bring your own keys)**: Configured in Settings → AI Agents. OpenAI (`openaiEnabled`/`openaiApiKey`/`openaiModel`), Anthropic Claude (`anthropicEnabled`/`anthropicApiKey`/`anthropicModel`), Google Gemini (`geminiEnabled`/`geminiApiKey`/`geminiModel`). Keys are stored in the settings table; provider engine is `server/ai-providers.ts` (`getActiveProviders`). When no provider is configured, AI features return a graceful "not configured" fallback.
 
 ## Key Features
 - **Signal Detail Popup**: Clicking a quantum signal opens a popup dialog with full details (RSI, MACD, EMA, Volume, RSI Divergence, Market Structure, Trend Strength, Risk/Reward) plus Execute Trade and Share buttons. Close via X button.

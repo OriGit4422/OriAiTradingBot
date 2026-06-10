@@ -83,18 +83,14 @@ export default function SettingsPage() {
   const [newsApiKey, setNewsApiKey] = useState('');
   const [metaApiToken, setMetaApiToken] = useState('');
   const [metaApiAccountId, setMetaApiAccountId] = useState('');
-  // Custom AI Provider 1
-  const [customAi1Enabled, setCustomAi1Enabled] = useState(false);
-  const [customAi1Name, setCustomAi1Name] = useState('');
-  const [customAi1BaseUrl, setCustomAi1BaseUrl] = useState('');
-  const [customAi1ApiKey, setCustomAi1ApiKey] = useState('');
-  const [customAi1Model, setCustomAi1Model] = useState('');
-  // Custom AI Provider 2
-  const [customAi2Enabled, setCustomAi2Enabled] = useState(false);
-  const [customAi2Name, setCustomAi2Name] = useState('');
-  const [customAi2BaseUrl, setCustomAi2BaseUrl] = useState('');
-  const [customAi2ApiKey, setCustomAi2ApiKey] = useState('');
-  const [customAi2Model, setCustomAi2Model] = useState('');
+  // OpenAI
+  const [openaiEnabled, setOpenaiEnabled] = useState(false);
+  const [openaiApiKey, setOpenaiApiKey] = useState('');
+  const [openaiModel, setOpenaiModel] = useState('');
+  // Anthropic Claude
+  const [anthropicEnabled, setAnthropicEnabled] = useState(false);
+  const [anthropicApiKey, setAnthropicApiKey] = useState('');
+  const [anthropicModel, setAnthropicModel] = useState('');
   // Gemini
   const [geminiEnabled, setGeminiEnabled] = useState(false);
   const [geminiApiKey, setGeminiApiKey] = useState('');
@@ -154,17 +150,13 @@ export default function SettingsPage() {
       setPerplexityApiKey(settings.perplexityApiKey ?? '');
       setArkhamApiKey(settings.arkhamApiKey ?? '');
       setNewsApiKey((settings as any).newsApiKey ?? '');
-      // Custom AI providers
-      setCustomAi1Enabled(!!(settings as any).customAi1Enabled);
-      setCustomAi1Name((settings as any).customAi1Name ?? 'Custom AI 1');
-      setCustomAi1BaseUrl((settings as any).customAi1BaseUrl ?? '');
-      setCustomAi1ApiKey((settings as any).customAi1ApiKey ?? '');
-      setCustomAi1Model((settings as any).customAi1Model ?? 'gpt-4o');
-      setCustomAi2Enabled(!!(settings as any).customAi2Enabled);
-      setCustomAi2Name((settings as any).customAi2Name ?? 'Custom AI 2');
-      setCustomAi2BaseUrl((settings as any).customAi2BaseUrl ?? '');
-      setCustomAi2ApiKey((settings as any).customAi2ApiKey ?? '');
-      setCustomAi2Model((settings as any).customAi2Model ?? 'gpt-4o');
+      // AI providers (bring your own keys)
+      setOpenaiEnabled(!!(settings as any).openaiEnabled);
+      setOpenaiApiKey((settings as any).openaiApiKey ?? '');
+      setOpenaiModel((settings as any).openaiModel ?? 'gpt-4o');
+      setAnthropicEnabled(!!(settings as any).anthropicEnabled);
+      setAnthropicApiKey((settings as any).anthropicApiKey ?? '');
+      setAnthropicModel((settings as any).anthropicModel ?? 'claude-sonnet-4-5');
       setGeminiEnabled(!!(settings as any).geminiEnabled);
       setGeminiApiKey((settings as any).geminiApiKey ?? '');
       setGeminiModel((settings as any).geminiModel ?? 'gemini-1.5-pro');
@@ -1091,15 +1083,15 @@ export default function SettingsPage() {
                       </div>
                       <div>
                         <CardTitle>Multi-AI Intelligence System</CardTitle>
-                        <CardDescription>Connect your own AI APIs (OpenAI-compatible or Gemini). When multiple providers are active, their analyses are aggregated for maximum accuracy.</CardDescription>
+                        <CardDescription>Connect your own AI provider keys — OpenAI, Anthropic Claude, and Google Gemini. When multiple providers are active, their analyses are aggregated for maximum accuracy.</CardDescription>
                       </div>
                     </div>
                   </CardHeader>
                   <CardContent>
                     <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
                       {[
-                        { label: 'Custom AI 1', desc: 'Any OpenAI-compatible API', color: 'text-violet-400', bg: 'bg-violet-500/10', Icon: Brain, active: !!(settings as any).customAi1Enabled && !!(settings as any).customAi1ApiKey },
-                        { label: 'Custom AI 2', desc: 'Second AI provider (parallel analysis)', color: 'text-purple-400', bg: 'bg-purple-500/10', Icon: Brain, active: !!(settings as any).customAi2Enabled && !!(settings as any).customAi2ApiKey },
+                        { label: 'OpenAI', desc: 'GPT-4o / GPT-4 Turbo / o1', color: 'text-violet-400', bg: 'bg-violet-500/10', Icon: Brain, active: !!(settings as any).openaiEnabled && !!(settings as any).openaiApiKey },
+                        { label: 'Claude', desc: 'Anthropic Claude (Sonnet / Opus)', color: 'text-orange-400', bg: 'bg-orange-500/10', Icon: Brain, active: !!(settings as any).anthropicEnabled && !!(settings as any).anthropicApiKey },
                         { label: 'Gemini', desc: 'Google Gemini (1.5 Pro / Flash)', color: 'text-green-400', bg: 'bg-green-500/10', Icon: Zap, active: !!(settings as any).geminiEnabled && !!(settings as any).geminiApiKey },
                         { label: 'Coinglass', desc: 'Funding rates & long/short data', color: 'text-orange-400', bg: 'bg-orange-500/10', Icon: Activity, active: !!settings.coinglassApiKey },
                         { label: 'Perplexity', desc: 'Real-time news sentiment', color: 'text-sky-400', bg: 'bg-sky-500/10', Icon: Globe, active: !!settings.perplexityApiKey },
@@ -1127,7 +1119,7 @@ export default function SettingsPage() {
                   </CardContent>
                 </Card>
 
-                {/* Custom AI 1 */}
+                {/* OpenAI */}
                 <Card className="bg-card border-border">
                   <CardHeader>
                     <div className="flex items-center gap-3">
@@ -1135,102 +1127,117 @@ export default function SettingsPage() {
                         <Brain className="w-5 h-5 text-violet-400" />
                       </div>
                       <div>
-                        <CardTitle className="text-base">Custom AI Provider 1</CardTitle>
-                        <CardDescription>Any OpenAI-compatible API: OpenAI, Groq, Together AI, Mistral, local Ollama, etc.</CardDescription>
+                        <CardTitle className="text-base">OpenAI</CardTitle>
+                        <CardDescription>Use your own OpenAI API key (GPT-4o, GPT-4 Turbo, o1). Powers signal analysis & AI chat.</CardDescription>
                       </div>
                       <div className="ml-auto flex items-center gap-2">
-                        <div className={`text-xs font-semibold px-2 py-1 rounded-full ${(settings as any).customAi1Enabled && (settings as any).customAi1ApiKey ? 'bg-green-500/10 text-green-500' : 'bg-secondary text-muted-foreground'}`}>
-                          {(settings as any).customAi1Enabled && (settings as any).customAi1ApiKey ? 'Active' : 'Inactive'}
+                        <div className={`text-xs font-semibold px-2 py-1 rounded-full ${(settings as any).openaiEnabled && (settings as any).openaiApiKey ? 'bg-green-500/10 text-green-500' : 'bg-secondary text-muted-foreground'}`}>
+                          {(settings as any).openaiEnabled && (settings as any).openaiApiKey ? 'Active' : 'Inactive'}
                         </div>
                         <Switch
-                          checked={customAi1Enabled}
+                          data-testid="switch-openai-enabled"
+                          checked={openaiEnabled}
                           onCheckedChange={(v) => {
-                            setCustomAi1Enabled(v);
-                            updateMutation.mutate({ customAi1Enabled: v } as any);
+                            setOpenaiEnabled(v);
+                            updateMutation.mutate({ openaiEnabled: v } as any);
                           }}
                         />
                       </div>
                     </div>
                   </CardHeader>
                   <CardContent className="space-y-3">
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                      <div className="space-y-1">
-                        <Label className="text-xs">Display Name</Label>
-                        <Input value={customAi1Name} onChange={(e) => setCustomAi1Name(e.target.value)} placeholder="e.g. OpenAI GPT-4o" className="bg-secondary text-xs" />
-                      </div>
-                      <div className="space-y-1">
-                        <Label className="text-xs">Model ID</Label>
-                        <Input value={customAi1Model} onChange={(e) => setCustomAi1Model(e.target.value)} placeholder="e.g. gpt-4o" className="bg-secondary font-mono text-xs" />
-                      </div>
+                    <div className="space-y-1">
+                      <Label className="text-xs">Model</Label>
+                      <Select value={openaiModel || 'gpt-4o'} onValueChange={setOpenaiModel}>
+                        <SelectTrigger className="bg-secondary text-xs" data-testid="select-openai-model">
+                          <SelectValue placeholder="Select model" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="gpt-4o">gpt-4o (recommended)</SelectItem>
+                          <SelectItem value="gpt-4o-mini">gpt-4o-mini (faster/cheaper)</SelectItem>
+                          <SelectItem value="gpt-4-turbo">gpt-4-turbo</SelectItem>
+                        </SelectContent>
+                      </Select>
                     </div>
                     <div className="space-y-1">
-                      <Label className="text-xs">Base URL (OpenAI-compatible endpoint)</Label>
-                      <Input value={customAi1BaseUrl} onChange={(e) => setCustomAi1BaseUrl(e.target.value)} placeholder="https://api.openai.com/v1" className="bg-secondary font-mono text-xs" />
-                    </div>
-                    <div className="space-y-1">
-                      <Label className="text-xs">API Key</Label>
+                      <Label className="text-xs">API Key (platform.openai.com)</Label>
                       <div className="flex gap-2">
-                        <Input type="password" value={customAi1ApiKey} onChange={(e) => setCustomAi1ApiKey(e.target.value)} placeholder="sk-..." className="bg-secondary font-mono text-xs" />
-                        <Button size="sm" onClick={() => updateMutation.mutate({ customAi1Name, customAi1BaseUrl, customAi1ApiKey, customAi1Model, customAi1Enabled } as any)} disabled={updateMutation.isPending}>
+                        <Input data-testid="input-openai-key" type="password" value={openaiApiKey} onChange={(e) => setOpenaiApiKey(e.target.value)} placeholder="sk-..." className="bg-secondary font-mono text-xs" />
+                        <Button size="sm" data-testid="button-save-openai" onClick={() => updateMutation.mutate({ openaiApiKey, openaiModel: openaiModel || 'gpt-4o', openaiEnabled } as any)} disabled={updateMutation.isPending}>
                           Save
                         </Button>
                       </div>
                     </div>
                     <div className="rounded-lg bg-violet-500/5 border border-violet-500/20 p-3 space-y-1">
-                      <p className="text-[11px] font-semibold text-violet-400">Compatible providers:</p>
-                      <p className="text-[11px] text-muted-foreground">OpenAI · Groq · Together AI · Mistral · Perplexity · Anyscale · Ollama (local) · LM Studio · any OpenAI-compatible endpoint</p>
+                      <p className="text-[11px] font-semibold text-violet-400">How to get your OpenAI API key:</p>
+                      <ol className="text-[11px] text-muted-foreground space-y-0.5 list-decimal list-inside">
+                        <li>Go to platform.openai.com and sign in</li>
+                        <li>Open "API keys" → "Create new secret key"</li>
+                        <li>Copy the key (starts with "sk-") and paste above</li>
+                        <li>Enable the toggle and Save</li>
+                      </ol>
                     </div>
                   </CardContent>
                 </Card>
 
-                {/* Custom AI 2 */}
+                {/* Claude (Anthropic) */}
                 <Card className="bg-card border-border">
                   <CardHeader>
                     <div className="flex items-center gap-3">
-                      <div className="w-10 h-10 bg-purple-500/10 rounded-lg flex items-center justify-center">
-                        <Brain className="w-5 h-5 text-purple-400" />
+                      <div className="w-10 h-10 bg-orange-500/10 rounded-lg flex items-center justify-center">
+                        <Brain className="w-5 h-5 text-orange-400" />
                       </div>
                       <div>
-                        <CardTitle className="text-base">Custom AI Provider 2</CardTitle>
-                        <CardDescription>Second AI provider — runs in parallel with Provider 1 and Gemini. Averaged results = better accuracy.</CardDescription>
+                        <CardTitle className="text-base">Claude (Anthropic)</CardTitle>
+                        <CardDescription>Use your own Anthropic API key (Claude Sonnet / Opus). Runs in parallel for cross-validated analysis.</CardDescription>
                       </div>
                       <div className="ml-auto flex items-center gap-2">
-                        <div className={`text-xs font-semibold px-2 py-1 rounded-full ${(settings as any).customAi2Enabled && (settings as any).customAi2ApiKey ? 'bg-green-500/10 text-green-500' : 'bg-secondary text-muted-foreground'}`}>
-                          {(settings as any).customAi2Enabled && (settings as any).customAi2ApiKey ? 'Active' : 'Inactive'}
+                        <div className={`text-xs font-semibold px-2 py-1 rounded-full ${(settings as any).anthropicEnabled && (settings as any).anthropicApiKey ? 'bg-green-500/10 text-green-500' : 'bg-secondary text-muted-foreground'}`}>
+                          {(settings as any).anthropicEnabled && (settings as any).anthropicApiKey ? 'Active' : 'Inactive'}
                         </div>
                         <Switch
-                          checked={customAi2Enabled}
+                          data-testid="switch-anthropic-enabled"
+                          checked={anthropicEnabled}
                           onCheckedChange={(v) => {
-                            setCustomAi2Enabled(v);
-                            updateMutation.mutate({ customAi2Enabled: v } as any);
+                            setAnthropicEnabled(v);
+                            updateMutation.mutate({ anthropicEnabled: v } as any);
                           }}
                         />
                       </div>
                     </div>
                   </CardHeader>
                   <CardContent className="space-y-3">
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                      <div className="space-y-1">
-                        <Label className="text-xs">Display Name</Label>
-                        <Input value={customAi2Name} onChange={(e) => setCustomAi2Name(e.target.value)} placeholder="e.g. Groq Llama-3" className="bg-secondary text-xs" />
-                      </div>
-                      <div className="space-y-1">
-                        <Label className="text-xs">Model ID</Label>
-                        <Input value={customAi2Model} onChange={(e) => setCustomAi2Model(e.target.value)} placeholder="e.g. llama3-70b-8192" className="bg-secondary font-mono text-xs" />
-                      </div>
+                    <div className="space-y-1">
+                      <Label className="text-xs">Model</Label>
+                      <Select value={anthropicModel || 'claude-sonnet-4-5'} onValueChange={setAnthropicModel}>
+                        <SelectTrigger className="bg-secondary text-xs" data-testid="select-anthropic-model">
+                          <SelectValue placeholder="Select model" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="claude-sonnet-4-5">claude-sonnet-4-5 (recommended)</SelectItem>
+                          <SelectItem value="claude-opus-4-1">claude-opus-4-1 (most capable)</SelectItem>
+                          <SelectItem value="claude-3-5-sonnet-20241022">claude-3-5-sonnet</SelectItem>
+                          <SelectItem value="claude-3-5-haiku-20241022">claude-3-5-haiku (faster)</SelectItem>
+                        </SelectContent>
+                      </Select>
                     </div>
                     <div className="space-y-1">
-                      <Label className="text-xs">Base URL</Label>
-                      <Input value={customAi2BaseUrl} onChange={(e) => setCustomAi2BaseUrl(e.target.value)} placeholder="https://api.groq.com/openai/v1" className="bg-secondary font-mono text-xs" />
-                    </div>
-                    <div className="space-y-1">
-                      <Label className="text-xs">API Key</Label>
+                      <Label className="text-xs">API Key (console.anthropic.com)</Label>
                       <div className="flex gap-2">
-                        <Input type="password" value={customAi2ApiKey} onChange={(e) => setCustomAi2ApiKey(e.target.value)} placeholder="gsk_..." className="bg-secondary font-mono text-xs" />
-                        <Button size="sm" onClick={() => updateMutation.mutate({ customAi2Name, customAi2BaseUrl, customAi2ApiKey, customAi2Model, customAi2Enabled } as any)} disabled={updateMutation.isPending}>
+                        <Input data-testid="input-anthropic-key" type="password" value={anthropicApiKey} onChange={(e) => setAnthropicApiKey(e.target.value)} placeholder="sk-ant-..." className="bg-secondary font-mono text-xs" />
+                        <Button size="sm" data-testid="button-save-anthropic" onClick={() => updateMutation.mutate({ anthropicApiKey, anthropicModel: anthropicModel || 'claude-sonnet-4-5', anthropicEnabled } as any)} disabled={updateMutation.isPending}>
                           Save
                         </Button>
                       </div>
+                    </div>
+                    <div className="rounded-lg bg-orange-500/5 border border-orange-500/20 p-3 space-y-1">
+                      <p className="text-[11px] font-semibold text-orange-400">How to get your Anthropic API key:</p>
+                      <ol className="text-[11px] text-muted-foreground space-y-0.5 list-decimal list-inside">
+                        <li>Go to console.anthropic.com and sign in</li>
+                        <li>Open "API Keys" → "Create Key"</li>
+                        <li>Copy the key (starts with "sk-ant-") and paste above</li>
+                        <li>Enable the toggle and Save</li>
+                      </ol>
                     </div>
                   </CardContent>
                 </Card>

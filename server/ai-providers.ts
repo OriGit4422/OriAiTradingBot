@@ -188,23 +188,31 @@ export async function getActiveProviders(): Promise<AIProviderConfig[]> {
     });
   }
 
+  if (ss.openaiEnabled && ss.openaiApiKey) {
+    providers.push({
+      name: 'OpenAI',
+      type: 'custom',
+      baseUrl: 'https://api.openai.com/v1',
+      apiKey: ss.openaiApiKey,
+      model: ss.openaiModel || 'gpt-4o',
+    });
+  }
+
+  if (ss.anthropicEnabled && ss.anthropicApiKey) {
+    providers.push({
+      name: 'Claude',
+      type: 'anthropic',
+      apiKey: ss.anthropicApiKey,
+      model: ss.anthropicModel || 'claude-sonnet-4-5',
+    });
+  }
+
   if (ss.geminiEnabled && ss.geminiApiKey) {
     providers.push({
       name: 'Gemini',
       type: 'gemini',
       apiKey: ss.geminiApiKey,
       model: ss.geminiModel || 'gemini-1.5-pro',
-    });
-  }
-
-  // Fallback: Replit Anthropic integration (env-var based)
-  if (providers.length === 0 && process.env.AI_INTEGRATIONS_ANTHROPIC_API_KEY) {
-    providers.push({
-      name: 'Claude (Replit Integration)',
-      type: 'anthropic',
-      apiKey: process.env.AI_INTEGRATIONS_ANTHROPIC_API_KEY,
-      baseUrl: process.env.AI_INTEGRATIONS_ANTHROPIC_BASE_URL || undefined,
-      model: process.env.AI_INTEGRATIONS_ANTHROPIC_MODEL || 'claude-sonnet-4-5',
     });
   }
 

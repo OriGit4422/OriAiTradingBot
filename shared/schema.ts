@@ -201,6 +201,107 @@ export const insertGoldTradeSchema = createInsertSchema(goldTrades).omit({ id: t
 export type InsertGoldTrade = z.infer<typeof insertGoldTradeSchema>;
 export type GoldTrade = typeof goldTrades.$inferSelect;
 
+// ===================== AI Auto-Trading Bot (Phase 1) =====================
+// NOTE: This bot module is fully isolated from the legacy
+// POST /api/exchange/:exchange/trade -> autoTradeSignal() live path, which uses
+// a different (unsafe) sizing model. The bot uses the 2%-risk engine only.
+
+// Bot Settings + runtime state (singleton row, like `wallet` / `settings`)
+export const botSettings = pgTable("bot_settings", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  // Runtime state ("locked" is computed at read-time, never persisted)
+  mode: text("mode").notNull().default("paper"), // paper | testnet | live
+  status: text("status").notNull().default("paused"), // active | paused | stopped
+  connectedExchange: text("connected_exchange").notNull().default("bybit"), // bybit | binance | both
+  lockReason: text("lock_reason"),
+  // Live trading gate
+  liveUnlocked: boolean("live_unlocked").notNull().default(false),
+  riskDisclaimerAccepted: boolean("risk_disclaimer_accepted").notNull().default(false),
+  // Execution behaviour
+  manualApproval: boolean("manual_approval").notNull().default(true),
+  autoExecute: boolean("auto_execute").notNull().default(false),
+  // Paper account (separate from the demo `wallet` so deposits/closes can't corrupt it)
+  paperBalance: real("paper_balance").notNull().default(100),
+  paperStartingBalance: real("paper_starting_balance").notNull().default(100),
+  // Risk preset ("$100 Small Account Safe Mode" defaults)
+  riskPerTradePercent: real("risk_per_trade_percent").notNull().default(2),
+  maxDailyLossPercent: real("max_daily_loss_percent").notNull().default(4),
+  maxOpenTrades: integer("max_open_trades").notNull().default(1),
+  maxTradesPerDay: integer("max_trades_per_day").notNull().default(2),
+  stopAfterLosses: integer("stop_after_losses").notNull().default(2),
+  defaultLeverage: integer("default_leverage").notNull().default(3),
+  maxLeverage: integer("max_leverage").notNull().default(5),
+  hardLeverageCap: integer("hard_leverage_cap").notNull().default(10),
+  // Signal gating
+  minGrade: text("min_grade").notNull().default("A+"), // A+ | A | B | C
+  minConfidence: integer("min_confidence").notNull().default(85),
+  minRr: real("min_rr").notNull().default(2),
+  allowedSymbols: text("allowed_symbols").array().notNull().default(sql`'{BTCUSDT,ETHUSDT}'::text[]`),
+  // No-trade filter toggles
+  newsFilter: boolean("news_filter").notNull().default(true),
+  macroFilter: boolean("macro_filter").notNull().default(true),
+  dataStaleFilter: boolean("data_stale_filter").notNull().default(true),
+  liquidityFilter: boolean("liquidity_filter").notNull().default(true),
+  spreadFilter: boolean("spread_filter").notNull().default(true),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+});
+
+export const insertBotSettingsSchema = createInsertSchema(botSettings).omit({ id: true, updatedAt: true });
+export type InsertBotSettings = z.infer<typeof insertBotSettingsSchema>;
+export type BotSettings = typeof botSettings.$inferSelect;
+
+// Bot Trades (trade journal — paper trades in Phase 1)
+export const botTrades = pgTable("bot_trades", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  signalId: text("signal_id"),
+  exchange: text("exchange").notNull().default("bybit"),
+  mode: text("mode").notNull().default("paper"), // paper | testnet | live
+  symbol: text("symbol").notNull(),
+  direction: text("direction").notNull(), // LONG | SHORT
+  timeframe: text("timeframe"),
+  strategy: text("strategy"),
+  entry: real("entry").notNull(),
+  stopLoss: real("stop_loss").notNull(),
+  tp1: real("tp1"),
+  tp2: real("tp2"),
+  tp3: real("tp3"),
+  positionSize: real("position_size").notNull(),
+  leverage: integer("leverage").notNull().default(1),
+  marginUsed: real("margin_used").notNull().default(0),
+  riskAmount: real("risk_amount").notNull().default(0),
+  walletBefore: real("wallet_before").notNull().default(0),
+  walletAfter: real("wallet_after"),
+  grade: text("grade"),
+  confidence: integer("confidence"),
+  rr: real("rr"),
+  status: text("status").notNull().default("open"), // open | closed | cancelled
+  exitPrice: real("exit_price"),
+  pnl: real("pnl"),
+  exitReason: text("exit_reason"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  closedAt: timestamp("closed_at"),
+});
+
+export const insertBotTradeSchema = createInsertSchema(botTrades).omit({
+  id: true, createdAt: true, closedAt: true, walletAfter: true, exitPrice: true, pnl: true, exitReason: true,
+});
+export type InsertBotTrade = z.infer<typeof insertBotTradeSchema>;
+export type BotTrade = typeof botTrades.$inferSelect;
+
+// Bot Logs (event audit trail)
+export const botLogs = pgTable("bot_logs", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  level: text("level").notNull().default("info"), // info | warn | error | success
+  event: text("event").notNull(),
+  message: text("message").notNull(),
+  meta: jsonb("meta"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+});
+
+export const insertBotLogSchema = createInsertSchema(botLogs).omit({ id: true, createdAt: true });
+export type InsertBotLog = z.infer<typeof insertBotLogSchema>;
+export type BotLog = typeof botLogs.$inferSelect;
+
 // AI Chat (for integration)
 export { conversations, messages } from "./models/chat";
 export type { Conversation, Message } from "./models/chat";

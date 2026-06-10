@@ -4,7 +4,8 @@ import { readFileSync } from "fs";
 import { resolve, join } from "path";
 import archiver from "archiver";
 import { storage } from "./storage";
-import { insertSettingsSchema, insertStrategySchema, insertSignalSchema, insertPositionSchema, insertUserAccessSchema } from "@shared/schema";
+import { insertSettingsSchema, insertStrategySchema, insertSignalSchema, insertPositionSchema, insertUserAccessSchema, insertBotSettingsSchema } from "@shared/schema";
+import { getBotState, executeSignal, closeBotTrade, botControl, setBotMode, unlockLive, applySafeModePreset, type ExecMode } from "./bot-engine";
 import { z } from "zod";
 import { analyzeSignalWithAI, getMarketInsight, getDeepCoinAnalysis } from "./ai-analysis";
 import { notifySignal, sendTestNotifications, validateSignalBestPractice } from "./notifications";
@@ -252,6 +253,110 @@ export async function registerRoutes(
   app.post("/api/gold/auto-trade/run", async (_req, res) => {
     const result = await runGoldAutoTradeOnce();
     res.status(result.ok ? 200 : 400).json(result);
+  });
+
+  // ─── AI Auto-Trading Bot (Phase 1) ────────────────────────
+  // NOTE: fully isolated from the legacy /api/exchange/:exchange/trade live path.
+  // Only paper mode executes; testnet/live return a logged "not wired" rejection.
+  app.get("/api/bot/state", async (_req, res) => {
+    try {
+      const state = await getBotState();
+      res.json(state);
+    } catch (e: any) {
+      res.status(500).json({ message: e.message });
+    }
+  });
+
+  app.patch("/api/bot/settings", async (req, res) => {
+    try {
+      const parsed = insertBotSettingsSchema.partial().safeParse(req.body);
+      if (!parsed.success) {
+        return res.status(400).json({ message: "Invalid settings", errors: parsed.error.flatten() });
+      }
+      const updated = await storage.upsertBotSettings(parsed.data);
+      res.json(updated);
+    } catch (e: any) {
+      res.status(500).json({ message: e.message });
+    }
+  });
+
+  app.post("/api/bot/control", async (req, res) => {
+    try {
+      const action = req.body?.action as "start" | "pause" | "resume" | "emergency-stop";
+      if (!["start", "pause", "resume", "emergency-stop"].includes(action)) {
+        return res.status(400).json({ message: "Invalid action" });
+      }
+      const result = await botControl(action);
+      res.status(result.ok ? 200 : 400).json(result);
+    } catch (e: any) {
+      res.status(500).json({ message: e.message });
+    }
+  });
+
+  app.post("/api/bot/mode", async (req, res) => {
+    try {
+      const mode = req.body?.mode as ExecMode;
+      const result = await setBotMode(mode);
+      res.status(result.ok ? 200 : 400).json(result);
+    } catch (e: any) {
+      res.status(500).json({ message: e.message });
+    }
+  });
+
+  app.post("/api/bot/unlock-live", async (req, res) => {
+    try {
+      const result = await unlockLive(!!req.body?.accepted);
+      res.status(result.ok ? 200 : 400).json(result);
+    } catch (e: any) {
+      res.status(500).json({ message: e.message });
+    }
+  });
+
+  app.post("/api/bot/preset/safe-mode", async (_req, res) => {
+    try {
+      const updated = await applySafeModePreset();
+      res.json(updated);
+    } catch (e: any) {
+      res.status(500).json({ message: e.message });
+    }
+  });
+
+  app.get("/api/bot/trades", async (_req, res) => {
+    try {
+      res.json(await storage.getBotTrades(200));
+    } catch (e: any) {
+      res.status(500).json({ message: e.message });
+    }
+  });
+
+  app.post("/api/bot/execute", async (req, res) => {
+    try {
+      const signalId = req.body?.signalId as string;
+      if (!signalId) return res.status(400).json({ message: "signalId is required" });
+      const result = await executeSignal(signalId);
+      res.status(result.ok ? 200 : 400).json(result);
+    } catch (e: any) {
+      res.status(500).json({ message: e.message });
+    }
+  });
+
+  app.post("/api/bot/trades/:id/close", async (req, res) => {
+    try {
+      const exitPrice = Number(req.body?.exitPrice);
+      if (!exitPrice || exitPrice <= 0) return res.status(400).json({ message: "exitPrice is required" });
+      const result = await closeBotTrade(req.params.id, exitPrice, req.body?.exitReason || "manual");
+      res.status(result.ok ? 200 : 400).json(result);
+    } catch (e: any) {
+      res.status(500).json({ message: e.message });
+    }
+  });
+
+  app.get("/api/bot/logs", async (_req, res) => {
+    try {
+      res.json(await storage.getBotLogs(100));
+    } catch (e: any) {
+      res.status(500).json({ message: e.message });
+    }
   });
 
   app.get("/api/system/requirements-status", async (_req, res) => {

@@ -1,4 +1,4 @@
-import { eq } from "drizzle-orm";
+import { eq, desc } from "drizzle-orm";
 import { db } from "./db";
 import {
   users, type User, type InsertUser,
@@ -7,7 +7,10 @@ import {
   signals, type Signal, type InsertSignal,
   positions, type Position, type InsertPosition,
   wallet, type Wallet,
-  userAccess, type UserAccess, type InsertUserAccess
+  userAccess, type UserAccess, type InsertUserAccess,
+  botSettings, type BotSettings, type InsertBotSettings,
+  botTrades, type BotTrade, type InsertBotTrade,
+  botLogs, type BotLog, type InsertBotLog,
 } from "@shared/schema";
 
 export interface IStorage {
@@ -25,6 +28,7 @@ export interface IStorage {
   deleteStrategy(id: string): Promise<void>;
 
   getSignals(): Promise<Signal[]>;
+  getSignal(id: string): Promise<Signal | undefined>;
   createSignal(data: InsertSignal): Promise<Signal>;
   updateSignalStatus(id: string, status: string): Promise<Signal | undefined>;
   clearSignals(): Promise<void>;
@@ -42,6 +46,20 @@ export interface IStorage {
   createUserAccess(data: InsertUserAccess): Promise<UserAccess>;
   updateUserAccess(id: string, data: Partial<InsertUserAccess>): Promise<UserAccess | undefined>;
   deleteUserAccess(id: string): Promise<void>;
+
+  // ===== AI Auto-Trading Bot =====
+  getBotSettings(): Promise<BotSettings>;
+  upsertBotSettings(data: Partial<InsertBotSettings>): Promise<BotSettings>;
+
+  getBotTrades(limit?: number): Promise<BotTrade[]>;
+  getBotTrade(id: string): Promise<BotTrade | undefined>;
+  getOpenBotTrades(): Promise<BotTrade[]>;
+  createBotTrade(data: InsertBotTrade): Promise<BotTrade>;
+  updateBotTrade(id: string, data: Partial<BotTrade>): Promise<BotTrade | undefined>;
+
+  getBotLogs(limit?: number): Promise<BotLog[]>;
+  createBotLog(data: InsertBotLog): Promise<BotLog>;
+  clearBotLogs(): Promise<void>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -159,6 +177,11 @@ export class DatabaseStorage implements IStorage {
     return db.select().from(signals).orderBy(signals.createdAt);
   }
 
+  async getSignal(id: string): Promise<Signal | undefined> {
+    const [s] = await db.select().from(signals).where(eq(signals.id, id));
+    return s;
+  }
+
   async createSignal(data: InsertSignal): Promise<Signal> {
     const [s] = await db.insert(signals).values(data).returning();
     return s;
@@ -214,6 +237,60 @@ export class DatabaseStorage implements IStorage {
 
   async deleteUserAccess(id: string): Promise<void> {
     await db.delete(userAccess).where(eq(userAccess.id, id));
+  }
+
+  // ===== AI Auto-Trading Bot =====
+  async getBotSettings(): Promise<BotSettings> {
+    let [s] = await db.select().from(botSettings);
+    if (!s) {
+      [s] = await db.insert(botSettings).values({}).returning();
+    }
+    return s;
+  }
+
+  async upsertBotSettings(data: Partial<InsertBotSettings>): Promise<BotSettings> {
+    const existing = await this.getBotSettings();
+    const [updated] = await db.update(botSettings)
+      .set({ ...data, updatedAt: new Date() })
+      .where(eq(botSettings.id, existing.id))
+      .returning();
+    return updated;
+  }
+
+  async getBotTrades(limit = 100): Promise<BotTrade[]> {
+    return db.select().from(botTrades).orderBy(desc(botTrades.createdAt)).limit(limit);
+  }
+
+  async getBotTrade(id: string): Promise<BotTrade | undefined> {
+    const [t] = await db.select().from(botTrades).where(eq(botTrades.id, id));
+    return t;
+  }
+
+  async getOpenBotTrades(): Promise<BotTrade[]> {
+    return db.select().from(botTrades).where(eq(botTrades.status, "open")).orderBy(desc(botTrades.createdAt));
+  }
+
+  async createBotTrade(data: InsertBotTrade): Promise<BotTrade> {
+    const [t] = await db.insert(botTrades).values(data).returning();
+    return t;
+  }
+
+  async updateBotTrade(id: string, data: Partial<BotTrade>): Promise<BotTrade | undefined> {
+    const [t] = await db.update(botTrades).set(data).where(eq(botTrades.id, id)).returning();
+    return t;
+  }
+
+  async getBotLogs(limit = 100): Promise<BotLog[]> {
+    return db.select().from(botLogs).orderBy(desc(botLogs.createdAt)).limit(limit);
+  }
+
+  async createBotLog(data: InsertBotLog): Promise<BotLog> {
+    const [l] = await db.insert(botLogs).values(data).returning();
+    return l;
+  }
+
+  async clearBotLogs(): Promise<void> {
+    await db.delete(botLogs);
   }
 }
 

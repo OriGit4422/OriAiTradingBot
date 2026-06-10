@@ -62,7 +62,7 @@ export function MarketHeatmap({ onSelectCoin }: MarketHeatmapProps) {
 
   useEffect(() => {
     loadData();
-    const interval = setInterval(loadData, 30000);
+    const interval = setInterval(() => { if (!document.hidden) loadData(); }, 30000);
     return () => clearInterval(interval);
   }, [loadData]);
 

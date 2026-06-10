@@ -113,10 +113,10 @@ export default function BotPage() {
 
   const { data: state, isLoading } = useQuery<BotState>({
     queryKey: ['/api/bot/state'],
-    refetchInterval: 8000,
+    refetchInterval: 15000,
   });
-  const { data: trades = [] } = useQuery<BotTrade[]>({ queryKey: ['/api/bot/trades'], refetchInterval: 8000 });
-  const { data: logs = [] } = useQuery<BotLog[]>({ queryKey: ['/api/bot/logs'], refetchInterval: 8000 });
+  const { data: trades = [] } = useQuery<BotTrade[]>({ queryKey: ['/api/bot/trades'], refetchInterval: 30000 });
+  const { data: logs = [] } = useQuery<BotLog[]>({ queryKey: ['/api/bot/logs'], refetchInterval: 30000 });
   const { data: signals = [] } = useQuery<Signal[]>({ queryKey: ['/api/signals'] });
 
   const invalidate = () => {

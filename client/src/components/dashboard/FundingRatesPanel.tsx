@@ -82,7 +82,7 @@ export function FundingRatesPanel() {
 
   useEffect(() => {
     loadData();
-    const interval = setInterval(loadData, 60000);
+    const interval = setInterval(() => { if (!document.hidden) loadData(); }, 60000);
     return () => clearInterval(interval);
   }, [loadData]);
 

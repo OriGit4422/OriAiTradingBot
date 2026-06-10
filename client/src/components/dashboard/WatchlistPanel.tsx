@@ -105,7 +105,7 @@ export function WatchlistPanel({ onSelectCoin, currentPrices }: WatchlistPanelPr
 
   useEffect(() => {
     loadPrices();
-    const interval = setInterval(loadPrices, 15000);
+    const interval = setInterval(() => { if (!document.hidden) loadPrices(); }, 20000);
     return () => clearInterval(interval);
   }, [loadPrices]);
 

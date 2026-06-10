@@ -267,9 +267,25 @@ export async function registerRoutes(
     }
   });
 
+  // Risk/filter config only. Gating + accounting fields (mode, status, lock,
+  // live-unlock, disclaimer, paper balances) are intentionally NOT editable here —
+  // they go through the dedicated /mode, /control and /unlock-live endpoints so the
+  // unlock gates and P&L accounting can't be bypassed by a raw settings PATCH.
+  const botSettingsPatchSchema = insertBotSettingsSchema
+    .omit({
+      mode: true,
+      status: true,
+      lockReason: true,
+      liveUnlocked: true,
+      riskDisclaimerAccepted: true,
+      paperBalance: true,
+      paperStartingBalance: true,
+    })
+    .partial();
+
   app.patch("/api/bot/settings", async (req, res) => {
     try {
-      const parsed = insertBotSettingsSchema.partial().safeParse(req.body);
+      const parsed = botSettingsPatchSchema.safeParse(req.body);
       if (!parsed.success) {
         return res.status(400).json({ message: "Invalid settings", errors: parsed.error.flatten() });
       }

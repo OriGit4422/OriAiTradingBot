@@ -54,7 +54,7 @@ export function TopSignalsPanel({ onSelectCoin }: TopSignalsPanelProps) {
 
   useEffect(() => {
     fetchSignals();
-    const interval = setInterval(fetchSignals, 120000);
+    const interval = setInterval(() => { if (!document.hidden) fetchSignals(); }, 120000);
     return () => clearInterval(interval);
   }, [fetchSignals]);
 

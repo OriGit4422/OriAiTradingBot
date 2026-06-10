@@ -62,7 +62,7 @@ export default function SettingsPage() {
   });
   const { data: goldStatus } = useQuery<any>({
     queryKey: ['/api/gold/status'],
-    refetchInterval: 10000,
+    refetchInterval: 30000,
   });
 
   const [displayName, setDisplayName] = useState('');

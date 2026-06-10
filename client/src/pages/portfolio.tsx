@@ -96,7 +96,7 @@ export default function Portfolio() {
       } catch (e) { console.error(e); }
     };
     loadPrices();
-    const interval = setInterval(loadPrices, 15000);
+    const interval = setInterval(() => { if (!document.hidden) loadPrices(); }, 20000);
     return () => clearInterval(interval);
   }, []);
 

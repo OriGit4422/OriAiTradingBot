@@ -79,7 +79,7 @@ export function SignalFeed({ compact = false, onSelectCoin }: SignalFeedProps) {
 
   useEffect(() => {
     generateAllSignals();
-    const interval = setInterval(generateAllSignals, 90000);
+    const interval = setInterval(() => { if (!document.hidden) generateAllSignals(); }, 90000);
     return () => clearInterval(interval);
   }, [generateAllSignals]);
 

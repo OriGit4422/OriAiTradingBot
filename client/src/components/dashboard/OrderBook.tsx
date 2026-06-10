@@ -25,7 +25,7 @@ export function OrderBook({ symbol, currentPrice }: OrderBookProps) {
 
   useEffect(() => {
     loadOrderBook();
-    const interval = setInterval(loadOrderBook, 3000);
+    const interval = setInterval(() => { if (!document.hidden) loadOrderBook(); }, 8000);
     return () => clearInterval(interval);
   }, [loadOrderBook]);
 

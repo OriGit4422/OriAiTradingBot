@@ -131,7 +131,7 @@ export default function Dashboard() {
 
   useEffect(() => {
     const interval = setInterval(() => {
-      fetchInsight(topMovers.length > 0 ? topMovers : undefined);
+      if (!document.hidden) fetchInsight(topMovers.length > 0 ? topMovers : undefined);
     }, 120000);
     return () => clearInterval(interval);
   }, [topMovers]);
@@ -185,7 +185,7 @@ export default function Dashboard() {
       }
     };
     updateHeader();
-    const interval = setInterval(updateHeader, 15000);
+    const interval = setInterval(() => { if (!document.hidden) updateHeader(); }, 20000);
     return () => clearInterval(interval);
   }, [selectedCoin]);
 

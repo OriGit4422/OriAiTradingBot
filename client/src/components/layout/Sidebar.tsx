@@ -15,6 +15,7 @@ import {
   Trophy,
   Download,
   BarChart2,
+  Bot,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
@@ -28,6 +29,7 @@ export function Sidebar() {
     { icon: LineChart, label: 'Markets', path: '/markets' },
     { icon: Brain, label: 'Strategies', path: '/strategies' },
     { icon: Activity, label: 'Signals', path: '/signals' },
+    { icon: Bot, label: 'Trading Bot', path: '/bot', badge: 'NEW' },
     { icon: Wallet, label: 'Portfolio', path: '/portfolio' },
     { icon: BarChart2, label: 'Analytics', path: '/analytics', badge: 'NEW' },
     { icon: Trophy, label: 'Gold Trading', path: '/gold' },

@@ -13,6 +13,7 @@ import Portfolio from "@/pages/portfolio";
 import Settings from "@/pages/settings";
 import Gold from "@/pages/gold";
 import Analytics from "@/pages/analytics";
+import BotPage from "@/pages/bot";
 import NotFound from "@/pages/not-found";
 import { applyThemeById, getActiveThemeId } from "@/lib/themes";
 
@@ -30,6 +31,7 @@ function Router() {
       <Route path="/settings" component={Settings} />
       <Route path="/gold" component={Gold} />
       <Route path="/analytics" component={Analytics} />
+      <Route path="/bot" component={BotPage} />
       <Route component={NotFound} />
     </Switch>
   );

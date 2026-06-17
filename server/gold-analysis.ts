@@ -135,10 +135,12 @@ export async function analyzeGold(timeframe = '1h'): Promise<GoldSignal> {
   const macdStrong = Math.abs(macd.histogram) > atr * 0.3;
   const strength: GoldSignal['strength'] = (rsiExtreme && macdStrong) ? 'STRONG' : (rsiExtreme || macdStrong) ? 'MODERATE' : 'WEAK';
 
-  // Signal type
+  // Signal type — allow RSI up to 75 for strong bullish trends, don't miss breakouts
   let signalType: 'BUY' | 'SELL' | 'NEUTRAL' = 'NEUTRAL';
-  if (trend === 'BULLISH' && rsi < 70 && macd.histogram > 0) signalType = 'BUY';
-  else if (trend === 'BEARISH' && rsi > 30 && macd.histogram < 0) signalType = 'SELL';
+  if (trend === 'BULLISH' && rsi < 78 && macd.histogram > 0) signalType = 'BUY';
+  else if (trend === 'BULLISH' && rsi >= 78) signalType = 'NEUTRAL'; // Overbought — skip
+  else if (trend === 'BEARISH' && rsi > 22 && macd.histogram < 0) signalType = 'SELL';
+  else if (trend === 'BEARISH' && rsi <= 22) signalType = 'NEUTRAL'; // Oversold — skip
 
   // Levels with min 2.5 R:R
   const sl = signalType === 'BUY'

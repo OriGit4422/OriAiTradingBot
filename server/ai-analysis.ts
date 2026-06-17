@@ -1,4 +1,4 @@
-import { callMultiAI, type AIMessage } from './ai-providers';
+import { callMultiAI, extractJson, type AIMessage } from './ai-providers';
 
 const AI_PROVIDER_COOLDOWN_MS = 5 * 60 * 1000;
 let aiProviderDisabledUntil = 0;
@@ -132,10 +132,10 @@ Respond in JSON only:
     const messages: AIMessage[] = [{ role: 'user', content: prompt }];
     const { text } = await callMultiAI(messages, 400);
 
-    const jsonMatch = text.match(/\{[\s\S]*\}/);
+    const jsonMatch = extractJson(text);
     if (!jsonMatch) throw new Error('Could not parse AI response');
 
-    const parsed = JSON.parse(jsonMatch[0]);
+    const parsed = JSON.parse(jsonMatch);
     return {
       verdict: parsed.verdict || 'NEUTRAL',
       adjustedConfidence: Math.min(100, Math.max(0, parsed.adjustedConfidence || signalData.confidence)),
@@ -238,9 +238,9 @@ Respond in JSON only, no markdown:
 
   try {
     const { text } = await callMultiAI([{ role: 'user', content: prompt }], 1400);
-    const jsonMatch = text.match(/\{[\s\S]*\}/);
+    const jsonMatch = extractJson(text);
     if (!jsonMatch) throw new Error('Could not parse AI response');
-    const p = JSON.parse(jsonMatch[0]);
+    const p = JSON.parse(jsonMatch);
     const dir = ['LONG', 'SHORT', 'NEUTRAL'].includes(p.direction) ? p.direction : 'NEUTRAL';
     return {
       coin,
@@ -368,10 +368,10 @@ RULES:
     ];
 
     const { text } = await callMultiAI(messages, 8192);
-    const jsonMatch = text.match(/\{[\s\S]*\}/);
+    const jsonMatch = extractJson(text);
     if (!jsonMatch) return fallbackResult;
 
-    const parsed = JSON.parse(jsonMatch[0]);
+    const parsed = JSON.parse(jsonMatch);
     return {
       overview: parsed.overview || fallbackResult.overview,
       coins: (parsed.coins || []).map((c: any) => ({

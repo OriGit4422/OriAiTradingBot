@@ -111,7 +111,16 @@ export async function getBinanceBalance(apiKey: string, apiSecret: string): Prom
 export async function placeBinanceOrder(apiKey: string, apiSecret: string, req: ExchangeOrderRequest): Promise<ExchangeOrderResult> {
   try {
     const sym = req.symbol.replace("/", "").toUpperCase();
-    if (req.leverage) await setBinanceLeverage(apiKey, apiSecret, sym, req.leverage).catch(() => {});
+    if (req.leverage) {
+      try {
+        await setBinanceLeverage(apiKey, apiSecret, sym, req.leverage);
+      } catch (levErr: any) {
+        // Only ignore "leverage not changed" — propagate auth/invalid errors
+        if (!levErr.message?.includes('leverage not changed') && !levErr.message?.includes('No need to change')) {
+          return { ok: false, exchange: 'binance', message: `Failed to set leverage ${req.leverage}x: ${levErr.message}` };
+        }
+      }
+    }
     if (req.marginType) await setBinanceMarginType(apiKey, apiSecret, sym, req.marginType).catch(() => {});
 
     const order: Record<string, any> = {
@@ -200,10 +209,16 @@ export async function placeBybitOrder(apiKey: string, apiSecret: string, req: Ex
     const sym = req.symbol.replace("/", "").toUpperCase();
     // Set leverage
     if (req.leverage) {
-      await bybitSigned("POST", "/v5/position/set-leverage", apiKey, apiSecret, {
-        category: "linear", symbol: sym,
-        buyLeverage: String(req.leverage), sellLeverage: String(req.leverage),
-      }).catch(() => {});
+      try {
+        await bybitSigned("POST", "/v5/position/set-leverage", apiKey, apiSecret, {
+          category: "linear", symbol: sym,
+          buyLeverage: String(req.leverage), sellLeverage: String(req.leverage),
+        });
+      } catch (levErr: any) {
+        if (!levErr.message?.includes('leverage not modified') && !levErr.message?.includes('110043')) {
+          return { ok: false, exchange: 'bybit', message: `Failed to set leverage ${req.leverage}x: ${levErr.message}` };
+        }
+      }
     }
 
     const body: Record<string, any> = {
@@ -360,4 +375,94 @@ export async function autoTradeSignal(
   if (exchange === "binance") return placeBinanceOrder(apiKey, apiSecret, req);
   if (exchange === "bybit") return placeBybitOrder(apiKey, apiSecret, req);
   return placeMexcOrder(apiKey, apiSecret, req);
+}
+
+// ── Order cancellation ────────────────────────────────────────────────────────
+
+export async function cancelBinanceOrder(apiKey: string, apiSecret: string, symbol: string, orderId: string): Promise<ExchangeOrderResult> {
+  try {
+    const sym = symbol.replace("/", "").toUpperCase();
+    const result = await binanceSigned("DELETE", "/fapi/v1/order", apiKey, apiSecret, { symbol: sym, orderId });
+    return { ok: true, orderId: String(result.orderId), exchange: "binance", message: `Binance order ${orderId} cancelled`, details: result };
+  } catch (e: any) {
+    return { ok: false, exchange: "binance", message: e.message };
+  }
+}
+
+export async function cancelBybitOrder(apiKey: string, apiSecret: string, symbol: string, orderId: string): Promise<ExchangeOrderResult> {
+  try {
+    const sym = symbol.replace("/", "").toUpperCase();
+    const result = await bybitSigned("POST", "/v5/order/cancel", apiKey, apiSecret, { category: "linear", symbol: sym, orderId });
+    return { ok: true, orderId: result?.orderId, exchange: "bybit", message: `Bybit order ${orderId} cancelled`, details: result };
+  } catch (e: any) {
+    return { ok: false, exchange: "bybit", message: e.message };
+  }
+}
+
+export async function cancelMexcOrder(apiKey: string, apiSecret: string, symbol: string, orderId: string): Promise<ExchangeOrderResult> {
+  try {
+    const sym = symbol.replace("/", "_").toUpperCase();
+    const result = await mexcSigned("POST", "/api/v1/private/order/cancel", apiKey, apiSecret, { symbol: sym, orderId });
+    return { ok: true, orderId: String(orderId), exchange: "mexc", message: `MEXC order ${orderId} cancelled`, details: result };
+  } catch (e: any) {
+    return { ok: false, exchange: "mexc", message: e.message };
+  }
+}
+
+export async function cancelOrder(exchange: ExchangeName, apiKey: string, apiSecret: string, symbol: string, orderId: string): Promise<ExchangeOrderResult> {
+  if (exchange === "binance") return cancelBinanceOrder(apiKey, apiSecret, symbol, orderId);
+  if (exchange === "bybit") return cancelBybitOrder(apiKey, apiSecret, symbol, orderId);
+  return cancelMexcOrder(apiKey, apiSecret, symbol, orderId);
+}
+
+// ── Fetch open positions from exchange ────────────────────────────────────────
+
+export interface ExchangePosition {
+  symbol: string;
+  side: "LONG" | "SHORT";
+  size: number;
+  entryPrice: number;
+  unrealizedPnl: number;
+  leverage: number;
+  exchange: ExchangeName;
+}
+
+export async function getBinancePositions(apiKey: string, apiSecret: string): Promise<ExchangePosition[]> {
+  try {
+    const data = await binanceSigned("GET", "/fapi/v2/positionRisk", apiKey, apiSecret);
+    return (Array.isArray(data) ? data : [])
+      .filter((p: any) => parseFloat(p.positionAmt) !== 0)
+      .map((p: any) => ({
+        symbol: p.symbol,
+        side: parseFloat(p.positionAmt) > 0 ? "LONG" : "SHORT",
+        size: Math.abs(parseFloat(p.positionAmt)),
+        entryPrice: parseFloat(p.entryPrice),
+        unrealizedPnl: parseFloat(p.unRealizedProfit),
+        leverage: parseFloat(p.leverage),
+        exchange: "binance" as ExchangeName,
+      }));
+  } catch { return []; }
+}
+
+export async function getBybitPositions(apiKey: string, apiSecret: string): Promise<ExchangePosition[]> {
+  try {
+    const data = await bybitSigned("GET", "/v5/position/list", apiKey, apiSecret, { category: "linear", settleCoin: "USDT" });
+    return (data?.list ?? [])
+      .filter((p: any) => parseFloat(p.size) > 0)
+      .map((p: any) => ({
+        symbol: p.symbol,
+        side: p.side === "Buy" ? "LONG" : "SHORT",
+        size: parseFloat(p.size),
+        entryPrice: parseFloat(p.avgPrice),
+        unrealizedPnl: parseFloat(p.unrealisedPnl),
+        leverage: parseFloat(p.leverage),
+        exchange: "bybit" as ExchangeName,
+      }));
+  } catch { return []; }
+}
+
+export async function getExchangePositions(exchange: ExchangeName, apiKey: string, apiSecret: string): Promise<ExchangePosition[]> {
+  if (exchange === "binance") return getBinancePositions(apiKey, apiSecret);
+  if (exchange === "bybit") return getBybitPositions(apiKey, apiSecret);
+  return [];
 }

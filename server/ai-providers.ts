@@ -122,8 +122,7 @@ async function callAnthropic(
   const body: any = {
     model: config.model,
     max_tokens: maxTokens,
-    messages: chatMsgs.length ? chatMsgs : [{ role: 'user', content: '' }],
-    temperature: 0.7,
+    messages: chatMsgs.length ? chatMsgs : [{ role: 'user', content: 'Hello' }],
   };
   if (systemMsg) body.system = systemMsg.content;
 
@@ -148,16 +147,33 @@ async function callAnthropic(
   return { text, provider: config.name, model: config.model };
 }
 
-// ── Unified caller ────────────────────────────────────────────────────────────
+// ── Unified caller with retry ─────────────────────────────────────────────────
+
+async function sleep(ms: number) { return new Promise(r => setTimeout(r, ms)); }
 
 export async function callAIProvider(
   config: AIProviderConfig,
   messages: AIMessage[],
   maxTokens = 1024,
+  retries = 2,
 ): Promise<AIResponse> {
-  if (config.type === 'gemini') return callGemini(config, messages, maxTokens);
-  if (config.type === 'anthropic') return callAnthropic(config, messages, maxTokens);
-  return callOpenAICompatible(config, messages, maxTokens);
+  let lastError: Error | null = null;
+  for (let attempt = 0; attempt <= retries; attempt++) {
+    try {
+      if (config.type === 'gemini') return await callGemini(config, messages, maxTokens);
+      if (config.type === 'anthropic') return await callAnthropic(config, messages, maxTokens);
+      return await callOpenAICompatible(config, messages, maxTokens);
+    } catch (err: any) {
+      lastError = err;
+      // Don't retry auth errors (401, 403) or invalid request (400)
+      const isAuthErr = err.message?.includes('401') || err.message?.includes('403') || err.message?.includes('invalid_api_key');
+      const isBadReq = err.message?.includes('400') || err.message?.includes('invalid_request');
+      if (isAuthErr || isBadReq || attempt >= retries) break;
+      // Exponential backoff: 1s, 2s
+      await sleep(1000 * Math.pow(2, attempt));
+    }
+  }
+  throw lastError ?? new Error('AI provider call failed');
 }
 
 // ── Load active providers from DB settings ────────────────────────────────────
@@ -203,7 +219,7 @@ export async function getActiveProviders(): Promise<AIProviderConfig[]> {
       name: 'Claude',
       type: 'anthropic',
       apiKey: ss.anthropicApiKey,
-      model: ss.anthropicModel || 'claude-sonnet-4-5',
+      model: ss.anthropicModel || 'claude-sonnet-4-6',
     });
   }
 
@@ -221,12 +237,23 @@ export async function getActiveProviders(): Promise<AIProviderConfig[]> {
 
 // ── Multi-AI: run all providers in parallel, aggregate JSON numeric fields ────
 
+function extractJson(text: string): string | null {
+  // Try markdown code block first
+  const codeBlock = text.match(/```(?:json)?\s*(\{[\s\S]*?\})\s*```/);
+  if (codeBlock) return codeBlock[1];
+  // Then bare JSON object
+  const bare = text.match(/\{[\s\S]*\}/);
+  return bare ? bare[0] : null;
+}
+
+export { extractJson };
+
 function aggregateJsonResponses(texts: string[]): string {
   const parsed: any[] = [];
   for (const t of texts) {
-    const m = t.match(/\{[\s\S]*\}/);
+    const m = extractJson(t);
     if (!m) continue;
-    try { parsed.push(JSON.parse(m[0])); } catch { /* skip */ }
+    try { parsed.push(JSON.parse(m)); } catch { /* skip */ }
   }
   if (parsed.length === 0) return texts[0] ?? '';
   if (parsed.length === 1) return JSON.stringify(parsed[0]);

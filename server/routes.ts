@@ -332,7 +332,45 @@ export async function registerRoutes(
   app.post("/api/bot/execute", async (req, res) => {
     try {
       const signalId = req.body?.signalId as string;
+      const skipValidation = req.body?.skipValidation === true;
       if (!signalId) return res.status(400).json({ message: "signalId is required" });
+
+      // Run multi-agent validation before execution if enabled
+      if (!skipValidation) {
+        const signal = await storage.getSignal(signalId);
+        if (signal) {
+          try {
+            const validation = await runMultiAgentValidation({
+              coin: signal.coin,
+              type: signal.type,
+              entry: signal.entry,
+              tp: signal.tp,
+              sl: signal.sl,
+              confidence: signal.confidence,
+              strategy: signal.strategy || 'Auto',
+              timeframe: signal.timeframe || '1h',
+              marketPrice: signal.marketPrice || signal.entry,
+            });
+            if (!validation.shouldTrade) {
+              await storage.createBotLog({
+                level: 'warn',
+                event: 'MULTI_AGENT_BLOCK',
+                message: `Signal ${signal.coin} ${signal.type} blocked by multi-agent validation: ${validation.summary}`,
+                meta: { signalId, validation: { adjustedConfidence: validation.adjustedConfidence, verdict: validation.finalVerdict, agentsActive: validation.agentsActive } },
+              });
+              return res.status(400).json({
+                ok: false,
+                rejected: true,
+                message: `Multi-agent validation blocked this signal: ${validation.finalVerdict} (${validation.adjustedConfidence}% confidence). ${validation.summary}`,
+                multiAgentValidation: validation,
+              });
+            }
+          } catch (_validErr) {
+            // Non-fatal: validation failure doesn't block execution (logged, not rejected)
+          }
+        }
+      }
+
       const result = await executeSignal(signalId);
       res.status(result.ok ? 200 : 400).json(result);
     } catch (e: any) {
@@ -948,6 +986,93 @@ export async function registerRoutes(
         minConfidence: cfg.minConf,
       });
       res.json(result);
+    } catch (e: any) {
+      res.status(500).json({ ok: false, message: e.message });
+    }
+  });
+
+  // POST /api/bot/reconcile — compare open bot trades vs real exchange positions
+  app.post("/api/bot/reconcile", async (req, res) => {
+    try {
+      const s = await storage.getSettings();
+      if (!s) return res.status(400).json({ ok: false, message: "Settings not found" });
+
+      const botSettings = await storage.getBotSettings();
+      if (botSettings.mode === 'paper') {
+        return res.json({ ok: true, mode: 'paper', message: 'Paper mode — no exchange reconciliation needed', divergences: [] });
+      }
+
+      const exchange = (botSettings.connectedExchange || 'bybit') as ExchangeName;
+      const keyMap: Record<string, [string | null | undefined, string | null | undefined]> = {
+        binance: [s.binanceApiKey, s.binanceApiSecret],
+        bybit:   [s.bybitApiKey,   s.bybitApiSecret],
+        mexc:    [s.mexcApiKey,    s.mexcApiSecret],
+      };
+      const [apiKey, apiSecret] = keyMap[exchange] ?? [];
+      if (!apiKey || !apiSecret) {
+        return res.status(400).json({ ok: false, message: `No API keys for ${exchange}` });
+      }
+
+      const [exchangePositions, openBotTrades] = await Promise.all([
+        getExchangePositions(exchange, apiKey, apiSecret),
+        storage.getOpenBotTrades(),
+      ]);
+
+      const divergences: any[] = [];
+
+      // Find bot trades not on exchange (position closed externally)
+      for (const trade of openBotTrades) {
+        if (trade.mode !== 'live' && trade.mode !== 'testnet') continue;
+        const sym = trade.symbol.replace('/', '').toUpperCase();
+        const matchingPos = exchangePositions.find(p =>
+          p.symbol === sym &&
+          ((p.side === 'LONG' && trade.direction === 'LONG') || (p.side === 'SHORT' && trade.direction === 'SHORT'))
+        );
+        if (!matchingPos) {
+          divergences.push({
+            type: 'TRADE_NOT_ON_EXCHANGE',
+            tradeId: trade.id,
+            symbol: trade.symbol,
+            direction: trade.direction,
+            message: `Bot trade ${trade.id} (${trade.symbol} ${trade.direction}) not found on ${exchange}. May have been closed externally.`,
+          });
+        }
+      }
+
+      // Find exchange positions not tracked in bot (opened externally)
+      for (const pos of exchangePositions) {
+        const matchingTrade = openBotTrades.find(t =>
+          t.symbol === pos.symbol &&
+          ((pos.side === 'LONG' && t.direction === 'LONG') || (pos.side === 'SHORT' && t.direction === 'SHORT'))
+        );
+        if (!matchingTrade) {
+          divergences.push({
+            type: 'UNTRACKED_EXCHANGE_POSITION',
+            symbol: pos.symbol,
+            side: pos.side,
+            size: pos.size,
+            entryPrice: pos.entryPrice,
+            unrealizedPnl: pos.unrealizedPnl,
+            message: `Exchange position ${pos.symbol} ${pos.side} (size ${pos.size}) not tracked by bot. Opened externally?`,
+          });
+        }
+      }
+
+      await storage.createBotLog({
+        level: divergences.length > 0 ? 'warn' : 'info',
+        event: 'RECONCILIATION_RUN',
+        message: `Reconciliation: ${divergences.length} divergence(s) found between bot DB and ${exchange}`,
+        meta: { divergences },
+      });
+
+      res.json({
+        ok: true,
+        exchange,
+        botOpenTrades: openBotTrades.length,
+        exchangePositions: exchangePositions.length,
+        divergences,
+        reconciled: divergences.length === 0,
+      });
     } catch (e: any) {
       res.status(500).json({ ok: false, message: e.message });
     }

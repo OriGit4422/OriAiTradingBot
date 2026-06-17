@@ -13,7 +13,8 @@ import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '@/components/ui/dialog';
 import { Skeleton } from '@/components/ui/skeleton';
-import { Play, Pause, Settings2, BarChart3, AlertTriangle, Trash2 } from 'lucide-react';
+import { Play, Pause, Settings2, BarChart3, AlertTriangle, Trash2, Bot, RefreshCw, StopCircle, Activity, CheckCircle2, XCircle, Shield } from 'lucide-react';
+import { cn } from '@/lib/utils';
 import type { Strategy } from '@shared/schema';
 
 export default function Strategies() {
@@ -98,6 +99,50 @@ export default function Strategies() {
     });
   };
 
+  const { data: botState } = useQuery<any>({
+    queryKey: ['/api/bot/state'],
+    refetchInterval: 10000,
+  });
+
+  const [reconcileResult, setReconcileResult] = useState<any>(null);
+  const [reconciling, setReconciling] = useState(false);
+
+  const handleBotControl = async (action: string) => {
+    try {
+      const res = await apiRequest('POST', '/api/bot/control', { action });
+      const data = await res.json();
+      if (data.ok) {
+        queryClient.invalidateQueries({ queryKey: ['/api/bot/state'] });
+        toast({ title: `Bot ${action}`, description: `Bot ${action} successful` });
+      } else {
+        toast({ title: 'Error', description: data.message, variant: 'destructive' });
+      }
+    } catch (e: any) {
+      toast({ title: 'Error', description: e.message, variant: 'destructive' });
+    }
+  };
+
+  const handleReconcile = async () => {
+    setReconciling(true);
+    try {
+      const res = await apiRequest('POST', '/api/bot/reconcile', {});
+      const data = await res.json();
+      setReconcileResult(data);
+      if (data.ok && data.divergences?.length === 0) {
+        toast({ title: 'Reconciliation Complete', description: 'All positions in sync ✓' });
+      } else if (data.divergences?.length > 0) {
+        toast({ title: `${data.divergences.length} Divergence(s) Found`, description: 'Review reconciliation results', variant: 'destructive' });
+      }
+    } catch (e: any) {
+      toast({ title: 'Reconciliation Failed', description: e.message, variant: 'destructive' });
+    } finally {
+      setReconciling(false);
+    }
+  };
+
+  const botEff = botState?.effectiveState;
+  const botMetrics = botState?.metrics;
+
   return (
     <div className="min-h-screen bg-background text-foreground font-sans flex">
       <Sidebar />
@@ -112,6 +157,115 @@ export default function Strategies() {
               <Play className="w-4 h-4" /> Start All
             </Button>
           </div>
+
+          {/* AI Bot Engine Control Panel */}
+          <Card className={cn("border", botEff === 'active' ? "border-green-500/30 bg-green-500/[0.02]" : botEff === 'locked' ? "border-red-500/30 bg-red-500/[0.02]" : "border-border")}>
+            <CardHeader className="pb-3">
+              <CardTitle className="flex items-center gap-2">
+                <Bot className="w-5 h-5 text-primary" />
+                AI Auto-Trading Bot
+                <Badge className={cn("ml-2 text-[10px]",
+                  botEff === 'active' ? "bg-green-500/10 text-green-500 border-green-500/30" :
+                  botEff === 'locked' ? "bg-red-500/10 text-red-500 border-red-500/30" :
+                  botEff === 'paused' ? "bg-yellow-500/10 text-yellow-500 border-yellow-500/30" :
+                  "bg-muted/50 text-muted-foreground"
+                )}>
+                  {botEff?.toUpperCase() || 'LOADING'}
+                </Badge>
+                {botState?.settings?.mode && (
+                  <Badge variant="outline" className="text-[10px]">{botState.settings.mode.toUpperCase()} MODE</Badge>
+                )}
+              </CardTitle>
+              <CardDescription>AI-driven signal execution with multi-agent validation gate</CardDescription>
+            </CardHeader>
+            <CardContent>
+              {botMetrics && (
+                <div className="grid grid-cols-2 md:grid-cols-5 gap-3 mb-4">
+                  <div className="bg-muted/20 rounded-lg p-3 text-center">
+                    <div className="text-[10px] text-muted-foreground uppercase mb-1">Open Trades</div>
+                    <div className="text-xl font-bold font-mono">{botMetrics.openTrades}</div>
+                  </div>
+                  <div className="bg-muted/20 rounded-lg p-3 text-center">
+                    <div className="text-[10px] text-muted-foreground uppercase mb-1">Trades Today</div>
+                    <div className="text-xl font-bold font-mono">{botMetrics.tradesToday}</div>
+                  </div>
+                  <div className="bg-muted/20 rounded-lg p-3 text-center">
+                    <div className="text-[10px] text-muted-foreground uppercase mb-1">Daily P&L</div>
+                    <div className={cn("text-xl font-bold font-mono", botMetrics.dailyPnl >= 0 ? "text-green-500" : "text-red-500")}>
+                      {botMetrics.dailyPnl >= 0 ? '+' : ''}{botMetrics.dailyPnl.toFixed(2)}
+                    </div>
+                  </div>
+                  <div className="bg-muted/20 rounded-lg p-3 text-center">
+                    <div className="text-[10px] text-muted-foreground uppercase mb-1">Margin Used</div>
+                    <div className="text-xl font-bold font-mono">${botMetrics.marginInUse.toFixed(2)}</div>
+                  </div>
+                  <div className="bg-muted/20 rounded-lg p-3 text-center">
+                    <div className="text-[10px] text-muted-foreground uppercase mb-1">Daily Loss %</div>
+                    <div className={cn("text-xl font-bold font-mono", botMetrics.dailyLossUsedPct > 75 ? "text-red-500" : botMetrics.dailyLossUsedPct > 50 ? "text-yellow-500" : "text-foreground")}>
+                      {botMetrics.dailyLossUsedPct.toFixed(1)}%
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {botState?.blockReasons?.length > 0 && (
+                <div className="mb-4 p-3 rounded-lg bg-yellow-500/10 border border-yellow-500/20">
+                  <div className="flex items-center gap-2 mb-1">
+                    <AlertTriangle className="w-4 h-4 text-yellow-500" />
+                    <span className="text-xs font-semibold text-yellow-500">Block Reasons</span>
+                  </div>
+                  {botState.blockReasons.map((r: string, i: number) => (
+                    <div key={i} className="text-xs text-muted-foreground">• {r}</div>
+                  ))}
+                </div>
+              )}
+
+              <div className="flex flex-wrap gap-2">
+                <Button size="sm" variant="default" disabled={botEff === 'active'} onClick={() => handleBotControl('start')} className="gap-1">
+                  <Play className="w-3 h-3" /> Start
+                </Button>
+                <Button size="sm" variant="outline" disabled={botEff === 'paused'} onClick={() => handleBotControl('pause')} className="gap-1">
+                  <Pause className="w-3 h-3" /> Pause
+                </Button>
+                <Button size="sm" variant="destructive" onClick={() => handleBotControl('emergency-stop')} className="gap-1">
+                  <StopCircle className="w-3 h-3" /> Emergency Stop
+                </Button>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={handleReconcile}
+                  disabled={reconciling || botState?.settings?.mode === 'paper'}
+                  className="gap-1"
+                  title={botState?.settings?.mode === 'paper' ? 'Not needed in paper mode' : 'Sync DB trades with exchange positions'}
+                >
+                  <RefreshCw className={cn("w-3 h-3", reconciling && "animate-spin")} />
+                  Reconcile Positions
+                </Button>
+              </div>
+
+              {reconcileResult && (
+                <div className={cn("mt-3 p-3 rounded-lg border text-xs", reconcileResult.divergences?.length === 0 ? "bg-green-500/5 border-green-500/20" : "bg-red-500/5 border-red-500/20")}>
+                  <div className="flex items-center gap-2 mb-1">
+                    {reconcileResult.divergences?.length === 0
+                      ? <><CheckCircle2 className="w-3.5 h-3.5 text-green-500" /><span className="font-semibold text-green-500">All positions in sync</span></>
+                      : <><XCircle className="w-3.5 h-3.5 text-red-500" /><span className="font-semibold text-red-500">{reconcileResult.divergences?.length} divergence(s)</span></>
+                    }
+                  </div>
+                  {reconcileResult.divergences?.map((d: any, i: number) => (
+                    <div key={i} className="text-muted-foreground mt-0.5">• {d.message}</div>
+                  ))}
+                  {reconcileResult.mode === 'paper' && <div className="text-muted-foreground">Paper mode — reconciliation not applicable</div>}
+                </div>
+              )}
+
+              {botState?.liveReadiness && !botState.liveReadiness.unlocked && (
+                <div className="mt-3 flex items-center gap-2 text-[11px] text-muted-foreground">
+                  <Shield className="w-3.5 h-3.5 text-primary" />
+                  Live trading locked: {botState.liveReadiness.paperTradeCount}/{botState.liveReadiness.paperTradesRequired} paper trades completed
+                </div>
+              )}
+            </CardContent>
+          </Card>
 
           {isLoading ? (
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6" data-testid="strategies-loading">

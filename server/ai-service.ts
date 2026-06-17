@@ -19,6 +19,8 @@ export interface AIValidationResult {
   riskScore: number;
   validation: string;
   suggestions: string;
+  aiUnavailable?: boolean;
+  providers?: string[];
 }
 
 export interface AIStrategyReview {
@@ -120,10 +122,11 @@ Respond in this exact JSON format only:
   } catch (error: any) {
     console.error('AI Validation error:', error.message);
     return {
-      isValid: true,
-      riskScore: 5,
-      validation: 'AI validation temporarily unavailable. Signal generated with standard parameters.',
-      suggestions: 'Please review signal manually.',
+      isValid: false,
+      riskScore: 8,
+      validation: `AI validation failed: ${error.message}. Signal blocked pending manual review.`,
+      suggestions: 'Configure AI provider keys in Settings → AI Agents, or manually approve this signal.',
+      aiUnavailable: true,
     };
   }
 }

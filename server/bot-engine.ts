@@ -1,16 +1,6 @@
 import { storage } from './storage';
 import type { BotSettings, BotTrade, Signal } from '@shared/schema';
-
-/*
- * AI Auto-Trading Bot — engine (Phase 1)
- *
- * Isolation note: this engine NEVER calls the legacy
- * POST /api/exchange/:exchange/trade -> autoTradeSignal() path. That path uses
- * an unsafe margin-based sizing model and ignores stop-loss risk. The bot uses
- * the 2%-stop-distance risk engine below and, in Phase 1, only executes in
- * paper mode. testnet/live deliberately return a "not wired" rejection so no
- * real or fake-real orders are ever placed until the execution phase lands.
- */
+import { placeBinanceOrder, placeBybitOrder, placeMexcOrder, getBinanceBalance, getBybitBalance, getMexcBalance, getExchangePositions, type ExchangeName } from './exchanges';
 
 const GRADE_RANK: Record<string, number> = { 'A+': 4, A: 3, B: 2, C: 1, 'No Trade': 0 };
 
@@ -244,20 +234,108 @@ async function dispatchOrder(
     rr: number;
   },
 ): Promise<ExecResult> {
-  if (s.mode !== 'paper') {
-    const code = s.mode === 'testnet' ? 'TESTNET_NOT_WIRED' : 'LIVE_NOT_WIRED';
+  // Live / Testnet execution — route to real exchange
+  if (s.mode === 'live' || s.mode === 'testnet') {
+    const ss = s as any;
+    const exchange = (intent.exchange || s.connectedExchange || 'bybit') as ExchangeName;
+
+    // Resolve API keys based on exchange and mode
+    let apiKey = '';
+    let apiSecret = '';
+    if (exchange === 'binance') {
+      apiKey = ss.binanceApiKey || '';
+      apiSecret = ss.binanceApiSecret || '';
+    } else if (exchange === 'bybit') {
+      apiKey = ss.bybitApiKey || '';
+      apiSecret = ss.bybitApiSecret || '';
+    } else if (exchange === 'mexc') {
+      apiKey = ss.mexcApiKey || '';
+      apiSecret = ss.mexcApiSecret || '';
+    }
+
+    if (!apiKey || !apiSecret) {
+      return { ok: false, rejected: true, message: `No API keys configured for ${exchange}. Add them in Settings → Exchange.` };
+    }
+
+    // Verify real-time balance before placing order
+    let balance = { ok: false, availableBalance: 0 };
+    try {
+      if (exchange === 'binance') balance = await getBinanceBalance(apiKey, apiSecret);
+      else if (exchange === 'bybit') balance = await getBybitBalance(apiKey, apiSecret);
+      else balance = await getMexcBalance(apiKey, apiSecret);
+    } catch { /* non-fatal — proceed with sizing check */ }
+
+    if (balance.ok && balance.availableBalance < intent.marginUsed) {
+      return { ok: false, rejected: true, message: `Insufficient balance: need $${intent.marginUsed.toFixed(2)}, available $${balance.availableBalance.toFixed(2)}` };
+    }
+
+    const side = intent.direction === 'LONG' ? 'BUY' : 'SELL';
+    let result;
+    if (exchange === 'binance') {
+      result = await placeBinanceOrder(apiKey, apiSecret, {
+        symbol: intent.symbol, side, quantity: intent.positionSize,
+        orderType: 'MARKET', leverage: intent.leverage,
+        marginType: ss.defaultMarginType || 'ISOLATED',
+        stopLoss: intent.stopLoss, takeProfit: intent.tp1 ?? undefined,
+      });
+    } else if (exchange === 'bybit') {
+      result = await placeBybitOrder(apiKey, apiSecret, {
+        symbol: intent.symbol, side, quantity: intent.positionSize,
+        orderType: 'MARKET', leverage: intent.leverage,
+        marginType: ss.defaultMarginType || 'ISOLATED',
+        stopLoss: intent.stopLoss, takeProfit: intent.tp1 ?? undefined,
+      });
+    } else {
+      result = await placeMexcOrder(apiKey, apiSecret, {
+        symbol: intent.symbol, side, quantity: intent.positionSize,
+        orderType: 'MARKET', leverage: intent.leverage,
+        marginType: ss.defaultMarginType || 'ISOLATED',
+        stopLoss: intent.stopLoss, takeProfit: intent.tp1 ?? undefined,
+      });
+    }
+
+    if (!result.ok) {
+      await storage.createBotLog({
+        level: 'error',
+        event: 'ORDER_REJECTED_BY_EXCHANGE',
+        message: `${s.mode.toUpperCase()} order rejected by ${exchange}: ${result.message}`,
+        meta: { intent, error: result.message },
+      });
+      return { ok: false, rejected: true, message: `Exchange rejected order: ${result.message}` };
+    }
+
+    const trade = await storage.createBotTrade({
+      signalId: intent.signalId,
+      exchange: intent.exchange,
+      mode: s.mode,
+      symbol: intent.symbol,
+      direction: intent.direction,
+      timeframe: intent.timeframe,
+      strategy: intent.strategy,
+      entry: intent.entry,
+      stopLoss: intent.stopLoss,
+      tp1: intent.tp1,
+      tp2: null, tp3: null,
+      positionSize: intent.positionSize,
+      leverage: intent.leverage,
+      marginUsed: intent.marginUsed,
+      riskAmount: intent.riskAmount,
+      walletBefore: balance.ok ? balance.totalWalletBalance : s.paperBalance,
+      grade: intent.grade,
+      confidence: intent.confidence,
+      rr: intent.rr,
+      status: 'open',
+      exchangeOrderId: result.orderId,
+    } as any);
+
     await storage.createBotLog({
-      level: 'warn',
-      event: code,
-      message: `${s.mode} execution is not connected yet — order validated but NOT placed.`,
-      meta: { intent },
+      level: 'success',
+      event: 'ORDER_SUBMITTED',
+      message: `${s.mode.toUpperCase()} order placed on ${exchange}: ${intent.symbol} ${intent.direction} @ ${intent.entry} (orderId: ${result.orderId})`,
+      meta: { tradeId: trade.id, orderId: result.orderId, grade: intent.grade, rr: intent.rr },
     });
-    return {
-      ok: false,
-      notWired: true,
-      code,
-      message: `${s.mode.toUpperCase()} mode is not wired yet. The order passed all risk checks but no order was placed. Switch to Paper mode to simulate execution.`,
-    };
+    await storage.updateSignalStatus(intent.signalId, 'EXECUTED');
+    return { ok: true, message: `${s.mode.toUpperCase()} order placed on ${exchange}: ${intent.symbol}`, trade, grade: intent.grade, rr: intent.rr };
   }
 
   const trade = await storage.createBotTrade({

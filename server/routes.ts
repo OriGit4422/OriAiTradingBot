@@ -13,7 +13,7 @@ import { testBinanceConnectivity, testBybitConnectivity } from "./exchange-conne
 import { evaluateSignalsPerformance } from "./signal-performance";
 import { connectMt5, disconnectMt5, getGoldCandles, getGoldTradingStatus, getLiveGoldPrice, runGoldAutoTradeOnce, setGoldAutoTrading } from "./gold-trading";
 import { getCoinNews, getLatestCryptoNews } from "./news";
-import { type ExchangeName, testExchangeConnection, getBinanceBalance, getBybitBalance, getMexcBalance, autoTradeSignal } from "./exchanges";
+import { type ExchangeName, testExchangeConnection, getBinanceBalance, getBybitBalance, getMexcBalance, autoTradeSignal, cancelOrder, getExchangePositions } from "./exchanges";
 import { analyzeGold } from "./gold-analysis";
 import { getMT5AccountInfo, placeMT5Order, getMT5OpenPositions } from "./mt5";
 import { getCoinglassData } from "./coinglass";
@@ -672,7 +672,7 @@ export async function registerRoutes(
 
   // ─── AI Intelligence Endpoints ────────────────────────────────────────────
 
-  // GET /api/intelligence/status — which agents are configured
+  // GET /api/intelligence/status — which agents are configured + live health
   app.get("/api/intelligence/status", async (_req, res) => {
     try {
       const s = await storage.getSettings();
@@ -680,26 +680,49 @@ export async function registerRoutes(
       const openaiActive = !!(ss?.openaiEnabled && ss?.openaiApiKey);
       const anthropicActive = !!(ss?.anthropicEnabled && ss?.anthropicApiKey);
       const geminiActive = !!(ss?.geminiEnabled && ss?.geminiApiKey);
-      const anyAiActive  = openaiActive || anthropicActive || geminiActive;
-      const primaryName = openaiActive
-        ? 'OpenAI'
-        : anthropicActive
-          ? 'Claude'
-          : geminiActive ? 'Gemini' : 'AI (not configured)';
+      const custom1Active = !!(ss?.customAi1Enabled && ss?.customAi1ApiKey);
+      const custom2Active = !!(ss?.customAi2Enabled && ss?.customAi2ApiKey);
+      const anyAiActive = openaiActive || anthropicActive || geminiActive || custom1Active || custom2Active;
+
+      const activeProviders: string[] = [];
+      if (anthropicActive) activeProviders.push(`Claude (${ss?.anthropicModel || 'claude-sonnet-4-5'})`);
+      if (openaiActive) activeProviders.push(`OpenAI (${ss?.openaiModel || 'gpt-4o'})`);
+      if (geminiActive) activeProviders.push(`Gemini (${ss?.geminiModel || 'gemini-1.5-pro'})`);
+      if (custom1Active) activeProviders.push(ss?.customAi1Name || 'Custom AI 1');
+      if (custom2Active) activeProviders.push(ss?.customAi2Name || 'Custom AI 2');
+
+      const totalAgents = (anyAiActive ? 1 : 0) +
+        [s?.coinglassApiKey, s?.perplexityApiKey, s?.arkhamApiKey].filter(Boolean).length;
 
       res.json({
         agents: {
-          primaryAI:  { name: primaryName, active: anyAiActive, role: 'Primary signal analysis & cross-validation' },
-          coinglass:  { name: 'Coinglass',  active: !!s?.coinglassApiKey,  role: 'Derivatives: funding rates, long/short ratios' },
-          perplexity: { name: 'Perplexity', active: !!s?.perplexityApiKey, role: 'Real-time news sentiment filter' },
-          arkham:     { name: 'Arkham',     active: !!s?.arkhamApiKey,     role: 'Whale & smart money on-chain tracking' },
+          primaryAI:  {
+            name: activeProviders.length > 1 ? `Multi-AI (${activeProviders.length} providers)` : activeProviders[0] || 'AI (not configured)',
+            active: anyAiActive,
+            role: 'Primary signal analysis & cross-validation',
+            providers: activeProviders,
+            consensusMode: activeProviders.length > 1,
+          },
+          coinglass:  { name: 'Coinglass',  active: !!s?.coinglassApiKey,  role: 'Derivatives: funding rates, long/short ratios, open interest' },
+          perplexity: { name: 'Perplexity', active: !!s?.perplexityApiKey, role: 'Real-time news sentiment + risk event detection' },
+          arkham:     { name: 'Arkham',     active: !!s?.arkhamApiKey,     role: 'Whale & smart money on-chain flow tracking' },
         },
         aiProviders: {
-          openai:    { name: 'OpenAI', active: openaiActive, model: ss?.openaiModel || 'gpt-4o' },
-          anthropic: { name: 'Claude', active: anthropicActive, model: ss?.anthropicModel || 'claude-sonnet-4-5' },
-          gemini:    { name: 'Gemini', active: geminiActive, model: ss?.geminiModel || 'gemini-1.5-pro' },
+          openai:    { name: 'OpenAI',    active: openaiActive,    model: ss?.openaiModel    || 'gpt-4o',               enabled: ss?.openaiEnabled },
+          anthropic: { name: 'Claude',    active: anthropicActive, model: ss?.anthropicModel || 'claude-sonnet-4-5',    enabled: ss?.anthropicEnabled },
+          gemini:    { name: 'Gemini',    active: geminiActive,    model: ss?.geminiModel    || 'gemini-1.5-pro',       enabled: ss?.geminiEnabled },
+          custom1:   { name: ss?.customAi1Name || 'Custom AI 1', active: custom1Active, model: ss?.customAi1Model || 'gpt-4o', enabled: ss?.customAi1Enabled },
+          custom2:   { name: ss?.customAi2Name || 'Custom AI 2', active: custom2Active, model: ss?.customAi2Model || 'gpt-4o', enabled: ss?.customAi2Enabled },
         },
-        totalActive: (anyAiActive ? 1 : 0) + [s?.coinglassApiKey, s?.perplexityApiKey, s?.arkhamApiKey].filter(Boolean).length,
+        totalActive: totalAgents,
+        validationEnabled: anyAiActive,
+        filteringActive: anyAiActive,
+        consensusMode: activeProviders.length > 1,
+        activeProviderNames: activeProviders,
+        minConfidenceToShow: 60,
+        signalFilterDescription: anyAiActive
+          ? `All signals validated by ${activeProviders.join(' + ')} before display`
+          : 'No AI validation — configure API keys in Settings → AI Agents',
       });
     } catch (e: any) {
       res.status(500).json({ message: e.message });
@@ -850,6 +873,48 @@ export async function registerRoutes(
       else if (exchange === "bybit") bal = await getBybitBalance(apiKey, apiSecret);
       else bal = await getMexcBalance(apiKey, apiSecret);
       res.json(bal);
+    } catch (e: any) {
+      res.status(500).json({ ok: false, message: e.message });
+    }
+  });
+
+  // GET /api/exchange/:exchange/positions — fetch real positions from exchange
+  app.get("/api/exchange/:exchange/positions", async (req, res) => {
+    try {
+      const exchange = req.params.exchange as ExchangeName;
+      const s = await storage.getSettings();
+      if (!s) return res.status(400).json({ ok: false, message: "Settings not found" });
+      const keyMap: Record<string, [string | null | undefined, string | null | undefined]> = {
+        binance: [s.binanceApiKey, s.binanceApiSecret],
+        bybit:   [s.bybitApiKey,   s.bybitApiSecret],
+        mexc:    [s.mexcApiKey,    s.mexcApiSecret],
+      };
+      const [apiKey, apiSecret] = keyMap[exchange] ?? [];
+      if (!apiKey || !apiSecret) return res.json({ ok: false, positions: [], message: "API keys not configured" });
+      const positions = await getExchangePositions(exchange, apiKey, apiSecret);
+      res.json({ ok: true, exchange, positions });
+    } catch (e: any) {
+      res.status(500).json({ ok: false, message: e.message, positions: [] });
+    }
+  });
+
+  // DELETE /api/exchange/:exchange/order/:orderId — cancel an open order
+  app.delete("/api/exchange/:exchange/order/:orderId", async (req, res) => {
+    try {
+      const exchange = req.params.exchange as ExchangeName;
+      const { symbol } = req.query;
+      if (!symbol) return res.status(400).json({ ok: false, message: "symbol query param required" });
+      const s = await storage.getSettings();
+      if (!s) return res.status(400).json({ ok: false, message: "Settings not found" });
+      const keyMap: Record<string, [string | null | undefined, string | null | undefined]> = {
+        binance: [s.binanceApiKey, s.binanceApiSecret],
+        bybit:   [s.bybitApiKey,   s.bybitApiSecret],
+        mexc:    [s.mexcApiKey,    s.mexcApiSecret],
+      };
+      const [apiKey, apiSecret] = keyMap[exchange] ?? [];
+      if (!apiKey || !apiSecret) return res.status(400).json({ ok: false, message: `${exchange} API keys not configured` });
+      const result = await cancelOrder(exchange, apiKey, apiSecret, String(symbol), req.params.orderId);
+      res.json(result);
     } catch (e: any) {
       res.status(500).json({ ok: false, message: e.message });
     }

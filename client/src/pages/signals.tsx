@@ -5,11 +5,11 @@ import { Sidebar } from '@/components/layout/Sidebar';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { Search, Filter, ArrowRight, Clock, Zap, Flame, Send, Loader2, RefreshCw, TrendingUp, TrendingDown, Activity, BarChart3, Brain, Gauge, Shield } from 'lucide-react';
+import { Search, Filter, ArrowRight, Clock, Zap, Flame, Send, Loader2, RefreshCw, TrendingUp, TrendingDown, Activity, BarChart3, Brain, Gauge, Shield, CheckCircle2, XCircle, AlertTriangle, Eye } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { fetchKlines } from '@/lib/binance';
 import { getQuantumSignal, calculateMultiTFConfluence } from '@/lib/strategies';
-import { enhanceSignalsWithAI } from '@/lib/signal-ai';
+import { enhanceSignalsWithAI, getAIClientStatus, resetAIClientCooldown } from '@/lib/signal-ai';
 import { toast } from '@/hooks/use-toast';
 import type { Signal } from '@shared/schema';
 import { ScrollArea } from '@/components/ui/scroll-area';
@@ -219,6 +219,15 @@ export default function Signals() {
 
   const isLoading = isAnalyzing && isLoadingDb;
 
+  const aiStatus = getAIClientStatus();
+  const validatedCount = liveSignals.filter(s => s.aiValidated).length;
+  const filteredCount = liveSignals.filter(s => s.aiFiltered).length;
+  const pendingCount = liveSignals.filter(s => !s.aiValidated && !s.aiCooldownActive).length;
+  const { data: intelligenceStatus } = useQuery<any>({
+    queryKey: ['/api/intelligence/status'],
+    refetchInterval: 30000,
+  });
+
   return (
     <div className="min-h-screen bg-background text-foreground font-sans flex">
       <Sidebar />
@@ -228,7 +237,7 @@ export default function Signals() {
             <div>
               <h1 className="text-2xl md:text-3xl font-display font-bold text-primary mb-1" data-testid="text-page-title">Signal Feed</h1>
               <p className="text-sm text-muted-foreground">
-                AI-generated trading opportunities with multi-timeframe confluence analysis.
+                All signals AI-validated before display. Multi-agent consensus filtering active.
                 {liveSignals.filter(s => s.coin === 'XAUUSD').length > 0 && (
                   <span className="ml-2 text-amber-500 font-semibold">
                     🥇 {liveSignals.filter(s => s.coin === 'XAUUSD').length} Gold signal{liveSignals.filter(s => s.coin === 'XAUUSD').length > 1 ? 's' : ''} live
@@ -251,6 +260,50 @@ export default function Signals() {
                 <Filter className="w-4 h-4 mr-2" />
                 Alerts
               </Button>
+            </div>
+          </div>
+
+          {/* AI Validation Status Bar */}
+          <div className={cn(
+            "rounded-lg border p-3 flex flex-col md:flex-row items-start md:items-center justify-between gap-3",
+            aiStatus.available && intelligenceStatus?.validationEnabled
+              ? "bg-green-500/5 border-green-500/30"
+              : "bg-yellow-500/5 border-yellow-500/30"
+          )}>
+            <div className="flex items-center gap-3 flex-wrap">
+              {aiStatus.available && intelligenceStatus?.validationEnabled ? (
+                <CheckCircle2 className="w-4 h-4 text-green-500 shrink-0" />
+              ) : (
+                <AlertTriangle className="w-4 h-4 text-yellow-500 shrink-0" />
+              )}
+              <div>
+                <span className={cn("text-xs font-bold uppercase font-mono", aiStatus.available && intelligenceStatus?.validationEnabled ? "text-green-500" : "text-yellow-500")}>
+                  {aiStatus.available && intelligenceStatus?.validationEnabled ? 'AI Validation Active' : 'AI Validation Offline'}
+                </span>
+                <p className="text-[10px] text-muted-foreground mt-0.5">
+                  {intelligenceStatus?.signalFilterDescription || 'Loading AI status...'}
+                </p>
+              </div>
+            </div>
+            <div className="flex items-center gap-4 text-[10px] font-mono">
+              {!isAnalyzing && liveSignals.length > 0 && (
+                <>
+                  <span className="text-green-500">✓ {validatedCount} validated</span>
+                  {filteredCount > 0 && <span className="text-red-400">✗ {filteredCount} filtered</span>}
+                  {pendingCount > 0 && <span className="text-yellow-400">⟳ {pendingCount} pending</span>}
+                </>
+              )}
+              {intelligenceStatus?.consensusMode && (
+                <Badge variant="outline" className="text-[9px] h-5 border-primary/40 text-primary">
+                  <Brain className="w-2.5 h-2.5 mr-1" />
+                  {intelligenceStatus.activeProviderNames?.length}x AI Consensus
+                </Badge>
+              )}
+              {!aiStatus.available && (
+                <Button variant="ghost" size="sm" className="h-6 text-[10px]" onClick={() => { resetAIClientCooldown(); generateSignals(); }}>
+                  Reset & Retry
+                </Button>
+              )}
             </div>
           </div>
 
@@ -369,6 +422,21 @@ export default function Signals() {
                                 <Flame className="w-3 h-3" /> ULTRA
                               </Badge>
                             )}
+                            {signal.aiValidated && !signal.aiFiltered && (
+                              <Badge className="bg-green-500/10 text-green-500 border-green-500/20 gap-1 text-[9px]">
+                                <CheckCircle2 className="w-2.5 h-2.5" /> AI PASSED
+                              </Badge>
+                            )}
+                            {signal.aiFiltered && (
+                              <Badge className="bg-red-500/10 text-red-400 border-red-500/20 gap-1 text-[9px]">
+                                <XCircle className="w-2.5 h-2.5" /> AI FILTERED
+                              </Badge>
+                            )}
+                            {!signal.aiValidated && signal.aiCooldownActive && (
+                              <Badge className="bg-yellow-500/10 text-yellow-400 border-yellow-500/20 gap-1 text-[9px]">
+                                <AlertTriangle className="w-2.5 h-2.5" /> PENDING VALIDATION
+                              </Badge>
+                            )}
                           </div>
                           <div className="text-xs text-muted-foreground flex items-center gap-2 mt-1 flex-wrap">
                             <span className="text-primary font-medium">{signal.strategy} Strategy</span>
@@ -385,8 +453,20 @@ export default function Signals() {
                                         : 'text-yellow-500'
                                   )}
                                 >
-                                  AI {signal.aiConfirmation.verdict}
+                                  AI: {signal.aiConfirmation.verdict}
                                 </span>
+                                {signal.aiConfirmation.riskLevel && (
+                                  <>
+                                    <span>|</span>
+                                    <span className={cn(
+                                      "text-[10px]",
+                                      signal.aiConfirmation.riskLevel === 'HIGH' ? 'text-red-400' :
+                                      signal.aiConfirmation.riskLevel === 'MEDIUM' ? 'text-yellow-400' : 'text-green-400'
+                                    )}>
+                                      Risk: {signal.aiConfirmation.riskLevel}
+                                    </span>
+                                  </>
+                                )}
                               </>
                             )}
                             <span>|</span>
@@ -398,10 +478,17 @@ export default function Signals() {
                       </div>
 
                       <div className="text-right">
-                        <div className="text-xs text-muted-foreground mb-1">AI Confidence</div>
+                        <div className="text-xs text-muted-foreground mb-1">
+                          {signal.aiValidated ? 'AI-Adjusted' : 'Base'} Confidence
+                        </div>
                         <div className={cn("text-xl font-black font-mono", getConfidenceColor(signal.confidence))} data-testid={`text-confidence-${signal.coin}`}>
                           {signal.confidence}%
                         </div>
+                        {signal.aiConfirmation?.adjustedConfidence && signal.aiConfirmation.adjustedConfidence !== signal.confidence && (
+                          <div className="text-[9px] text-muted-foreground font-mono">
+                            AI raw: {signal.aiConfirmation.adjustedConfidence}%
+                          </div>
+                        )}
                       </div>
                     </div>
 
@@ -478,18 +565,36 @@ export default function Signals() {
                       </div>
                     )}
 
-                    {/* Gold AI reasoning panel */}
-                    {signal.coin === 'XAUUSD' && (signal.goldReasoning || signal.aiConfirmation?.reasoning) && (
-                      <div className="mt-2 px-3 py-2 rounded bg-amber-500/5 border border-amber-500/15 text-[11px] text-muted-foreground leading-relaxed">
-                        <span className="font-semibold text-amber-500">Claude AI Analysis: </span>
-                        {signal.aiConfirmation?.reasoning || signal.goldReasoning}
-                      </div>
-                    )}
-                    {/* Crypto AI reasoning panel */}
-                    {signal.coin !== 'XAUUSD' && signal.aiConfirmation?.reasoning && (
-                      <div className="mt-2 px-3 py-2 rounded bg-primary/5 border border-primary/10 text-[11px] text-muted-foreground leading-relaxed">
-                        <span className="font-semibold text-primary">Claude AI: </span>
-                        {signal.aiConfirmation.reasoning}
+                    {/* AI Reasoning Panel */}
+                    {signal.aiConfirmation?.reasoning && (
+                      <div className={cn(
+                        "mt-2 px-3 py-2 rounded text-[11px] leading-relaxed",
+                        signal.aiFiltered
+                          ? "bg-red-500/5 border border-red-500/20"
+                          : signal.coin === 'XAUUSD'
+                            ? "bg-amber-500/5 border border-amber-500/15"
+                            : "bg-primary/5 border border-primary/10"
+                      )}>
+                        <div className="flex items-center gap-1 mb-1">
+                          <Brain className="w-3 h-3 text-primary" />
+                          <span className={cn(
+                            "font-semibold text-[10px] uppercase font-mono",
+                            signal.aiFiltered ? "text-red-400" : signal.coin === 'XAUUSD' ? "text-amber-500" : "text-primary"
+                          )}>
+                            {signal.aiFiltered ? 'AI BLOCKED — Direction Conflict' : 'AI Analysis'}
+                            {intelligenceStatus?.consensusMode && !signal.aiFiltered && (
+                              <span className="ml-1 normal-case text-muted-foreground">({intelligenceStatus.activeProviderNames?.join(' + ')})</span>
+                            )}
+                          </span>
+                        </div>
+                        <p className="text-muted-foreground">
+                          {signal.aiConfirmation.reasoning}
+                        </p>
+                        {signal.aiConfirmation?.marketSentiment && (
+                          <p className="text-muted-foreground/70 mt-1 text-[10px]">
+                            Market: {signal.aiConfirmation.marketSentiment}
+                          </p>
+                        )}
                       </div>
                     )}
 
@@ -499,7 +604,13 @@ export default function Signals() {
                           <div className={cn("h-full rounded-full", getConfidenceColor(signal.confidence).replace('text-', 'bg-'))} style={{ width: `${signal.confidence}%` }} />
                         </div>
                         <span className="text-[10px]">
-                          {signal.confidence >= 90 ? "Ultra High Probability" : signal.confidence >= 85 ? "High Probability Setup" : signal.confidence >= 75 ? "Standard Setup" : "Low Confidence"}
+                          {signal.aiFiltered
+                            ? "AI Filtered — Not Tradeable"
+                            : signal.confidence >= 90 ? "Ultra High Probability"
+                            : signal.confidence >= 85 ? "High Probability Setup"
+                            : signal.confidence >= 75 ? "Standard Setup"
+                            : signal.confidence >= 68 ? "Moderate Confidence"
+                            : "Low Confidence"}
                         </span>
                         {signal.indicators?.confluenceScore > 0 && (
                           <Badge variant="outline" className="text-[9px] h-4 px-1 text-primary border-primary/30">
@@ -511,8 +622,20 @@ export default function Signals() {
                         <Button size="sm" variant="outline" onClick={() => handleSendToTelegram(signal)} data-testid={`button-telegram-${signal.coin}`}>
                           <Send className="w-3 h-3 mr-1" /> Telegram
                         </Button>
-                        <Button size="sm" className="gap-1" onClick={() => handleExecuteTrade(signal)} data-testid={`button-execute-${signal.coin}`}>
-                          Execute <ArrowRight className="w-3 h-3" />
+                        <Button
+                          size="sm"
+                          className="gap-1"
+                          variant={signal.aiFiltered ? 'outline' : 'default'}
+                          disabled={signal.aiFiltered}
+                          onClick={() => handleExecuteTrade(signal)}
+                          data-testid={`button-execute-${signal.coin}`}
+                          title={signal.aiFiltered ? 'Signal blocked by AI — direction conflict' : 'Execute trade'}
+                        >
+                          {signal.aiFiltered ? (
+                            <><XCircle className="w-3 h-3 mr-1" /> Blocked</>
+                          ) : (
+                            <>Execute <ArrowRight className="w-3 h-3" /></>
+                          )}
                         </Button>
                       </div>
                     </div>

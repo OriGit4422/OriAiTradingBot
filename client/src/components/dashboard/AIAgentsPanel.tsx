@@ -1,5 +1,5 @@
 import { useQuery } from '@tanstack/react-query';
-import { Brain, Zap, Globe, Activity, CheckCircle2, AlertCircle, RefreshCw, Cpu } from 'lucide-react';
+import { Brain, Zap, Globe, Activity, CheckCircle2, AlertCircle, RefreshCw, Cpu, Shield, Filter } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { queryClient } from '@/lib/queryClient';
 import { useState } from 'react';
@@ -8,12 +8,15 @@ interface AgentStatus {
   name: string;
   active: boolean;
   role: string;
+  providers?: string[];
+  consensusMode?: boolean;
 }
 
 interface AIProvider {
   name: string;
   active: boolean;
   model: string;
+  enabled?: boolean;
 }
 
 interface IntelligenceStatus {
@@ -23,12 +26,14 @@ interface IntelligenceStatus {
     perplexity: AgentStatus;
     arkham:     AgentStatus;
   };
-  aiProviders?: {
-    openai:    AIProvider;
-    anthropic: AIProvider;
-    gemini:    AIProvider;
-  };
+  aiProviders?: Record<string, AIProvider>;
   totalActive: number;
+  validationEnabled: boolean;
+  filteringActive: boolean;
+  consensusMode: boolean;
+  activeProviderNames: string[];
+  minConfidenceToShow: number;
+  signalFilterDescription: string;
 }
 
 const AGENT_META = {
@@ -43,8 +48,8 @@ export function AIAgentsPanel() {
 
   const { data, isLoading } = useQuery<IntelligenceStatus>({
     queryKey: ['/api/intelligence/status'],
-    // No refetchInterval — manual refresh only
-    staleTime: Infinity,
+    refetchInterval: 30000,
+    staleTime: 15000,
   });
 
   const handleRefresh = async () => {
@@ -58,7 +63,6 @@ export function AIAgentsPanel() {
     ? (Object.entries(data.agents) as [keyof typeof AGENT_META, AgentStatus][])
     : [];
 
-  // Active AI providers list
   const activeProviders = data?.aiProviders
     ? Object.values(data.aiProviders).filter(p => p.active)
     : [];
@@ -89,6 +93,33 @@ export function AIAgentsPanel() {
         </div>
       </div>
 
+      {/* Validation & Filtering Status */}
+      {data && (
+        <div className={cn(
+          "mb-3 p-2 rounded-lg border text-[10px]",
+          data.validationEnabled
+            ? "bg-green-500/5 border-green-500/20"
+            : "bg-yellow-500/5 border-yellow-500/20"
+        )}>
+          <div className="flex items-center gap-1.5 mb-1">
+            {data.validationEnabled ? (
+              <><Shield className="h-3 w-3 text-green-500" /><span className="font-semibold text-green-500 uppercase tracking-wide">Signal Validation Active</span></>
+            ) : (
+              <><AlertCircle className="h-3 w-3 text-yellow-500" /><span className="font-semibold text-yellow-500 uppercase tracking-wide">No AI Validation</span></>
+            )}
+          </div>
+          <p className="text-muted-foreground leading-relaxed">{data.signalFilterDescription}</p>
+          {data.consensusMode && (
+            <div className="flex items-center gap-1 mt-1.5">
+              <Filter className="h-3 w-3 text-violet-400" />
+              <span className="text-violet-400 font-medium">
+                {data.activeProviderNames.length}× consensus: {data.activeProviderNames.join(', ')}
+              </span>
+            </div>
+          )}
+        </div>
+      )}
+
       {/* Active AI Providers sub-panel */}
       {activeProviders.length > 0 && (
         <div className="mb-3 p-2 rounded-lg bg-violet-500/5 border border-violet-500/15">
@@ -96,6 +127,7 @@ export function AIAgentsPanel() {
             <Cpu className="h-3 w-3 text-violet-400" />
             <span className="text-[10px] font-semibold text-violet-400 uppercase tracking-wide">
               AI Providers ({activeProviders.length})
+              {activeProviders.length > 1 && <span className="ml-1 normal-case text-muted-foreground">— consensus mode</span>}
             </span>
           </div>
           <div className="flex flex-wrap gap-1.5">
@@ -135,6 +167,9 @@ export function AIAgentsPanel() {
                   <div className="min-w-0">
                     <div className="text-xs font-semibold text-foreground truncate">{agent.name}</div>
                     <div className="text-[10px] text-muted-foreground truncate max-w-[160px]">{agent.role}</div>
+                    {key === 'primaryAI' && agent.providers && agent.providers.length > 1 && (
+                      <div className="text-[9px] text-violet-400 truncate">{agent.providers.join(' + ')}</div>
+                    )}
                   </div>
                 </div>
                 <div className="flex-shrink-0 ml-2">
@@ -156,9 +191,9 @@ export function AIAgentsPanel() {
         </div>
       )}
 
-      {data && data.totalActive < totalAgents && (
+      {data && data.totalActive < totalAgents && !data.validationEnabled && (
         <p className="mt-3 text-[10px] text-muted-foreground text-center">
-          Add API keys in Settings → AI Agents to activate all agents
+          Add API keys in <strong>Settings → AI Agents</strong> to activate validation
         </p>
       )}
     </div>

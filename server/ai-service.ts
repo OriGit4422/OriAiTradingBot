@@ -1,4 +1,4 @@
-import { callMultiAI, streamChatResponse, type AIMessage } from './ai-providers';
+import { callMultiAI, streamChatResponse, extractJson, type AIMessage } from './ai-providers';
 
 export interface AISignalResult {
   pair: string;
@@ -56,9 +56,9 @@ Use realistic current approximate prices for ${pair}. BTC around 65000-70000, ET
 
   try {
     const { text } = await callMultiAI([{ role: 'user', content: prompt }], 1024);
-    const jsonMatch = text.match(/\{[\s\S]*\}/);
+    const jsonMatch = extractJson(text);
     if (!jsonMatch) throw new Error('Could not parse AI response');
-    const parsed = JSON.parse(jsonMatch[0]);
+    const parsed = JSON.parse(jsonMatch);
 
     return {
       pair,
@@ -110,9 +110,9 @@ Respond in this exact JSON format only:
 
   try {
     const { text } = await callMultiAI([{ role: 'user', content: prompt }], 512);
-    const jsonMatch = text.match(/\{[\s\S]*\}/);
+    const jsonMatch = extractJson(text);
     if (!jsonMatch) throw new Error('Could not parse AI response');
-    const parsed = JSON.parse(jsonMatch[0]);
+    const parsed = JSON.parse(jsonMatch);
     return {
       isValid: parsed.isValid ?? true,
       riskScore: Math.min(10, Math.max(1, Number(parsed.riskScore) || 5)),
@@ -174,9 +174,9 @@ Respond in this exact JSON format only:
 
   try {
     const { text } = await callMultiAI([{ role: 'user', content: prompt }], 512);
-    const jsonMatch = text.match(/\{[\s\S]*\}/);
+    const jsonMatch = extractJson(text);
     if (!jsonMatch) throw new Error('Could not parse AI response');
-    const parsed = JSON.parse(jsonMatch[0]);
+    const parsed = JSON.parse(jsonMatch);
     return {
       score: Math.min(10, Math.max(1, Number(parsed.score) || 5)),
       review: parsed.review || 'Strategy review complete.',

@@ -63,11 +63,12 @@ async function generateAISignals(count: number, existingTimeframes: Set<string>)
   const system = `You are an elite crypto trading analyst. Generate high-confidence trade signals with detailed reasoning.
 Return ONLY valid JSON array. No markdown, no code blocks.`;
 
-  const userMsg = `Generate ${count} high-confidence (90%+) crypto trading signals for an hourly alert.
+  const userMsg = `Generate ${count} realistic crypto trading signals for an hourly alert. Be honest about confidence — do NOT inflate scores.
 
 Requirements:
-- Each signal must have confidence >= 90
+- Confidence should reflect real technical setup quality: range 55-78%. Only assign higher if multiple strong factors truly align.
 - Use DIVERSE timeframes, preferring: ${preferredTF.slice(0, 6).join(', ')}
+- Shorter timeframes (15m, 1h) should have lower confidence than higher timeframes (4h, 1d)
 - Coins to analyze: ${coins.join(', ')}
 - Include specific entry, TP, SL levels (realistic, not round numbers)
 - TP should be 1.5x-3x the SL distance (good R:R)
@@ -80,7 +81,7 @@ Return JSON array:
     "entry": 67450.50,
     "tp": 69200.00,
     "sl": 66100.00,
-    "confidence": 92,
+    "confidence": 68,
     "timeframe": "4h",
     "strategy": "SMC Breakout / ICT MSS / RSI Divergence / etc",
     "reasoning": "2-3 sentence detailed technical analysis explaining why this trade has high conviction. Include pattern, momentum, and key level references.",
@@ -100,14 +101,14 @@ Return JSON array:
     if (!jsonMatch) return [];
     const parsed: any[] = JSON.parse(jsonMatch);
     return parsed.filter(s =>
-      s.coin && s.type && s.entry > 0 && s.tp > 0 && s.sl > 0 && s.confidence >= 90
+      s.coin && s.type && s.entry > 0 && s.tp > 0 && s.sl > 0 && s.confidence >= 55
     ).map(s => ({
       coin: String(s.coin).toUpperCase(),
       type: s.type === 'SHORT' ? 'SHORT' : 'LONG',
       entry: Number(s.entry),
       tp: Number(s.tp),
       sl: Number(s.sl),
-      confidence: Math.min(99, Math.max(90, Number(s.confidence))),
+      confidence: Math.min(80, Math.max(55, Number(s.confidence))),
       timeframe: String(s.timeframe || '1h'),
       strategy: String(s.strategy || 'AI Analysis'),
       reasoning: String(s.reasoning || 'Strong technical confluence detected.'),
@@ -167,8 +168,8 @@ function buildHourlyMessage(signals: AlertSignal[], marketMood: string): string 
     `🕐 ${esc(timeStr)}`,
     `${moodEmoji} Market Mood: *${esc(marketMood)}*`,
     `━━━━━━━━━━━━━━━━━━━━━━`,
-    `🔥 *TOP ${signals.length} HIGH\\-CONFIDENCE SIGNALS* 🔥`,
-    `\\(Confidence ≥ 90% \\| Multi\\-Timeframe\\)`,
+    `🔥 *TOP ${signals.length} SIGNALS* 🔥`,
+    `\\(Calibrated Confidence \\| Multi\\-Timeframe\\)`,
     `━━━━━━━━━━━━━━━━━━━━━━`,
   ];
 

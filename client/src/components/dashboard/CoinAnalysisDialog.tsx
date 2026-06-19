@@ -65,7 +65,7 @@ export function CoinAnalysisDialog({ open, onOpenChange, defaultCoin = 'BTC', de
         return;
       }
       const marketPrice = klines[klines.length - 1].close;
-      const signal = getQuantumSignal(coin, marketPrice, klines);
+      const signal = getQuantumSignal(coin, marketPrice, klines, timeframe);
 
       const resp = await apiRequest('POST', '/api/ai/coin-analysis', {
         coin,

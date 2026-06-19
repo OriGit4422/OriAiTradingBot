@@ -357,8 +357,10 @@ Return this exact JSON structure:
 RULES:
 - Include ALL coins: ${coins.join(', ')}
 - Sentiment MUST match the 24h change: positive change (>1%) = BULLISH, negative (<-1%) = BEARISH, small change = NEUTRAL
+- Action MUST align with sentiment: BULLISH = BUY, BEARISH = SELL, NEUTRAL = HOLD or WATCH
 - Key levels MUST be within 5% of the current price shown above
-- Generate 3-5 upcoming trade ideas with realistic entry/exit levels
+- Generate 3-5 upcoming trade ideas using only BULLISH or BEARISH coins (do NOT include NEUTRAL coins in upcomingTrades)
+- CRITICAL: upcomingTrades direction MUST match the coin sentiment — BULLISH coins get LONG, BEARISH coins get SHORT. Never assign LONG to a BEARISH coin or SHORT to a BULLISH coin
 - Confidence should reflect how strong the setup is (60-95 range)
 - Be specific about prices, not generic`;
 
@@ -372,27 +374,54 @@ RULES:
     if (!jsonMatch) return fallbackResult;
 
     const parsed = JSON.parse(jsonMatch);
-    return {
-      overview: parsed.overview || fallbackResult.overview,
-      coins: (parsed.coins || []).map((c: any) => ({
+
+    const coins_result = (parsed.coins || []).map((c: any) => {
+      const sentiment = (['BULLISH', 'BEARISH', 'NEUTRAL'].includes(c.sentiment) ? c.sentiment : 'NEUTRAL') as 'BULLISH' | 'BEARISH' | 'NEUTRAL';
+      // Enforce action consistency with sentiment
+      let action = (['BUY', 'SELL', 'HOLD', 'WATCH'].includes(c.action) ? c.action : 'WATCH') as 'BUY' | 'SELL' | 'HOLD' | 'WATCH';
+      if (sentiment === 'BULLISH' && action === 'SELL') action = 'BUY';
+      if (sentiment === 'BEARISH' && action === 'BUY') action = 'SELL';
+      if (sentiment === 'NEUTRAL' && (action === 'BUY' || action === 'SELL')) action = 'WATCH';
+      return {
         coin: c.coin || 'BTC',
-        sentiment: (['BULLISH', 'BEARISH', 'NEUTRAL'].includes(c.sentiment) ? c.sentiment : 'NEUTRAL') as 'BULLISH' | 'BEARISH' | 'NEUTRAL',
+        sentiment,
         shortAnalysis: c.shortAnalysis || 'Analysis pending',
         keyLevel: c.keyLevel || 'Key levels being calculated',
-        action: (['BUY', 'SELL', 'HOLD', 'WATCH'].includes(c.action) ? c.action : 'WATCH') as 'BUY' | 'SELL' | 'HOLD' | 'WATCH',
+        action,
         xSentiment: c.xSentiment || 'Neutral social sentiment',
         fomoLevel: (['LOW', 'MEDIUM', 'HIGH'].includes(c.fomoLevel) ? c.fomoLevel : 'MEDIUM') as 'LOW' | 'MEDIUM' | 'HIGH',
         liquidityView: c.liquidityView || 'Liquidity balanced near VWAP',
         psychologicalLevels: c.psychologicalLevels || 'Round numbers and weekly pivots',
         newsBias: c.newsBias || 'No strong catalyst',
-      })),
-      upcomingTrades: (parsed.upcomingTrades || []).map((t: any) => ({
-        coin: t.coin || 'BTC',
-        direction: t.direction === 'SHORT' ? 'SHORT' as const : 'LONG' as const,
-        reason: t.reason || 'Technical setup forming',
-        confidence: Math.min(100, Math.max(0, t.confidence || 70)),
-        timeframe: t.timeframe || '1h',
-      })),
+      };
+    });
+
+    // Build sentiment map for trade direction enforcement
+    const sentimentMap = new Map(coins_result.map((c: any) => [c.coin, c.sentiment]));
+
+    const upcomingTrades = (parsed.upcomingTrades || [])
+      .filter((t: any) => {
+        const s = sentimentMap.get(t.coin);
+        // Drop trades for NEUTRAL coins — no clear directional edge
+        return s === 'BULLISH' || s === 'BEARISH';
+      })
+      .map((t: any) => {
+        const s = sentimentMap.get(t.coin);
+        // Force direction to match sentiment regardless of what AI returned
+        const direction = s === 'BULLISH' ? 'LONG' as const : 'SHORT' as const;
+        return {
+          coin: t.coin || 'BTC',
+          direction,
+          reason: t.reason || 'Technical setup forming',
+          confidence: Math.min(100, Math.max(0, t.confidence || 70)),
+          timeframe: t.timeframe || '1h',
+        };
+      });
+
+    return {
+      overview: parsed.overview || fallbackResult.overview,
+      coins: coins_result,
+      upcomingTrades,
       marketMood: parsed.marketMood || 'Neutral',
       timestamp: new Date().toISOString(),
     };

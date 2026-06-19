@@ -58,7 +58,7 @@ export function SignalFeed({ compact = false, onSelectCoin }: SignalFeedProps) {
       tasks.map(async ({ coin, tf }) => {
         const data = await fetchKlines(coin, tf, candleLimit);
         if (data.length > 50) {
-          const signal = getQuantumSignal(coin, data[data.length - 1].close, data);
+          const signal = getQuantumSignal(coin, data[data.length - 1].close, data, tf);
           signal.timeframe = tf;
           return signal;
         }

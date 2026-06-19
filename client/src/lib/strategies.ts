@@ -342,7 +342,7 @@ function runMultiModelEnsemble(
   const direction = longScore > shortScore + 10 ? 'LONG' : shortScore > longScore + 10 ? 'SHORT' : 'NEUTRAL';
   const confidence = Math.round(Math.max(longScore, shortScore));
 
-  return { direction, confidence: Math.min(98, confidence), models };
+  return { direction, confidence: Math.min(75, confidence), models };
 }
 
 function calculateQuantumZones(data: BinanceKline[], maxHigh: number, minLow: number): SMCAnalysis['quantumZones'] {
@@ -666,14 +666,14 @@ function calculateIchimoku(data: BinanceKline[]): { tenkan: number; kijun: numbe
   return { tenkan, kijun, signal };
 }
 
-export function getQuantumSignal(symbol: string, price: number, data: BinanceKline[]) {
+export function getQuantumSignal(symbol: string, price: number, data: BinanceKline[], timeframe: string = '1h') {
   const analysis = analyzeMarket(data);
   const { rsi, macd, ema, adx, atr, volumeProfile, trendStrength, rsiDivergence, marketStructure, stochRsi, ichimoku } = analysis.indicators;
 
   let type: 'LONG' | 'SHORT' = 'LONG';
   let strategy: 'SMC' | 'ICT' | 'MMC' | 'CRT' | 'QL' | 'SNR' = 'SMC';
   const MAJOR_COINS = ['BTC', 'ETH', 'SOL', 'BNB', 'XRP'];
-  let confidence = MAJOR_COINS.includes(symbol.toUpperCase()) ? 78 : 70;
+  let confidence = MAJOR_COINS.includes(symbol.toUpperCase()) ? 60 : 52;
   let entryPrice = price;
 
   const smcScore = (
@@ -730,10 +730,10 @@ export function getQuantumSignal(symbol: string, price: number, data: BinanceKli
   } else {
     if (longDomainVotes >= shortDomainVotes + 2) {
       type = 'LONG';
-      confidence = Math.max(confidence, 80);
+      confidence = Math.max(confidence, 62);
     } else if (shortDomainVotes >= longDomainVotes + 2) {
       type = 'SHORT';
-      confidence = Math.max(confidence, 80);
+      confidence = Math.max(confidence, 62);
     }
 
     const bullishOB = analysis.orderBlocks.find(ob => ob.type === 'BULLISH');
@@ -743,30 +743,30 @@ export function getQuantumSignal(symbol: string, price: number, data: BinanceKli
     if (nearQuantum && analysis.marketPhase === 'ACCUMULATION') {
       strategy = 'QL';
       if (price < nearQuantum.price * 1.01) {
-        type = 'LONG'; entryPrice = nearQuantum.price; confidence = 92;
+        type = 'LONG'; entryPrice = nearQuantum.price; confidence = 72;
       } else {
-        type = 'SHORT'; entryPrice = nearQuantum.price; confidence = 85;
+        type = 'SHORT'; entryPrice = nearQuantum.price; confidence = 65;
       }
     } else if (analysis.choch.length > 0) {
       strategy = 'ICT';
       const latestChoch = analysis.choch[analysis.choch.length - 1];
       type = latestChoch.type === 'BULLISH' ? 'LONG' : 'SHORT';
       entryPrice = latestChoch.price;
-      confidence = 86;
+      confidence = 67;
     } else if (rsi > 70 || (rsi > 60 && adx < 20)) {
       strategy = 'CRT'; type = 'SHORT';
       entryPrice = bearishOB ? bearishOB.price : price * 1.005;
-      confidence = 88;
+      confidence = 68;
     } else if (rsi < 30) {
       strategy = 'MMC'; type = 'LONG';
       entryPrice = bullishOB ? bullishOB.price : price * 0.995;
-      confidence = 89;
+      confidence = 69;
     } else if (analysis.fvg.length > 0) {
       strategy = 'ICT';
       if (analysis.fvg[0].type === 'BULLISH') {
-        type = 'LONG'; entryPrice = analysis.fvg[0].top; confidence = 82;
+        type = 'LONG'; entryPrice = analysis.fvg[0].top; confidence = 63;
       } else {
-        type = 'SHORT'; entryPrice = analysis.fvg[0].bottom; confidence = 82;
+        type = 'SHORT'; entryPrice = analysis.fvg[0].bottom; confidence = 63;
       }
     } else if (analysis.orderBlocks.length > 0) {
       strategy = 'SNR';
@@ -775,10 +775,10 @@ export function getQuantumSignal(symbol: string, price: number, data: BinanceKli
       const midPrice = (liqHigh + liqLow) / 2;
       if (price < midPrice) {
         type = 'LONG'; entryPrice = bullishOB ? bullishOB.price * 1.002 : price;
-        confidence = MAJOR_COINS.includes(symbol.toUpperCase()) ? 83 : 78;
+        confidence = MAJOR_COINS.includes(symbol.toUpperCase()) ? 63 : 58;
       } else {
         type = 'SHORT'; entryPrice = bearishOB ? bearishOB.price * 0.998 : price;
-        confidence = MAJOR_COINS.includes(symbol.toUpperCase()) ? 81 : 76;
+        confidence = MAJOR_COINS.includes(symbol.toUpperCase()) ? 61 : 56;
       }
     }
   }
@@ -815,7 +815,7 @@ export function getQuantumSignal(symbol: string, price: number, data: BinanceKli
     if (stochRsi.k > 80) confluenceBonus += 3;
   }
 
-  confidence = Math.min(98, confidence + confluenceBonus);
+  confidence = Math.min(78, confidence + confluenceBonus);
 
   const marketPrice = data[data.length - 1].close;
 
@@ -855,7 +855,14 @@ export function getQuantumSignal(symbol: string, price: number, data: BinanceKli
     smcV4.grade === 'A Strong' ? 4 :
     smcV4.grade === 'B+ Good' ? 2 :
     smcV4.grade === 'B Fair' ? 0 : -5;
-  confidence = Math.min(98, confidence + gradeBoost);
+  confidence = Math.min(78, confidence + gradeBoost);
+
+  // Timeframe penalty: shorter timeframes carry higher noise, lower valid confidence ceiling
+  const tfPenalty: Record<string, number> = {
+    '1m': -15, '3m': -12, '5m': -10, '15m': -8, '30m': -5,
+    '1h': -3, '2h': 0, '4h': 0, '6h': 2, '12h': 3, '1d': 4, '3d': 4, '1w': 4,
+  };
+  confidence = Math.max(10, confidence + (tfPenalty[timeframe] ?? 0));
 
   // Skip low-quality signals (SMCv4 < 5.0)
   if (smcV4.grade === 'Skip') {

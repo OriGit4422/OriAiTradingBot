@@ -135,7 +135,7 @@ export async function runMultiAgentValidation(
     }
   }
 
-  const adjustedConfidence = Math.min(100, Math.max(0, Math.round(conf)));
+  const adjustedConfidence = Math.min(82, Math.max(0, Math.round(conf)));
   const delta = adjustedConfidence - signal.confidence;
   const finalVerdict = toVerdict(direction, adjustedConfidence);
   const shouldTrade  = adjustedConfidence >= 68 && finalVerdict !== 'NEUTRAL';

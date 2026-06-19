@@ -252,7 +252,7 @@ export async function runOrchestrator(input: OrchestratorInput): Promise<Orchest
     warnings.push('Low 7-day win rate — consider strategy review');
   }
 
-  finalConf = Math.min(95, Math.max(5, Math.round(finalConf)));
+  finalConf = Math.min(80, Math.max(5, Math.round(finalConf)));
 
   const finalVerdict = deriveVerdict(finalConf, direction);
   const grade = phase2?.grade ?? deriveGrade(finalConf, rr);

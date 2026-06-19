@@ -627,6 +627,9 @@ function scorePowerOf3(direction: 'LONG' | 'SHORT', candles: OHLCVCandle[]): Con
 }
 
 // ─── AI Enhancement Layer ────────────────────────────────────────────────────
+// COST CONTROL: AI is only called when mathScore >= aiThreshold (default 65).
+// This means 80-90% of coins are filtered by pure math (free) before any
+// AI API call is made. Pass aiEnabled=false to skip AI entirely (scanner mode).
 
 async function aiEnhanceScores(
   factors: Omit<PhaseTwo, 'compositeScore' | 'smcV4Score' | 'smcV4Grade' | 'grade' | 'direction' | 'entryQuality' | 'aiEnhanced' | 'summary'>,
@@ -634,41 +637,55 @@ async function aiEnhanceScores(
   coin: string,
   entry: number,
   compositeScore: number,
-): Promise<{ adjustedScore: number; summary: string }> {
+  aiEnabled = true,
+): Promise<{ adjustedScore: number; summary: string; aiUsed: boolean }> {
+  // Skip AI if disabled or math score too low — saves API cost
+  if (!aiEnabled || compositeScore < 65) {
+    return {
+      adjustedScore: compositeScore,
+      summary: `${direction} ${coin}: ${compositeScore.toFixed(0)}/100 confluence score (math-only)`,
+      aiUsed: false,
+    };
+  }
+
   try {
     const providers = await getActiveProviders();
-    const claude = providers.find(p => p.type === 'anthropic') ?? providers.find(p => p.name.toLowerCase().includes('gpt')) ?? providers[0];
-    if (!claude) return { adjustedScore: compositeScore, summary: 'AI unavailable' };
+    // Prefer cheapest: Gemini Flash > Claude Haiku > anything else
+    const provider =
+      providers.find(p => p.type === 'gemini') ??
+      providers.find(p => p.type === 'anthropic') ??
+      providers.find(p => p.type === 'custom') ??
+      providers[0];
+    if (!provider) return { adjustedScore: compositeScore, summary: 'AI unavailable', aiUsed: false };
 
-    const factorLines = Object.entries(factors)
+    // Send only TOP factors to minimize tokens (~200 input tokens vs 600+)
+    const topFactors = Object.entries(factors)
       .filter(([_, v]) => v && typeof v === 'object' && 'score' in (v as any))
-      .map(([_, v]) => {
-        const f = v as ConfluenceFactor;
-        return `${f.name}: ${f.score}/100 (${f.signal}) — ${f.detail}`;
-      }).join('\n');
+      .map(([_, v]) => v as ConfluenceFactor)
+      .sort((a, b) => b.weight - a.weight)   // highest weight first
+      .slice(0, 8)                             // only top 8 by weight
+      .map(f => `${f.name}:${f.score}(${f.signal.charAt(0)})`)
+      .join(' | ');
 
     const messages: AIMessage[] = [
       {
-        role: 'system',
-        content: `You are an elite institutional-grade technical analyst. Analyze the 17-factor confluence data and provide: 1) A composite score adjustment (0-100), 2) A clear 2-sentence trade summary. Respond ONLY in JSON: {"adjustedScore": number, "summary": "string"}`,
-      },
-      {
         role: 'user',
-        content: `Coin: ${coin} | Direction: ${direction} | Entry: $${entry} | Base composite: ${compositeScore}/100\n\n17-Factor Analysis:\n${factorLines}\n\nAdjust the composite score based on factor interactions and provide a summary.`,
+        content: `TA confluence for ${direction} ${coin} entry $${entry}. Math score: ${compositeScore}/100. Top factors: ${topFactors}. Respond JSON only: {"adjustedScore":number,"summary":"1 sentence"}`,
       },
     ];
 
-    const res = await callAIProvider(claude, messages, 300);
+    const res = await callAIProvider(provider, messages, 80);  // max 80 output tokens
     const json = extractJson(res.text);
     if (json) {
       const parsed = JSON.parse(json);
       return {
         adjustedScore: Math.min(100, Math.max(0, Math.round(parsed.adjustedScore ?? compositeScore))),
-        summary: parsed.summary ?? '',
+        summary: parsed.summary ?? `${direction} ${coin}: ${compositeScore.toFixed(0)}/100`,
+        aiUsed: true,
       };
     }
   } catch { /* fall through */ }
-  return { adjustedScore: compositeScore, summary: `${direction} on ${coin} with ${compositeScore}/100 confluence score` };
+  return { adjustedScore: compositeScore, summary: `${direction} on ${coin}: ${compositeScore.toFixed(0)}/100 confluence`, aiUsed: false };
 }
 
 // ─── Main Entry Point ─────────────────────────────────────────────────────────
@@ -691,6 +708,8 @@ export async function runPhase2Confluence(params: {
   volumeProfile?: string;
   ensembleDirection?: string;
   timeframe?: string;
+  // COST CONTROL: set false in scanner mode to skip AI enhancement
+  aiEnabled?: boolean;
 }): Promise<PhaseTwo> {
   const { coin, direction, entry, candles } = params;
 
@@ -762,7 +781,10 @@ export async function runPhase2Confluence(params: {
     breakerBlock, premiumDiscount, oteZone, cisd, powerOf3,
   };
 
-  const { adjustedScore, summary } = await aiEnhanceScores(factorsObj, direction, coin, entry, rawScore);
+  const { adjustedScore, summary, aiUsed } = await aiEnhanceScores(
+    factorsObj, direction, coin, entry, rawScore,
+    params.aiEnabled !== false, // default true; scanner sets false
+  );
   const compositeScore = adjustedScore;
 
   const grade: PhaseTwo['grade'] =

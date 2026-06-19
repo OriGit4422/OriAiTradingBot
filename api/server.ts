@@ -14,11 +14,16 @@ app.use(
 app.use(express.urlencoded({ extended: false }));
 
 let initialized = false;
+
 async function ensureInitialized(httpServer: ReturnType<typeof createServer>) {
   if (initialized) return;
   initialized = true;
-  const { registerRoutes } = await import("../server/routes");
-  await registerRoutes(httpServer, app);
+  try {
+    const { registerRoutes } = await import("../server/routes");
+    await registerRoutes(httpServer, app);
+  } catch (err: any) {
+    console.error("[vercel] registerRoutes failed:", err.message);
+  }
 }
 
 const httpServer = createServer(app);

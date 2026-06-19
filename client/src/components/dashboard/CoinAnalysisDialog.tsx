@@ -17,7 +17,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { Loader2, BrainCircuit, TrendingUp, TrendingDown, Target, Shield, AlertTriangle, Activity, Newspaper, MessageCircle, Sparkles } from 'lucide-react';
+import { Loader2, BrainCircuit, TrendingUp, TrendingDown, Target, Shield, AlertTriangle, Activity, Newspaper, MessageCircle, Sparkles, BarChart2, Layers, BookOpen, CheckCircle, XCircle, ChevronDown, ChevronUp, ClipboardList } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { apiRequest, queryClient } from '@/lib/queryClient';
 import { fetchKlines } from '@/lib/binance';
@@ -39,6 +39,7 @@ export function CoinAnalysisDialog({ open, onOpenChange, defaultCoin = 'BTC', de
   const [timeframe, setTimeframe] = useState(defaultTimeframe);
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState<any | null>(null);
+  const [logsExpanded, setLogsExpanded] = useState(false);
 
   // Resync local selectors with new defaults each time the dialog is opened.
   useEffect(() => {
@@ -154,7 +155,7 @@ export function CoinAnalysisDialog({ open, onOpenChange, defaultCoin = 'BTC', de
           {loading && (
             <div className="flex flex-col items-center justify-center py-12 gap-3">
               <Loader2 className="w-8 h-8 animate-spin text-primary" />
-              <div className="text-xs text-muted-foreground">Fetching klines, computing SMC/ICT/Quantum, gathering news + sentiment...</div>
+              <div className="text-xs text-muted-foreground text-center max-w-xs">Running 8-step deep analysis: SMC structure → ICT concepts → Quantum liquidity → Technical indicators → Multi-timeframe → News catalysts → Trade construction → Confluence scoring...</div>
             </div>
           )}
 
@@ -204,11 +205,67 @@ export function CoinAnalysisDialog({ open, onOpenChange, defaultCoin = 'BTC', de
                 <span className="text-muted-foreground ml-auto">{new Date(result.timestamp).toLocaleTimeString()}</span>
               </div>
 
+              {/* Confluence Score */}
+              {result.confluenceScore > 0 && (
+                <div className="bg-secondary/60 border border-border rounded-lg p-3">
+                  <div className="flex items-center justify-between mb-2">
+                    <div className="text-[10px] uppercase font-mono text-muted-foreground font-bold flex items-center gap-1">
+                      <BarChart2 className="w-3.5 h-3.5 text-primary" /> Confluence Score
+                    </div>
+                    <div className={cn("text-lg font-black font-mono", result.confluenceScore >= 70 ? 'text-green-500' : result.confluenceScore >= 50 ? 'text-amber-500' : 'text-red-500')}>
+                      {result.confluenceScore}/100
+                    </div>
+                  </div>
+                  <div className="w-full bg-secondary rounded-full h-2 mb-2">
+                    <div
+                      className={cn("h-2 rounded-full transition-all", result.confluenceScore >= 70 ? 'bg-green-500' : result.confluenceScore >= 50 ? 'bg-amber-500' : 'bg-red-500')}
+                      style={{ width: `${result.confluenceScore}%` }}
+                    />
+                  </div>
+                  {result.confluenceFactors?.length > 0 && (
+                    <div className="grid grid-cols-2 gap-1 mt-1">
+                      {result.confluenceFactors.map((f: string, i: number) => {
+                        const isAligned = f.toLowerCase().includes('aligned') || f.toLowerCase().includes('bullish') || f.toLowerCase().includes('confirmed') || f.toLowerCase().includes('strong');
+                        const isConflict = f.toLowerCase().includes('conflict') || f.toLowerCase().includes('opposing') || f.toLowerCase().includes('weak') || f.toLowerCase().includes('absent');
+                        return (
+                          <div key={i} className="flex items-start gap-1 text-[10px]">
+                            {isConflict ? <XCircle className="w-3 h-3 text-red-500 shrink-0 mt-0.5" /> : <CheckCircle className="w-3 h-3 text-green-500 shrink-0 mt-0.5" />}
+                            <span className={cn(isConflict ? 'text-red-400' : 'text-muted-foreground')}>{f}</span>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+              )}
+
               <Section icon={<Target className="w-3.5 h-3.5 text-primary" />} title="SMC Analysis" body={result.smcAnalysis} testid="text-smc-analysis" />
               <Section icon={<Activity className="w-3.5 h-3.5 text-primary" />} title="ICT Analysis" body={result.ictAnalysis} testid="text-ict-analysis" />
               <Section icon={<Sparkles className="w-3.5 h-3.5 text-purple-500" />} title="Quantum Liquidity" body={result.quantumLiquidityAnalysis} testid="text-quantum-analysis" />
+              <Section icon={<BarChart2 className="w-3.5 h-3.5 text-cyan-500" />} title="Technical Indicators" body={result.technicalAnalysis} testid="text-technical-analysis" />
+              <Section icon={<Layers className="w-3.5 h-3.5 text-indigo-500" />} title="Multi-Timeframe Analysis" body={result.multiTimeframeAnalysis} testid="text-mtf-analysis" />
               <Section icon={<Newspaper className="w-3.5 h-3.5 text-amber-500" />} title="News Impact" body={result.newsImpact} testid="text-news-impact" />
               <Section icon={<MessageCircle className="w-3.5 h-3.5 text-blue-500" />} title="X / Social Sentiment" body={result.socialSentiment} testid="text-social-sentiment" />
+
+              {/* Trade Rationale */}
+              {result.tradeRationale && (
+                <div className="bg-primary/8 border-2 border-primary/40 rounded-lg p-3">
+                  <div className="flex items-center gap-1.5 text-[10px] uppercase font-mono text-primary font-bold mb-1.5">
+                    <BookOpen className="w-3.5 h-3.5" /> Trade Rationale
+                  </div>
+                  <div className="text-xs leading-relaxed" data-testid="text-trade-rationale">{result.tradeRationale}</div>
+                </div>
+              )}
+
+              {/* Risk Assessment */}
+              {result.riskAssessment && (
+                <div className="bg-amber-500/5 border border-amber-500/25 rounded-lg p-2.5">
+                  <div className="flex items-center gap-1.5 text-[10px] uppercase font-mono text-amber-500 font-bold mb-1">
+                    <Shield className="w-3.5 h-3.5" /> Risk Assessment
+                  </div>
+                  <div className="text-xs leading-relaxed">{result.riskAssessment}</div>
+                </div>
+              )}
 
               {(result.keyLevels?.support?.length > 0 || result.keyLevels?.resistance?.length > 0) && (
                 <div className="grid grid-cols-2 gap-2">
@@ -240,6 +297,31 @@ export function CoinAnalysisDialog({ open, onOpenChange, defaultCoin = 'BTC', de
                 <div className="text-[10px] uppercase font-mono text-primary font-bold mb-1">AI Summary</div>
                 <div className="text-sm font-medium" data-testid="text-analysis-summary">{result.summary}</div>
               </div>
+
+              {/* Analysis Logs */}
+              {result.analysisLogs?.length > 0 && (
+                <div className="bg-secondary/30 border border-border/60 rounded-lg overflow-hidden">
+                  <button
+                    className="w-full flex items-center justify-between p-2.5 text-left hover:bg-secondary/50 transition-colors"
+                    onClick={() => setLogsExpanded(v => !v)}
+                  >
+                    <div className="flex items-center gap-1.5 text-[10px] uppercase font-mono text-muted-foreground font-bold">
+                      <ClipboardList className="w-3.5 h-3.5" /> Analysis Logs ({result.analysisLogs.length} steps)
+                    </div>
+                    {logsExpanded ? <ChevronUp className="w-3.5 h-3.5 text-muted-foreground" /> : <ChevronDown className="w-3.5 h-3.5 text-muted-foreground" />}
+                  </button>
+                  {logsExpanded && (
+                    <div className="px-2.5 pb-2.5 space-y-1 border-t border-border/40 pt-2">
+                      {result.analysisLogs.map((log: string, i: number) => (
+                        <div key={i} className="flex items-start gap-2 text-[10px] font-mono">
+                          <span className="text-primary/60 shrink-0 w-4">{String(i + 1).padStart(2, '0')}</span>
+                          <span className="text-muted-foreground leading-relaxed">{log}</span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
 
               {result.warnings?.length > 0 && (
                 <div className="bg-amber-500/5 border border-amber-500/30 rounded-lg p-2.5">

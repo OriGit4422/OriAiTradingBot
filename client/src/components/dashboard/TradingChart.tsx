@@ -10,12 +10,14 @@ interface TradingChartProps {
   timeframe: string;
 }
 
-const LAYER_SERIES_KEYS = ['SMC', 'ICT', 'Quantum'] as const;
+const LAYER_SERIES_KEYS = ['SMC', 'ICT', 'DDMC', 'Liquidity', 'Quantum'] as const;
 type LayerSeriesKey = typeof LAYER_SERIES_KEYS[number];
 
 const DEFAULT_COLORS: Record<LayerSeriesKey, string> = {
   SMC: '#0ea5e9',
   ICT: '#f59e0b',
+  DDMC: '#10b981',
+  Liquidity: '#06b6d4',
   Quantum: '#8b5cf6',
 };
 

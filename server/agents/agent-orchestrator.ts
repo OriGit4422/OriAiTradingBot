@@ -43,7 +43,7 @@ export interface OrchestratorResult {
   finalConfidence: number;        // 0-100
   finalVerdict: 'STRONG_BUY' | 'BUY' | 'NEUTRAL' | 'SELL' | 'STRONG_SELL';
   shouldTrade: boolean;
-  grade: 'A+' | 'A' | 'B' | 'C' | 'No Trade';
+  grade: 'A+' | 'A' | 'B+' | 'B' | 'C' | 'No Trade';
 
   // Agent outputs
   scores: AgentScores;
@@ -108,6 +108,7 @@ function deriveVerdict(conf: number, direction: 'LONG' | 'SHORT'): OrchestratorR
 function deriveGrade(conf: number, rr: number): OrchestratorResult['grade'] {
   if (conf >= 85 && rr >= 2.0) return 'A+';
   if (conf >= 75 && rr >= 1.5) return 'A';
+  if (conf >= 65 && rr >= 1.5) return 'B+';
   if (conf >= 65) return 'B';
   if (conf >= 50) return 'C';
   return 'No Trade';
@@ -228,6 +229,8 @@ export async function runOrchestrator(input: OrchestratorInput): Promise<Orchest
   // Phase 2 grade bonus/penalty
   if (phase2) {
     if (phase2.grade === 'A+') { finalConf += 8; adjustments.push({ agent: 'Phase2 TA', delta: 8, reason: 'A+ confluence grade' }); }
+    else if (phase2.grade === 'A') { finalConf += 4; adjustments.push({ agent: 'Phase2 TA', delta: 4, reason: 'A confluence grade' }); }
+    else if (phase2.grade === 'B+') { finalConf += 2; adjustments.push({ agent: 'Phase2 TA', delta: 2, reason: 'B+ confluence grade' }); }
     else if (phase2.grade === 'No Trade') { finalConf -= 20; adjustments.push({ agent: 'Phase2 TA', delta: -20, reason: 'No Trade grade — confluence insufficient' }); }
     else if (phase2.grade === 'C') { finalConf -= 10; adjustments.push({ agent: 'Phase2 TA', delta: -10, reason: 'C grade — marginal confluence' }); }
   }

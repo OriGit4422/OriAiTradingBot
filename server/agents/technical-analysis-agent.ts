@@ -629,7 +629,7 @@ function scorePowerOf3(direction: 'LONG' | 'SHORT', candles: OHLCVCandle[]): Con
 // ─── AI Enhancement Layer ────────────────────────────────────────────────────
 
 async function aiEnhanceScores(
-  factors: Omit<PhaseTwo, 'compositeScore' | 'grade' | 'direction' | 'entryQuality' | 'aiEnhanced' | 'summary'>,
+  factors: Omit<PhaseTwo, 'compositeScore' | 'smcV4Score' | 'smcV4Grade' | 'grade' | 'direction' | 'entryQuality' | 'aiEnhanced' | 'summary'>,
   direction: 'LONG' | 'SHORT',
   coin: string,
   entry: number,

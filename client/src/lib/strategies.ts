@@ -1108,9 +1108,18 @@ function detectBreakerBlocks(data: BinanceKline[], orderBlocks: SMCAnalysis['ord
   const recent = data.slice(-60);
 
   for (const ob of orderBlocks) {
+    // Locate the candle that formed this OB so we only check subsequent candles.
+    // Bullish OBs use the low price; bearish OBs use the high price.
+    const obIndex = ob.type === 'BULLISH'
+      ? recent.findIndex(c => Math.abs(c.low - ob.price) / Math.max(0.0001, ob.price) < 0.003)
+      : recent.findIndex(c => Math.abs(c.high - ob.price) / Math.max(0.0001, ob.price) < 0.003);
+
+    // Only look at candles that came after the OB was formed
+    const afterOB = obIndex >= 0 ? recent.slice(obIndex + 1) : recent.slice(-10);
+
     if (ob.type === 'BULLISH') {
-      // Bullish OB becomes bearish breaker when price closes below it
-      const broken = recent.find(c => c.close < ob.price * 0.999);
+      // Bullish OB becomes bearish breaker when a later candle closes below it
+      const broken = afterOB.some(c => c.close < ob.price * 0.999);
       if (broken) {
         breakers.push({
           price: ob.price,
@@ -1120,8 +1129,8 @@ function detectBreakerBlocks(data: BinanceKline[], orderBlocks: SMCAnalysis['ord
         });
       }
     } else {
-      // Bearish OB becomes bullish breaker when price closes above it
-      const broken = recent.find(c => c.close > ob.price * 1.001);
+      // Bearish OB becomes bullish breaker when a later candle closes above it
+      const broken = afterOB.some(c => c.close > ob.price * 1.001);
       if (broken) {
         breakers.push({
           price: ob.price,

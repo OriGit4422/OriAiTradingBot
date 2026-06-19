@@ -13,12 +13,32 @@ app.use(
 );
 app.use(express.urlencoded({ extended: false }));
 
+// Auth route handled here so it works even if DB is unavailable
+app.post("/api/auth/login", (req, res) => {
+  const { username, password } = req.body;
+  const validUser = process.env.AUTH_USERNAME || "patyqm2010@gmail.com";
+  const validPass = process.env.AUTH_PASSWORD || "Ori@4422";
+  if (username === validUser && password === validPass) {
+    res.json({ success: true, user: { username: validUser, role: "admin" } });
+  } else {
+    res.status(401).json({ success: false, message: "Invalid credentials" });
+  }
+});
+
 let initialized = false;
+let initError: Error | null = null;
+
 async function ensureInitialized(httpServer: ReturnType<typeof createServer>) {
-  if (initialized) return;
-  initialized = true;
-  const { registerRoutes } = await import("../server/routes");
-  await registerRoutes(httpServer, app);
+  if (initialized || initError) return;
+  try {
+    const { registerRoutes } = await import("../server/routes");
+    await registerRoutes(httpServer, app);
+  } catch (err: any) {
+    initError = err;
+    console.error("[vercel] registerRoutes failed:", err.message);
+  } finally {
+    initialized = true;
+  }
 }
 
 const httpServer = createServer(app);

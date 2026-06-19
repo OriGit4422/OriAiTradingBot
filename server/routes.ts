@@ -55,6 +55,20 @@ export async function registerRoutes(
   });
 
   // ─── AI Analysis ──────────────────────────────────────────
+  app.get("/api/ai/test-connection", async (_req, res) => {
+    try {
+      const { callMultiAI, getActiveProviders } = await import('./ai-providers');
+      const providers = await getActiveProviders();
+      if (providers.length === 0) {
+        return res.status(400).json({ ok: false, message: 'No AI providers configured. Add API keys in Settings → AI Agents.' });
+      }
+      const { text, providers: used } = await callMultiAI([{ role: 'user', content: 'Reply with exactly: {"status":"ok"}' }], 20);
+      res.json({ ok: true, providers: used, response: text.trim() });
+    } catch (e: any) {
+      res.status(500).json({ ok: false, message: e.message });
+    }
+  });
+
   app.post("/api/ai/analyze-signal", async (req, res) => {
     try {
       const signalData = req.body;

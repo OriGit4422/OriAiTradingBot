@@ -15,6 +15,7 @@
 import { storage } from './storage';
 import { executeSignal } from './bot-engine';
 import { runMultiAgentValidation } from './signal-validator';
+import { runOrchestrator } from './agents/agent-orchestrator';
 
 const SCAN_INTERVAL_MS = 5 * 60 * 1000; // 5 minutes
 
@@ -63,12 +64,13 @@ async function scanAndExecute(): Promise<void> {
       const symbol = sig.coin.toUpperCase().endsWith('USDT') ? sig.coin.toUpperCase() : `${sig.coin.toUpperCase()}USDT`;
       if (!s.allowedSymbols.includes(symbol)) continue;
 
-      // Multi-agent validation (non-blocking on failure)
+      // Full 6-agent orchestrator validation (non-blocking on failure)
       let shouldTrade = true;
+      let orchestratorResult: any = null;
       try {
-        const validation = await runMultiAgentValidation({
+        orchestratorResult = await runOrchestrator({
           coin: sig.coin,
-          type: sig.type,
+          direction: sig.type as 'LONG' | 'SHORT',
           entry: sig.entry,
           tp: sig.tp,
           sl: sig.sl,
@@ -77,18 +79,35 @@ async function scanAndExecute(): Promise<void> {
           timeframe: sig.timeframe || '1h',
           marketPrice: sig.marketPrice || sig.entry,
         });
-        shouldTrade = validation.shouldTrade;
+        shouldTrade = orchestratorResult.shouldTrade;
         if (!shouldTrade) {
           await storage.createBotLog({
             level: 'warn',
-            event: 'SCANNER_MULTI_AGENT_BLOCK',
-            message: `Auto-scanner: ${sig.coin} blocked by multi-agent (${validation.finalVerdict}, ${validation.adjustedConfidence}%): ${validation.summary}`,
-            meta: { signalId: sig.id, verdict: validation.finalVerdict },
+            event: 'SCANNER_ORCHESTRATOR_BLOCK',
+            message: `Auto-scanner: ${sig.coin} blocked by orchestrator (${orchestratorResult.finalVerdict}, ${orchestratorResult.finalConfidence}%) — ${orchestratorResult.warnings.slice(0,2).join('; ')}`,
+            meta: { signalId: sig.id, verdict: orchestratorResult.finalVerdict, scores: orchestratorResult.scores },
           });
           continue;
         }
       } catch {
-        // Non-fatal: proceed if validation service unavailable
+        // Non-fatal: fall back to legacy validation if orchestrator fails
+        try {
+          const validation = await runMultiAgentValidation({
+            coin: sig.coin, type: sig.type, entry: sig.entry,
+            tp: sig.tp, sl: sig.sl, confidence: sig.confidence,
+            strategy: sig.strategy || 'Auto', timeframe: sig.timeframe || '1h',
+            marketPrice: sig.marketPrice || sig.entry,
+          });
+          shouldTrade = validation.shouldTrade;
+          if (!shouldTrade) {
+            await storage.createBotLog({
+              level: 'warn', event: 'SCANNER_MULTI_AGENT_BLOCK',
+              message: `Auto-scanner: ${sig.coin} blocked by multi-agent (${validation.finalVerdict}, ${validation.adjustedConfidence}%)`,
+              meta: { signalId: sig.id, verdict: validation.finalVerdict },
+            });
+            continue;
+          }
+        } catch { /* proceed if all validation fails */ }
       }
 
       await storage.createBotLog({

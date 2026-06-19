@@ -108,7 +108,7 @@ export function CoinAnalysisDialog({ open, onOpenChange, defaultCoin = 'BTC', de
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-2xl max-h-[90vh] flex flex-col bg-white" data-testid="dialog-coin-analysis">
+      <DialogContent className="sm:max-w-2xl h-[92vh] flex flex-col bg-white overflow-hidden" data-testid="dialog-coin-analysis">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <BrainCircuit className="w-5 h-5 text-primary" />
@@ -119,7 +119,7 @@ export function CoinAnalysisDialog({ open, onOpenChange, defaultCoin = 'BTC', de
           </DialogDescription>
         </DialogHeader>
 
-        <div className="flex items-end gap-2 pb-2">
+        <div className="flex items-end gap-2 pb-2 shrink-0">
           <div className="flex-1">
             <label className="text-[10px] uppercase font-mono text-muted-foreground mb-1 block">Coin</label>
             <Select value={coin} onValueChange={setCoin}>
@@ -144,7 +144,7 @@ export function CoinAnalysisDialog({ open, onOpenChange, defaultCoin = 'BTC', de
           </Button>
         </div>
 
-        <ScrollArea className="flex-1 -mx-6 px-6">
+        <ScrollArea className="flex-1 min-h-0 -mx-6 px-6">
           {!result && !loading && (
             <div className="flex flex-col items-center justify-center py-12 text-center text-muted-foreground gap-2">
               <BrainCircuit className="w-10 h-10 text-primary/40" />
@@ -160,7 +160,7 @@ export function CoinAnalysisDialog({ open, onOpenChange, defaultCoin = 'BTC', de
           )}
 
           {result && (
-            <div className="space-y-3 py-2">
+            <div className="space-y-3 py-2 pb-4">
               <div className={cn("rounded-lg border-2 p-3 flex items-center justify-between", dirBg)}>
                 <div className="flex items-center gap-2">
                   <Badge variant={result.direction === 'LONG' ? 'default' : result.direction === 'SHORT' ? 'destructive' : 'secondary'} className="text-sm h-7 px-2 font-black">
@@ -340,7 +340,7 @@ export function CoinAnalysisDialog({ open, onOpenChange, defaultCoin = 'BTC', de
         </ScrollArea>
 
         {result && (
-          <DialogFooter className="gap-2 pt-2 border-t">
+          <DialogFooter className="gap-2 pt-2 border-t shrink-0">
             <Button variant="outline" onClick={() => setResult(null)} data-testid="button-clear-analysis">Clear</Button>
             <Button onClick={executeTrade} disabled={result.direction === 'NEUTRAL'} className="gap-1" data-testid="button-execute-analysis">
               <Target className="w-3.5 h-3.5" /> Execute {result.direction}

@@ -20,6 +20,7 @@ import { getCoinglassData } from "./coinglass";
 import { getNewsSentiment } from "./perplexity";
 import { getWhaleActivity } from "./arkham";
 import { runMultiAgentValidation } from "./signal-validator";
+import { sendHourlyAlert } from "./hourly-alerts";
 
 function getAppVersionInfo() {
   let version = "unknown";
@@ -192,6 +193,16 @@ export async function registerRoutes(
       res.status(result.ok ? 200 : 503).json(result);
     } catch (e: any) {
       res.status(500).json({ message: e.message });
+    }
+  });
+
+  // Manual trigger for hourly alert (for testing / admin)
+  app.post("/api/notifications/hourly-alert", async (_req, res) => {
+    try {
+      const result = await sendHourlyAlert();
+      res.status(result.sent ? 200 : 400).json(result);
+    } catch (e: any) {
+      res.status(500).json({ sent: false, error: e.message });
     }
   });
 

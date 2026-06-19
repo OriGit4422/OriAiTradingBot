@@ -198,7 +198,7 @@ ${indicatorSummary}
 
 Respond in JSON only:
 {"confidence": <number>, "reasoning": "<string>", "verdict": "STRONG_${signalType}" or "${signalType}" or "NEUTRAL" or "AVOID"}`,
-    }], 400);
+    }], 800);
 
     const match = text.match(/\{[\s\S]*\}/);
     if (match) {

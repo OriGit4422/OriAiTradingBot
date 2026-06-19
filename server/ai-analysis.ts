@@ -130,7 +130,7 @@ Respond in JSON only:
 }`;
 
     const messages: AIMessage[] = [{ role: 'user', content: prompt }];
-    const { text } = await callMultiAI(messages, 700);
+    const { text } = await callMultiAI(messages, 1200);
 
     const jsonMatch = extractJson(text);
     if (!jsonMatch) throw new Error('Could not parse AI response');
@@ -237,7 +237,7 @@ Respond in JSON only, no markdown:
 }`;
 
   try {
-    const { text } = await callMultiAI([{ role: 'user', content: prompt }], 1400);
+    const { text } = await callMultiAI([{ role: 'user', content: prompt }], 2048);
     const jsonMatch = extractJson(text);
     if (!jsonMatch) throw new Error('Could not parse AI response');
     const p = JSON.parse(jsonMatch);

@@ -66,32 +66,39 @@ async function callOpenAICompatible(
 async function callGemini(
   config: AIProviderConfig,
   messages: AIMessage[],
-  maxTokens = 1024,
+  maxTokens = 2048,
 ): Promise<AIResponse> {
-  const model = config.model || 'gemini-1.5-pro';
+  const model = config.model || 'gemini-2.0-flash';
   const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${config.apiKey}`;
 
-  // Merge system message into first user turn if present
   const systemMsg = messages.find(m => m.role === 'system');
   const chatMsgs = messages.filter(m => m.role !== 'system');
 
-  const contents = chatMsgs.map((m, i) => {
-    let text = m.content;
-    if (i === 0 && systemMsg) text = `${systemMsg.content}\n\n${text}`;
-    return {
-      role: m.role === 'user' ? 'user' : 'model',
-      parts: [{ text }],
-    };
-  });
+  const contents = chatMsgs.map(m => ({
+    role: m.role === 'user' ? 'user' : 'model',
+    parts: [{ text: m.content }],
+  }));
+
+  const body: any = {
+    contents,
+    generationConfig: {
+      maxOutputTokens: maxTokens,
+      temperature: 0.3,
+      topP: 0.95,
+      topK: 40,
+    },
+  };
+
+  // Use native systemInstruction (proper handling vs prepend hack)
+  if (systemMsg) {
+    body.systemInstruction = { parts: [{ text: systemMsg.content }] };
+  }
 
   const response = await fetch(url, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      contents,
-      generationConfig: { maxOutputTokens: maxTokens, temperature: 0.35 },
-    }),
-    signal: AbortSignal.timeout(30_000),
+    body: JSON.stringify(body),
+    signal: AbortSignal.timeout(45_000),
   });
 
   if (!response.ok) {
@@ -102,6 +109,67 @@ async function callGemini(
   const data = await response.json();
   const text: string = data.candidates?.[0]?.content?.parts?.[0]?.text ?? '';
   return { text, provider: 'Gemini', model };
+}
+
+async function streamGemini(
+  config: AIProviderConfig,
+  messages: AIMessage[],
+  onChunk: (chunk: string) => void,
+  maxTokens = 4096,
+): Promise<void> {
+  const model = config.model || 'gemini-2.0-flash';
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:streamGenerateContent?alt=sse&key=${config.apiKey}`;
+
+  const systemMsg = messages.find(m => m.role === 'system');
+  const chatMsgs = messages.filter(m => m.role !== 'system');
+
+  const contents = chatMsgs.map(m => ({
+    role: m.role === 'user' ? 'user' : 'model',
+    parts: [{ text: m.content }],
+  }));
+
+  const body: any = {
+    contents,
+    generationConfig: { maxOutputTokens: maxTokens, temperature: 0.3, topP: 0.95 },
+  };
+  if (systemMsg) body.systemInstruction = { parts: [{ text: systemMsg.content }] };
+
+  const response = await fetch(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+    signal: AbortSignal.timeout(60_000),
+  });
+
+  if (!response.ok) {
+    const errText = await response.text().catch(() => response.statusText);
+    throw new Error(`Gemini stream error ${response.status}: ${errText}`);
+  }
+
+  const reader = response.body?.getReader();
+  if (!reader) throw new Error('No response body');
+
+  const decoder = new TextDecoder();
+  let buffer = '';
+
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true });
+    const lines = buffer.split('\n');
+    buffer = lines.pop() ?? '';
+
+    for (const line of lines) {
+      if (!line.startsWith('data: ')) continue;
+      const data = line.slice(6).trim();
+      if (!data || data === '[DONE]') continue;
+      try {
+        const parsed = JSON.parse(data);
+        const chunk: string = parsed.candidates?.[0]?.content?.parts?.[0]?.text ?? '';
+        if (chunk) onChunk(chunk);
+      } catch { /* skip malformed */ }
+    }
+  }
 }
 
 // ── Anthropic (Claude) API call ───────────────────────────────────────────────
@@ -228,7 +296,7 @@ export async function getActiveProviders(): Promise<AIProviderConfig[]> {
       name: 'Gemini',
       type: 'gemini',
       apiKey: ss.geminiApiKey,
-      model: ss.geminiModel || 'gemini-1.5-pro',
+      model: ss.geminiModel || 'gemini-2.0-flash',
     });
   }
 
@@ -333,15 +401,14 @@ export async function streamChatResponse(
 
   const config = providers[0];
 
-  if (config.type === 'gemini' || config.type === 'anthropic') {
-    // Non-streaming providers: fetch full response then emit in word chunks
-    const r = config.type === 'gemini'
-      ? await callGemini(config, messages, 4096)
-      : await callAnthropic(config, messages, 4096);
-    const words = r.text.split(' ');
-    for (const word of words) {
-      onChunk(word + ' ');
-    }
+  if (config.type === 'gemini') {
+    await streamGemini(config, messages, onChunk, 4096);
+    return;
+  }
+
+  if (config.type === 'anthropic') {
+    const r = await callAnthropic(config, messages, 4096);
+    for (const word of r.text.split(' ')) onChunk(word + ' ');
     return;
   }
 

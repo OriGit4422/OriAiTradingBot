@@ -169,6 +169,13 @@ export interface DeepCoinAnalysis {
   quantumLiquidityAnalysis: string;
   newsImpact: string;
   socialSentiment: string;
+  technicalAnalysis: string;
+  multiTimeframeAnalysis: string;
+  tradeRationale: string;
+  confluenceScore: number;
+  confluenceFactors: string[];
+  analysisLogs: string[];
+  riskAssessment: string;
   keyLevels: { support: number[]; resistance: number[] };
   invalidation: string;
   summary: string;
@@ -202,18 +209,61 @@ Live Technical Snapshot (${coin}/USDT @ ${timeframe}, current price $${marketPri
     : '';
   const socialBlock = xSentiment ? `\nX/Social Sentiment: ${xSentiment}` : '';
 
-  const prompt = `You are a world-class crypto trading analyst combining SMC (Smart Money Concepts), ICT (Inner Circle Trader), Quantum Liquidity theory, on-chain whale flow, news catalysts and X/social sentiment. Produce an institutional-grade trade plan for ${coin}/USDT on the ${timeframe} timeframe.
+  const prompt = `You are a world-class institutional crypto trading analyst combining SMC (Smart Money Concepts), ICT (Inner Circle Trader), Quantum Liquidity theory, technical indicators, multi-timeframe analysis, on-chain whale flow, news catalysts and X/social sentiment. Produce a COMPLETE institutional-grade trade analysis for ${coin}/USDT on the ${timeframe} timeframe.
 ${techBlock}${newsBlock}${socialBlock}
 
-Apply world-best-practice methodology:
-1. Identify the dominant SMC narrative (order blocks, BOS/CHoCH, equilibrium).
-2. Map the ICT premium/discount zones and FVG (fair value gaps) relative to current price.
-3. Identify Quantum Liquidity pools and where smart-money is likely to sweep.
-4. Weight news + X-sentiment as catalysts that can confirm or invalidate the technical bias.
-5. Construct an entry that gives institutional R:R (target 1:2 minimum, ideally 1:3+).
-6. SL must sit beyond the most recent liquidity/structure invalidation — NOT a fixed %.
-7. Provide three TP ladders (TP1 = next liquidity, TP2 = structural target, TP3 = extension target).
-8. All price levels must be realistic and within ±10% of current price ($${marketPrice}) for ${timeframe}.
+ANALYSIS METHODOLOGY — work through each step sequentially and log your reasoning:
+
+STEP 1 — MARKET STRUCTURE (SMC):
+- Identify BOS (Break of Structure) and CHoCH (Change of Character) points with price levels
+- Map bullish/bearish order blocks — note the OB range (high/low) and freshness
+- Determine equilibrium (50% of the last swing) and whether price is in premium or discount
+- Grade market structure: STRONGLY BULLISH / BULLISH / RANGING / BEARISH / STRONGLY BEARISH
+
+STEP 2 — ICT CONCEPTS:
+- Identify Fair Value Gaps (FVG) — bullish gaps (price dropped through) and bearish gaps
+- Map the optimal trade entry (OTE) zone using 61.8%-78.6% Fibonacci of last swing
+- Identify kill zones (London 3-4am EST, NY 9-10am EST) relative to current time
+- Note any NWOG (New Week Opening Gap) or NDOG (New Day Opening Gap)
+
+STEP 3 — QUANTUM LIQUIDITY:
+- Locate buy-side liquidity (BSL) above swing highs and sell-side liquidity (SSL) below swing lows
+- Identify where equal highs/lows are acting as liquidity magnets
+- Assess whale activity signals: abnormal volume, large wick rejections, absorption candles
+- Determine the most probable liquidity sweep target before the main move
+
+STEP 4 — TECHNICAL INDICATORS DEEP DIVE:
+- RSI: current value, divergence, overbought/oversold context
+- MACD: histogram direction, signal cross, momentum acceleration/deceleration
+- EMA 9/21/50 stack: alignment, dynamic S/R, price position relative to EMAs
+- Volume: above/below average, climactic volume, volume trend
+- ATR: current volatility context, SL placement guidance
+- Bollinger Bands: squeeze or expansion, price relative to bands
+
+STEP 5 — MULTI-TIMEFRAME CONFLUENCE:
+- Higher timeframe bias (1W / 1D): trending direction and key levels
+- Intermediate timeframe (4h): structure and momentum
+- Lower timeframe (${timeframe}): entry precision and trigger
+- Note any HTF/LTF alignment or divergence
+
+STEP 6 — NEWS & SENTIMENT CATALYSTS:
+- Assess how current news headlines impact the directional bias
+- X/social sentiment: retail sentiment (contrarian or confirmatory)
+- Upcoming economic events or protocol-level catalysts
+
+STEP 7 — TRADE CONSTRUCTION:
+- Entry: precise level with reason (OB retest / FVG fill / BOS confirmation / liquidity sweep)
+- Stop Loss: beyond structure invalidation (not fixed %) — specify the exact reason
+- TP1: next liquidity target (near-term)
+- TP2: structural / measured-move target
+- TP3: extension / premium/discount zone target
+- Minimum R:R must be 1:2; target 1:3+
+
+STEP 8 — CONFLUENCE SCORE (0-100):
+Count how many of these factors align with your direction:
+SMC structure (+15), Order block quality (+12), FVG present (+10), Liquidity sweep completed (+12), RSI alignment (+8), MACD momentum (+8), EMA stack aligned (+10), Volume confirmation (+8), HTF bias aligned (+10), News/sentiment aligned (+7) — max 100
+
+All price levels must be realistic and within ±12% of current price ($${marketPrice}) for the ${timeframe} timeframe.
 
 Respond in JSON only, no markdown:
 {
@@ -225,19 +275,35 @@ Respond in JSON only, no markdown:
   "takeProfit2": <number>,
   "takeProfit3": <number>,
   "riskReward": "1:X",
-  "smcAnalysis": "<2-3 sentences on order blocks, BOS/CHoCH and structure>",
-  "ictAnalysis": "<2-3 sentences on premium/discount, FVG, killzones>",
-  "quantumLiquidityAnalysis": "<2-3 sentences on liquidity pools, sweeps and whale flow>",
-  "newsImpact": "<1-2 sentences on how news affects this trade>",
-  "socialSentiment": "<1 sentence on X/social sentiment alignment>",
-  "keyLevels": { "support": [<num>, <num>], "resistance": [<num>, <num>] },
-  "invalidation": "<1 sentence on what invalidates the setup>",
-  "summary": "<2 sentence final verdict combining everything>",
-  "warnings": ["<warning 1>", "<warning 2>"]
+  "smcAnalysis": "<4-5 sentences: market structure grade, BOS/CHoCH levels, order block range, equilibrium position, structure narrative>",
+  "ictAnalysis": "<4-5 sentences: FVG levels, OTE zone, premium/discount position, killzone timing, NWOG/NDOG if relevant>",
+  "quantumLiquidityAnalysis": "<4-5 sentences: BSL/SSL levels, equal highs/lows, whale signals, most probable sweep target>",
+  "technicalAnalysis": "<4-5 sentences: RSI value + divergence, MACD state, EMA alignment, volume context, ATR/BB volatility read>",
+  "multiTimeframeAnalysis": "<3-4 sentences: 1W/1D bias, 4h structure, ${timeframe} trigger, HTF/LTF alignment grade>",
+  "newsImpact": "<2-3 sentences: specific headline impact, event risk, catalyst strength>",
+  "socialSentiment": "<2-3 sentences: retail X sentiment, contrarian or confirmatory read, FOMO/fear index>",
+  "tradeRationale": "<4-5 sentences: WHY this direction, WHY this entry level, WHY now — the complete thesis>",
+  "confluenceScore": <0-100>,
+  "confluenceFactors": ["<factor 1: name + aligned/conflicting>", "<factor 2>", "<factor 3>", "<factor 4>", "<factor 5>", "<factor 6>"],
+  "analysisLogs": [
+    "STEP 1 SMC: <1-line log>",
+    "STEP 2 ICT: <1-line log>",
+    "STEP 3 QUANTUM: <1-line log>",
+    "STEP 4 TECHNICALS: <1-line log>",
+    "STEP 5 MTF: <1-line log>",
+    "STEP 6 CATALYSTS: <1-line log>",
+    "STEP 7 LEVELS: Entry=$X, SL=$X, TP1=$X, TP2=$X, TP3=$X, R:R=1:X",
+    "STEP 8 CONFLUENCE: Score=XX/100 — <reason for final direction decision>"
+  ],
+  "riskAssessment": "<2-3 sentences: overall risk level (LOW/MEDIUM/HIGH), key risks to the thesis, position sizing guidance>",
+  "keyLevels": { "support": [<num>, <num>, <num>], "resistance": [<num>, <num>, <num>] },
+  "invalidation": "<2 sentences: exact price/event that invalidates the setup and why>",
+  "summary": "<3-4 sentence final verdict combining all 8 analysis steps into a clear actionable conclusion>",
+  "warnings": ["<specific warning 1>", "<specific warning 2>", "<specific warning 3>"]
 }`;
 
   try {
-    const { text } = await callMultiAI([{ role: 'user', content: prompt }], 2048);
+    const { text } = await callMultiAI([{ role: 'user', content: prompt }], 4096);
     const jsonMatch = extractJson(text);
     if (!jsonMatch) throw new Error('Could not parse AI response');
     const p = JSON.parse(jsonMatch);
@@ -258,6 +324,13 @@ Respond in JSON only, no markdown:
       quantumLiquidityAnalysis: p.quantumLiquidityAnalysis || 'Quantum liquidity analysis unavailable.',
       newsImpact: p.newsImpact || 'No significant news impact identified.',
       socialSentiment: p.socialSentiment || 'Neutral social sentiment.',
+      technicalAnalysis: p.technicalAnalysis || 'Technical analysis unavailable.',
+      multiTimeframeAnalysis: p.multiTimeframeAnalysis || 'Multi-timeframe analysis unavailable.',
+      tradeRationale: p.tradeRationale || 'Trade rationale unavailable.',
+      confluenceScore: Math.min(100, Math.max(0, Number(p.confluenceScore) || 0)),
+      confluenceFactors: Array.isArray(p.confluenceFactors) ? p.confluenceFactors.slice(0, 10) : [],
+      analysisLogs: Array.isArray(p.analysisLogs) ? p.analysisLogs.slice(0, 10) : [],
+      riskAssessment: p.riskAssessment || 'Risk assessment unavailable.',
       keyLevels: {
         support: Array.isArray(p.keyLevels?.support) ? p.keyLevels.support.map(Number).filter(Boolean) : [],
         resistance: Array.isArray(p.keyLevels?.resistance) ? p.keyLevels.resistance.map(Number).filter(Boolean) : [],

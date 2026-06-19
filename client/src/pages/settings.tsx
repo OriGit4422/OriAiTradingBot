@@ -159,7 +159,7 @@ export default function SettingsPage() {
       setAnthropicModel((settings as any).anthropicModel ?? 'claude-sonnet-4-5');
       setGeminiEnabled(!!(settings as any).geminiEnabled);
       setGeminiApiKey((settings as any).geminiApiKey ?? '');
-      setGeminiModel((settings as any).geminiModel ?? 'gemini-1.5-pro');
+      setGeminiModel((settings as any).geminiModel ?? 'gemini-2.0-flash');
       setMetaApiToken(settings.metaApiToken ?? '');
       setMetaApiAccountId(settings.metaApiAccountId ?? '');
       setGoldLotSize(String(settings.goldLotSize ?? 0.01));
@@ -1270,14 +1270,16 @@ export default function SettingsPage() {
                   <CardContent className="space-y-3">
                     <div className="space-y-1">
                       <Label className="text-xs">Model</Label>
-                      <Select value={geminiModel || 'gemini-1.5-pro'} onValueChange={setGeminiModel}>
+                      <Select value={geminiModel || 'gemini-2.0-flash'} onValueChange={setGeminiModel}>
                         <SelectTrigger className="bg-secondary text-xs">
                           <SelectValue placeholder="Select model" />
                         </SelectTrigger>
                         <SelectContent>
-                          <SelectItem value="gemini-1.5-pro">gemini-1.5-pro (most capable)</SelectItem>
-                          <SelectItem value="gemini-1.5-flash">gemini-1.5-flash (faster)</SelectItem>
-                          <SelectItem value="gemini-pro">gemini-pro (legacy)</SelectItem>
+                          <SelectItem value="gemini-2.5-pro">gemini-2.5-pro (best analysis)</SelectItem>
+                          <SelectItem value="gemini-2.0-flash">gemini-2.0-flash (fast + smart)</SelectItem>
+                          <SelectItem value="gemini-2.0-flash-thinking-exp">gemini-2.0-flash-thinking (reasoning)</SelectItem>
+                          <SelectItem value="gemini-1.5-pro">gemini-1.5-pro</SelectItem>
+                          <SelectItem value="gemini-1.5-flash">gemini-1.5-flash</SelectItem>
                         </SelectContent>
                       </Select>
                     </div>
@@ -1285,7 +1287,7 @@ export default function SettingsPage() {
                       <Label className="text-xs">API Key (Google AI Studio)</Label>
                       <div className="flex gap-2">
                         <Input type="password" value={geminiApiKey} onChange={(e) => setGeminiApiKey(e.target.value)} placeholder="AIza..." className="bg-secondary font-mono text-xs" />
-                        <Button size="sm" onClick={() => updateMutation.mutate({ geminiApiKey, geminiModel: geminiModel || 'gemini-1.5-pro', geminiEnabled } as any)} disabled={updateMutation.isPending}>
+                        <Button size="sm" onClick={() => updateMutation.mutate({ geminiApiKey, geminiModel: geminiModel || 'gemini-2.0-flash', geminiEnabled } as any)} disabled={updateMutation.isPending}>
                           Save
                         </Button>
                       </div>

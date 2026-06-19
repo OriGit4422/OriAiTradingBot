@@ -41,6 +41,16 @@ export interface AgentContext {
   quantumLiquidityScore?:  number;
   liquidityDepthScore?:    number;
   crtScore?:               number;
+  // SMC/ICT Engine v4 context
+  smcV4Score?:             number;
+  smcV4Grade?:             string;
+  smcV4Label?:             string;
+  premiumDiscount?:        string;
+  inOTEZone?:              boolean;
+  breakerBlocks?:          number;
+  cisdCount?:              number;
+  powerOf3Phase?:          string;
+  powerOf3Direction?:      string;
 }
 
 function getAIFallback(signalData: {
@@ -90,6 +100,7 @@ ${ctx.xSentiment       ? `- X/Social Sentiment:        ${ctx.xSentiment}` : ''}
 ${ctx.whaleBias        ? `- Whale Flow (Arkham):       Bias=${ctx.whaleBias}, Signal="${ctx.whaleSignal}"` : ''}
 ${ctx.smcStructure     ? `- SMC Market Structure:      ${ctx.smcStructure} (RSI Div=${ctx.rsiDivergence}, Phase=${ctx.marketPhase})` : ''}
 ${ctx.quantumLiquidityScore !== undefined ? `- Strategy Scores (0-100):   SMC=${ctx.smcScore}, ICT=${ctx.ictScore}, Quantum-Liquidity=${ctx.quantumLiquidityScore}, Liquidity-Depth=${ctx.liquidityDepthScore}, CRT=${ctx.crtScore}` : ''}
+${ctx.smcV4Score !== undefined ? `- SMC/ICT Engine v4 Score:   ${ctx.smcV4Score}/10 (${ctx.smcV4Grade}) | Setup: ${ctx.smcV4Label} | Zone: ${ctx.premiumDiscount} | OTE: ${ctx.inOTEZone ? 'YES ✓' : 'NO'} | Breakers: ${ctx.breakerBlocks} | CISD: ${ctx.cisdCount} | PO3: ${ctx.powerOf3Phase}/${ctx.powerOf3Direction}` : ''}
 ${ctx.liquidityClusters !== undefined ? `- Liquidity Clusters:        ${ctx.liquidityClusters} active clusters, Whale=${ctx.whaleActivity}, Volume=${ctx.volumeProfile}/${ctx.volumeForecast}` : ''}
 ${ctx.ensembleDirection ? `- Ensemble Model:            Direction=${ctx.ensembleDirection}, Confidence=${ctx.ensembleConfidence}%, Ichimoku=${ctx.ichimokuSignal}` : ''}
 ` : '';
@@ -106,18 +117,26 @@ Signal Data:
 - Base Confidence: ${signalData.confidence}%
 - Risk/Reward: 1:${rr}
 ${agentBlock}
-Instructions — apply world-best-practice methodology:
-1. Evaluate the technical merit of Entry/TP/SL placement against SMC/ICT/Quantum-Liquidity concepts (order blocks, FVG, BOS/CHoCH, liquidity sweeps, equilibrium).
-2. R:R quality is critical: R:R < 1.5 = deduct 20 pts; 1.5-2.0 = deduct 10 pts; 2.0-2.5 = neutral; ≥2.5 = add 5 pts; ≥3.0 = add 10 pts.
-3. Multi-Agent Intelligence weighting (when provided):
+Instructions — apply SMC/ICT Engine v4 methodology:
+1. Evaluate the technical merit using the full SMC/ICT Engine v4 framework:
+   - Layer 1 (HTF Context): HTF Bias (EMA50 higher TF), BOS/CHoCH, Premium/Discount zone (50% equilibrium), Kill Zones (London 7-9am UTC / NY 1-3pm UTC)
+   - Layer 2 (Zone Detection): Order Blocks (demand/supply OB), Breaker Blocks (failed OB flipped polarity — highest quality zone), Fair Value Gaps (3-candle imbalance), OTE Zone (61.8-79% Fibonacci)
+   - Layer 3 (Triggers): Liquidity Sweeps (EQH/EQL hunted + reversed), CISD (Change in State of Delivery — delivery shift), Power of 3 PO3 (Accumulation → Manipulation → Distribution)
+2. SMC/ICT Engine v4 Scoring (0-10): HTF+Sweep (+4.0), OB/Breaker (+2.0-4.0), OTE+FVG (+2.5), KZ+BOS (+2.0), PO3+CISD (+1.5). Grade: A+ Prime ≥9.0, A Strong ≥7.5, B+ Good ≥6.0, B Fair ≥5.0, Skip <5.0.
+3. R:R quality: R:R < 1.5 = deduct 20 pts; 1.5-2.0 = deduct 10 pts; 2.0-2.5 = neutral; ≥2.5 = add 5 pts; ≥3.0 = add 10 pts.
+4. Multi-Agent Intelligence weighting (when provided):
    - SMC structure alignment with signal direction: ±10 pts
-   - Quantum-Liquidity score ≥70 in signal direction: +8 pts; conflicting: -8 pts
+   - Breaker Block or high-quality OB at entry: +8 pts; no zone: -5 pts
+   - Price in OTE zone (61.8-79% Fib) + FVG present: +8 pts
+   - Liquidity sweep confirmed (EQH/EQL hunted): +7 pts; no sweep: -3 pts
+   - PO3 Distribution phase + CISD: +6 pts
+   - Kill zone timing: +4 pts; off-hours: -3 pts
    - News sentiment / X-social sentiment aligned: +5 pts; conflicting: -8 pts
    - Whale flow + funding rate alignment: +5 pts; opposing: -5 pts
    - Ensemble model direction conflict: -10 pts
-4. Higher-timeframe signals (1D, 1W) deserve more weight — only confirm if SMC structure + liquidity context truly support the bias.
-5. Never exceed 95% or go below 10% for adjustedConfidence.
-6. Be concise and precise — reference the specific agent data points you used.
+5. Higher-timeframe signals (1D, 1W) deserve more weight — only confirm if SMC structure + liquidity context truly support the bias.
+6. Never exceed 95% or go below 10% for adjustedConfidence.
+7. Be concise and precise — reference specific ICT v4 concepts and agent data points you used.
 
 Respond in JSON only:
 {
@@ -220,10 +239,14 @@ STEP 1 — MARKET STRUCTURE (SMC):
 - Determine equilibrium (50% of the last swing) and whether price is in premium or discount
 - Grade market structure: STRONGLY BULLISH / BULLISH / RANGING / BEARISH / STRONGLY BEARISH
 
-STEP 2 — ICT CONCEPTS:
-- Identify Fair Value Gaps (FVG) — bullish gaps (price dropped through) and bearish gaps
-- Map the optimal trade entry (OTE) zone using 61.8%-78.6% Fibonacci of last swing
-- Identify kill zones (London 3-4am EST, NY 9-10am EST) relative to current time
+STEP 2 — ICT / SMC ENGINE v4 CONCEPTS:
+- Identify Fair Value Gaps (FVG) — 3-candle imbalance: bullish (price gapped up leaving void) and bearish
+- Map the Optimal Trade Entry (OTE) zone using 61.8%-78.6% Fibonacci retracement of last significant swing
+- Breaker Blocks: identify failed Order Blocks that flipped polarity — these are the highest-quality zones
+- Premium/Discount zones: mark the 50% equilibrium of the current range; LONG from Discount, SHORT from Premium
+- Change in State of Delivery (CISD): identify where bearish delivery shifted to bullish (or vice versa)
+- Power of 3 (PO3): identify Accumulation → Manipulation (stop hunt) → Distribution phase
+- Identify Kill Zones (London 7-9am UTC, NY 1-3pm UTC open — highest probability trade windows)
 - Note any NWOG (New Week Opening Gap) or NDOG (New Day Opening Gap)
 
 STEP 3 — QUANTUM LIQUIDITY:
@@ -259,9 +282,14 @@ STEP 7 — TRADE CONSTRUCTION:
 - TP3: extension / premium/discount zone target
 - Minimum R:R must be 1:2; target 1:3+
 
-STEP 8 — CONFLUENCE SCORE (0-100):
-Count how many of these factors align with your direction:
-SMC structure (+15), Order block quality (+12), FVG present (+10), Liquidity sweep completed (+12), RSI alignment (+8), MACD momentum (+8), EMA stack aligned (+10), Volume confirmation (+8), HTF bias aligned (+10), News/sentiment aligned (+7) — max 100
+STEP 8 — SMC/ICT ENGINE v4 CONFLUENCE SCORE (0-100):
+Count alignment across all factors using the v4 weighted system:
+Layer 1 — HTF Context: HTF Bias EMA50 aligned (+12), BOS/CHoCH confirmed (+8), Price in Discount (LONG) or Premium (SHORT) (+6), Kill Zone timing (+6) = max 32
+Layer 2 — Zone Quality: Breaker Block at entry (+15), OR Order Block at entry (+10), FVG present and untested (+8), OTE Zone 61.8-79% Fib (+10) = max 33
+Layer 3 — Trigger Confirmation: Liquidity sweep (EQH/EQL) completed (+12), CISD delivery shift (+5), PO3 Distribution phase (+8) = max 25
+Fundamentals: EMA stack aligned (+5), RSI alignment (+5), MACD momentum (+5), Volume confirmation (+5) = max 20
+Deductions: entry in premium zone for LONG or discount for SHORT (-10), no liquidity sweep (-5), no structure confirmation (-5)
+Final score capped at 100. Grade: A+ Prime ≥90, A Strong ≥75, B+ Good ≥60, B Fair ≥50, Skip <50
 
 All price levels must be realistic and within ±12% of current price ($${marketPrice}) for the ${timeframe} timeframe.
 

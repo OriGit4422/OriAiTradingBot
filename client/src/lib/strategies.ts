@@ -1,13 +1,73 @@
 import { BinanceKline } from './binance';
 
+// ─── SMC/ICT Engine v4 — New Concept Types ───────────────────────────────────
+
+export interface BreakerBlock {
+  price: number;
+  type: 'BULLISH' | 'BEARISH';
+  strength: number;
+  zone: { top: number; bottom: number };
+}
+
+export interface PremiumDiscountZone {
+  equilibrium: number;
+  premiumZoneTop: number;
+  discountZoneBottom: number;
+  currentZone: 'PREMIUM' | 'DISCOUNT' | 'EQUILIBRIUM';
+  distanceFromEQ: number;
+}
+
+export interface OTEZone {
+  bullishOTE: { top: number; bottom: number };
+  bearishOTE: { top: number; bottom: number };
+  inBullishOTE: boolean;
+  inBearishOTE: boolean;
+  fibLevel: number;
+}
+
+export interface CISDEvent {
+  type: 'BULLISH' | 'BEARISH';
+  price: number;
+  strength: number;
+}
+
+export interface PowerOf3Phase {
+  phase: 'ACCUMULATION' | 'MANIPULATION' | 'DISTRIBUTION';
+  direction: 'BULLISH' | 'BEARISH' | 'NEUTRAL';
+  manipulationDetected: boolean;
+  distributionActive: boolean;
+  confidence: number;
+  accumulationRange: { high: number; low: number };
+}
+
+export interface SMCv4Score {
+  total: number;
+  grade: 'A+ Prime' | 'A Strong' | 'B+ Good' | 'B Fair' | 'Skip';
+  breakdown: {
+    htfSweep: number;
+    obBreaker: number;
+    oteFvg: number;
+    kzBos: number;
+    po3Cisd: number;
+  };
+  label: string;
+  direction: 'LONG' | 'SHORT' | 'NEUTRAL';
+}
+
 export interface SMCAnalysis {
   orderBlocks: { price: number; type: 'BULLISH' | 'BEARISH'; strength: number }[];
+  breakerBlocks: BreakerBlock[];
   fvg: { top: number; bottom: number; type: 'BULLISH' | 'BEARISH' }[];
   bos: { price: number; type: 'BULLISH' | 'BEARISH' }[];
   choch: { price: number; type: 'BULLISH' | 'BEARISH' }[];
   liquidity: { price: number; label: string; strength: number }[];
   quantumZones: { price: number; strength: number; type: string }[];
   liquidityClusters: { priceLevel: number; density: number; type: 'SUPPORT' | 'RESISTANCE' }[];
+  premiumDiscount: PremiumDiscountZone;
+  oteZone: OTEZone;
+  cisd: CISDEvent[];
+  powerOf3: PowerOf3Phase;
+  smcV4Score: SMCv4Score;
   marketPhase: 'ACCUMULATION' | 'MANIPULATION' | 'DISTRIBUTION' | 'TRENDING';
   volumeForecast: { expectedSpike: boolean; direction: 'UP' | 'DOWN' | 'NEUTRAL'; magnitude: number };
   volatilityForecast: { expansion: boolean; currentVol: number; avgVol: number; ratio: number };
@@ -50,9 +110,31 @@ export function analyzeMarket(data: BinanceKline[]): SMCAnalysis {
     ichimoku: { tenkan: 0, kijun: 0, signal: 'NEUTRAL' as const },
   };
 
+  const emptyPremiumDiscount: PremiumDiscountZone = {
+    equilibrium: 0, premiumZoneTop: 0, discountZoneBottom: 0,
+    currentZone: 'EQUILIBRIUM', distanceFromEQ: 0,
+  };
+  const emptyOTEZone: OTEZone = {
+    bullishOTE: { top: 0, bottom: 0 }, bearishOTE: { top: 0, bottom: 0 },
+    inBullishOTE: false, inBearishOTE: false, fibLevel: 0.5,
+  };
+  const emptyPO3: PowerOf3Phase = {
+    phase: 'ACCUMULATION', direction: 'NEUTRAL',
+    manipulationDetected: false, distributionActive: false,
+    confidence: 0, accumulationRange: { high: 0, low: 0 },
+  };
+  const emptyV4Score: SMCv4Score = {
+    total: 0, grade: 'Skip',
+    breakdown: { htfSweep: 0, obBreaker: 0, oteFvg: 0, kzBos: 0, po3Cisd: 0 },
+    label: 'No Setup', direction: 'NEUTRAL',
+  };
+
   const emptyResult: SMCAnalysis = {
-    orderBlocks: [], fvg: [], bos: [], choch: [], liquidity: [],
-    quantumZones: [], liquidityClusters: [], marketPhase: 'TRENDING',
+    orderBlocks: [], breakerBlocks: [], fvg: [], bos: [], choch: [], liquidity: [],
+    quantumZones: [], liquidityClusters: [],
+    premiumDiscount: emptyPremiumDiscount, oteZone: emptyOTEZone,
+    cisd: [], powerOf3: emptyPO3, smcV4Score: emptyV4Score,
+    marketPhase: 'TRENDING',
     volumeForecast: { expectedSpike: false, direction: 'NEUTRAL', magnitude: 0 },
     volatilityForecast: { expansion: false, currentVol: 0, avgVol: 0, ratio: 1 },
     whaleActivity: { detected: false, direction: 'NEUTRAL', intensity: 0 },
@@ -119,14 +201,35 @@ export function analyzeMarket(data: BinanceKline[]): SMCAnalysis {
     rsiDivergence, marketStructure, bollingerWidth, stochRsi, obv, vwap, ichimoku
   }, phase, whaleActivity, volumeForecast);
 
+  // ── SMC/ICT Engine v4 — New concept detection ────────────────────────────────
+  const breakerBlocks = detectBreakerBlocks(data, orderBlocks);
+  const premiumDiscount = detectPremiumDiscount(data, price);
+  const oteZone = detectOTEZone(data, price);
+  const cisd = detectCISD(data);
+  const powerOf3 = detectPowerOf3(data, phase, whaleActivity);
+
+  const smcV4Score = calculateSMCv4Score({
+    direction: ensembleScore.direction === 'NEUTRAL' ? (marketStructure === 'BULLISH' ? 'LONG' : 'SHORT') : (ensembleScore.direction as 'LONG' | 'SHORT'),
+    smcStructure: marketStructure,
+    bos, choch, orderBlocks, breakerBlocks,
+    fvg: fvg.slice(-5), liquidity, premiumDiscount, oteZone,
+    cisd, powerOf3, whaleActivity,
+  });
+
   return {
     orderBlocks,
+    breakerBlocks,
     fvg: fvg.slice(-5),
     bos,
     choch,
     liquidity,
     quantumZones,
     liquidityClusters,
+    premiumDiscount,
+    oteZone,
+    cisd,
+    powerOf3,
+    smcV4Score,
     marketPhase: phase,
     volumeForecast,
     volatilityForecast,
@@ -735,14 +838,38 @@ export function getQuantumSignal(symbol: string, price: number, data: BinanceKli
       : marketPrice * 1.003; // 0.3% above market
   }
 
+  // ── SMCv4 Score — recompute for final signal direction ────────────────────
+  const smcV4 = calculateSMCv4Score({
+    direction: type,
+    smcStructure: marketStructure,
+    bos: analysis.bos, choch: analysis.choch,
+    orderBlocks: analysis.orderBlocks, breakerBlocks: analysis.breakerBlocks,
+    fvg: analysis.fvg, liquidity: analysis.liquidity,
+    premiumDiscount: analysis.premiumDiscount, oteZone: analysis.oteZone,
+    cisd: analysis.cisd, powerOf3: analysis.powerOf3,
+    whaleActivity: analysis.whaleActivity,
+  });
+
+  // Grade-based confidence boost: A+ Prime = +6, A Strong = +4, B+ Good = +2
+  const gradeBoost = smcV4.grade === 'A+ Prime' ? 6 :
+    smcV4.grade === 'A Strong' ? 4 :
+    smcV4.grade === 'B+ Good' ? 2 :
+    smcV4.grade === 'B Fair' ? 0 : -5;
+  confidence = Math.min(98, confidence + gradeBoost);
+
+  // Skip low-quality signals (SMCv4 < 5.0)
+  if (smcV4.grade === 'Skip') {
+    confidence = Math.max(10, confidence - 10);
+  }
+
   const { dynamicSL, dynamicTP, riskReward, kellyFraction } = analysis.adaptiveRisk;
   const tp = type === 'LONG' ? entryPrice + dynamicTP : entryPrice - dynamicTP;
   const sl = type === 'LONG' ? entryPrice - dynamicSL : entryPrice + dynamicSL;
 
-  // Composite signal score: 65% AI confidence + 35% R:R quality
-  // R:R quality: 0 at 1.5, 100 at 4.0+ (normalized)
+  // Composite signal score: 50% AI confidence + 30% R:R quality + 20% SMCv4 score
   const rrQuality = Math.min(100, Math.max(0, ((riskReward - 1.5) / 2.5) * 100));
-  const signalScore = Math.round(confidence * 0.65 + rrQuality * 0.35);
+  const v4Quality = smcV4.total * 10; // normalize 0-10 to 0-100
+  const signalScore = Math.round(confidence * 0.50 + rrQuality * 0.30 + v4Quality * 0.20);
 
   return {
     id: Math.random().toString(36).substr(2, 9),
@@ -776,6 +903,17 @@ export function getQuantumSignal(symbol: string, price: number, data: BinanceKli
       ichimokuSignal: ichimoku.signal,
       stochRsi: stochRsi.k,
       liquidityClusters: analysis.liquidityClusters.length,
+      // SMC/ICT Engine v4
+      smcV4Score: smcV4.total,
+      smcV4Grade: smcV4.grade,
+      smcV4Label: smcV4.label,
+      smcV4Breakdown: smcV4.breakdown,
+      premiumDiscount: analysis.premiumDiscount.currentZone,
+      inOTEZone: type === 'LONG' ? analysis.oteZone.inBullishOTE : analysis.oteZone.inBearishOTE,
+      breakerBlocks: analysis.breakerBlocks.length,
+      cisd: analysis.cisd.filter(c => c.type === (type === 'LONG' ? 'BULLISH' : 'BEARISH')).length,
+      powerOf3Phase: analysis.powerOf3.phase,
+      powerOf3Direction: analysis.powerOf3.direction,
       strategyDepth: {
         smc: smcScore,
         ict: ictScore,
@@ -961,6 +1099,283 @@ function detectMarketStructure(data: BinanceKline[]): 'BULLISH' | 'BEARISH' | 'R
     if (lh && ll) return 'BEARISH';
   }
   return 'RANGING';
+}
+
+// ─── SMC/ICT Engine v4 — New Detection Functions ─────────────────────────────
+
+function detectBreakerBlocks(data: BinanceKline[], orderBlocks: SMCAnalysis['orderBlocks']): BreakerBlock[] {
+  const breakers: BreakerBlock[] = [];
+  const recent = data.slice(-60);
+
+  for (const ob of orderBlocks) {
+    if (ob.type === 'BULLISH') {
+      // Bullish OB becomes bearish breaker when price closes below it
+      const broken = recent.find(c => c.close < ob.price * 0.999);
+      if (broken) {
+        breakers.push({
+          price: ob.price,
+          type: 'BEARISH',
+          strength: ob.strength,
+          zone: { top: ob.price * 1.003, bottom: ob.price * 0.997 },
+        });
+      }
+    } else {
+      // Bearish OB becomes bullish breaker when price closes above it
+      const broken = recent.find(c => c.close > ob.price * 1.001);
+      if (broken) {
+        breakers.push({
+          price: ob.price,
+          type: 'BULLISH',
+          strength: ob.strength,
+          zone: { top: ob.price * 1.003, bottom: ob.price * 0.997 },
+        });
+      }
+    }
+  }
+
+  return breakers.slice(-4);
+}
+
+function detectPremiumDiscount(data: BinanceKline[], price: number): PremiumDiscountZone {
+  const recent = data.slice(-100);
+  const rangeHigh = Math.max(...recent.map(d => d.high));
+  const rangeLow = Math.min(...recent.map(d => d.low));
+  const range = rangeHigh - rangeLow;
+  const equilibrium = rangeLow + range * 0.5;
+
+  const currentZone: PremiumDiscountZone['currentZone'] =
+    price > equilibrium * 1.005 ? 'PREMIUM' :
+    price < equilibrium * 0.995 ? 'DISCOUNT' : 'EQUILIBRIUM';
+
+  const distanceFromEQ = Math.round(((price - equilibrium) / Math.max(0.0001, equilibrium)) * 10000) / 100;
+
+  return { equilibrium, premiumZoneTop: rangeHigh, discountZoneBottom: rangeLow, currentZone, distanceFromEQ };
+}
+
+function detectOTEZone(data: BinanceKline[], price: number): OTEZone {
+  const recent = data.slice(-50);
+  let swingHigh = recent[0].high;
+  let swingLow = recent[0].low;
+
+  for (let i = 3; i < recent.length - 3; i++) {
+    if (recent[i].high > recent[i-1].high && recent[i].high > recent[i-2].high &&
+        recent[i].high > recent[i+1].high && recent[i].high > recent[i+2].high) {
+      swingHigh = Math.max(swingHigh, recent[i].high);
+    }
+    if (recent[i].low < recent[i-1].low && recent[i].low < recent[i-2].low &&
+        recent[i].low < recent[i+1].low && recent[i].low < recent[i+2].low) {
+      swingLow = Math.min(swingLow, recent[i].low);
+    }
+  }
+
+  const range = swingHigh - swingLow;
+  // Bullish OTE: 61.8%-78.6% retracement from swing high (price pulled back)
+  const bullOTETop = swingHigh - range * 0.618;
+  const bullOTEBottom = swingHigh - range * 0.786;
+  // Bearish OTE: 61.8%-78.6% retracement bounce from swing low
+  const bearOTEBottom = swingLow + range * 0.618;
+  const bearOTETop = swingLow + range * 0.786;
+
+  const fibLevel = Math.round(((price - swingLow) / Math.max(0.0001, range)) * 1000) / 1000;
+
+  return {
+    bullishOTE: { top: bullOTETop, bottom: bullOTEBottom },
+    bearishOTE: { top: bearOTETop, bottom: bearOTEBottom },
+    inBullishOTE: price >= bullOTEBottom && price <= bullOTETop,
+    inBearishOTE: price >= bearOTEBottom && price <= bearOTETop,
+    fibLevel,
+  };
+}
+
+function detectCISD(data: BinanceKline[]): CISDEvent[] {
+  if (data.length < 10) return [];
+  const events: CISDEvent[] = [];
+  const recent = data.slice(-20);
+
+  for (let i = 3; i < recent.length; i++) {
+    const prior = recent.slice(i - 3, i);
+    const current = recent[i];
+    const priorBullish = prior.filter(c => c.close > c.open).length;
+    const priorBearish = prior.filter(c => c.close < c.open).length;
+    const bodySize = Math.abs(current.close - current.open);
+    const range = current.high - current.low || 0.0001;
+
+    // Bullish CISD: bearish delivery → bullish shift, closing above prior closes
+    if (priorBearish >= 2 && current.close > current.open) {
+      const priorHighestClose = Math.max(...prior.map(c => c.close));
+      if (current.close > priorHighestClose) {
+        events.push({ type: 'BULLISH', price: current.close, strength: Math.min(1, bodySize / range) });
+      }
+    }
+    // Bearish CISD: bullish delivery → bearish shift, closing below prior closes
+    if (priorBullish >= 2 && current.close < current.open) {
+      const priorLowestClose = Math.min(...prior.map(c => c.close));
+      if (current.close < priorLowestClose) {
+        events.push({ type: 'BEARISH', price: current.close, strength: Math.min(1, bodySize / range) });
+      }
+    }
+  }
+
+  return events.slice(-3);
+}
+
+function detectPowerOf3(
+  data: BinanceKline[],
+  phase: SMCAnalysis['marketPhase'],
+  whaleActivity: SMCAnalysis['whaleActivity'],
+): PowerOf3Phase {
+  const recent = data.slice(-30);
+  const avgRange = recent.reduce((sum, d) => sum + (d.high - d.low), 0) / recent.length;
+  const last10 = data.slice(-10);
+  const last10Range = Math.max(...last10.map(d => d.high)) - Math.min(...last10.map(d => d.low));
+  const last10AvgVol = last10.reduce((s, d) => s + d.volume, 0) / 10;
+  const priorAvgVol = data.slice(-30, -10).reduce((s, d) => s + d.volume, 0) / 20;
+
+  const isAccumulating = last10Range < avgRange * 1.5 && last10AvgVol < priorAvgVol * 0.85;
+
+  let manipulationDetected = false;
+  let manipDirection: 'BULLISH' | 'BEARISH' | 'NEUTRAL' = 'NEUTRAL';
+
+  for (let i = recent.length - 5; i < recent.length - 1; i++) {
+    const c = recent[i];
+    const next = recent[i + 1];
+    const body = Math.abs(c.close - c.open);
+    const wickLow = Math.min(c.close, c.open) - c.low;
+    const wickHigh = c.high - Math.max(c.close, c.open);
+    // Stop-hunt below (fake breakdown then reversal up)
+    if (wickLow > body * 1.5 && next.close > c.open) {
+      manipulationDetected = true; manipDirection = 'BULLISH';
+    }
+    // Stop-hunt above (fake breakout then reversal down)
+    if (wickHigh > body * 1.5 && next.close < c.open) {
+      manipulationDetected = true; manipDirection = 'BEARISH';
+    }
+  }
+
+  let direction: 'BULLISH' | 'BEARISH' | 'NEUTRAL' = manipDirection;
+  if (whaleActivity.detected) {
+    if (whaleActivity.direction === 'BUYING') direction = 'BULLISH';
+    if (whaleActivity.direction === 'SELLING') direction = 'BEARISH';
+  }
+
+  const po3Phase: PowerOf3Phase['phase'] =
+    manipulationDetected && direction !== 'NEUTRAL' ? 'DISTRIBUTION' :
+    manipulationDetected ? 'MANIPULATION' :
+    isAccumulating ? 'ACCUMULATION' : 'DISTRIBUTION';
+
+  const confidence =
+    (manipulationDetected ? 0.4 : 0) +
+    (whaleActivity.detected ? 0.3 : 0) +
+    (isAccumulating ? 0.2 : 0) +
+    (phase !== 'TRENDING' ? 0.1 : 0);
+
+  return {
+    phase: po3Phase,
+    direction,
+    manipulationDetected,
+    distributionActive: po3Phase === 'DISTRIBUTION',
+    confidence: Math.round(confidence * 100) / 100,
+    accumulationRange: {
+      high: Math.max(...last10.map(d => d.high)),
+      low: Math.min(...last10.map(d => d.low)),
+    },
+  };
+}
+
+function calculateSMCv4Score(params: {
+  direction: 'LONG' | 'SHORT';
+  smcStructure: 'BULLISH' | 'BEARISH' | 'RANGING';
+  bos: SMCAnalysis['bos'];
+  choch: SMCAnalysis['choch'];
+  orderBlocks: SMCAnalysis['orderBlocks'];
+  breakerBlocks: BreakerBlock[];
+  fvg: SMCAnalysis['fvg'];
+  liquidity: SMCAnalysis['liquidity'];
+  premiumDiscount: PremiumDiscountZone;
+  oteZone: OTEZone;
+  cisd: CISDEvent[];
+  powerOf3: PowerOf3Phase;
+  whaleActivity: SMCAnalysis['whaleActivity'];
+}): SMCv4Score {
+  const dir = params.direction;
+  let htfSweep = 0, obBreaker = 0, oteFvg = 0, kzBos = 0, po3Cisd = 0;
+
+  // ── Layer 1: HTF Bias + Liquidity Sweep (max 4.0) ─────────────────────────
+  const htfAligned = (dir === 'LONG' && params.smcStructure === 'BULLISH') ||
+    (dir === 'SHORT' && params.smcStructure === 'BEARISH');
+  if (htfAligned) htfSweep += 2.0;
+
+  const sweepAligned = params.whaleActivity.detected &&
+    ((dir === 'LONG' && params.whaleActivity.direction === 'BUYING') ||
+     (dir === 'SHORT' && params.whaleActivity.direction === 'SELLING'));
+  if (sweepAligned) htfSweep += 2.0;
+  else if (params.liquidity.length > 1) htfSweep += 0.5; // liquidity zones exist
+
+  // ── Layer 2: Order Block / Breaker Block (max 4.0) ────────────────────────
+  const relevantBreakers = params.breakerBlocks.filter(bb =>
+    bb.type === (dir === 'LONG' ? 'BULLISH' : 'BEARISH'));
+  const relevantOBs = params.orderBlocks.filter(ob =>
+    ob.type === (dir === 'LONG' ? 'BULLISH' : 'BEARISH'));
+
+  if (relevantBreakers.length > 0) {
+    obBreaker = 4.0; // Breaker Block = highest setup quality
+  } else if (relevantOBs.length > 0) {
+    const bestStrength = relevantOBs.reduce((m, ob) => Math.max(m, ob.strength), 0);
+    obBreaker = Math.min(3.9, 2.0 + bestStrength * 2.0);
+  }
+
+  // ── Layer 3: OTE Zone + Fair Value Gap (max 2.5) ──────────────────────────
+  const inOTE = dir === 'LONG' ? params.oteZone.inBullishOTE : params.oteZone.inBearishOTE;
+  if (inOTE) oteFvg += 1.5;
+  const relevantFVGs = params.fvg.filter(f => f.type === (dir === 'LONG' ? 'BULLISH' : 'BEARISH'));
+  if (relevantFVGs.length > 0) oteFvg += 1.0;
+
+  // ── Layer 4: Kill Zone + BOS/CHoCH (max 2.0) ──────────────────────────────
+  const utcH = new Date().getUTCHours();
+  const inKillZone = (utcH >= 7 && utcH <= 9) || (utcH >= 13 && utcH <= 15);
+  if (inKillZone) kzBos += 1.0;
+  const relevantBOS = params.bos.filter(b => b.type === (dir === 'LONG' ? 'BULLISH' : 'BEARISH'));
+  const relevantCHoCH = params.choch.filter(c => c.type === (dir === 'LONG' ? 'BULLISH' : 'BEARISH'));
+  if (relevantBOS.length > 0 || relevantCHoCH.length > 0) kzBos += 1.0;
+
+  // ── Layer 5: Power of 3 + CISD (max 1.5) ─────────────────────────────────
+  const po3Aligned = params.powerOf3.distributionActive &&
+    ((dir === 'LONG' && params.powerOf3.direction === 'BULLISH') ||
+     (dir === 'SHORT' && params.powerOf3.direction === 'BEARISH'));
+  if (po3Aligned) po3Cisd += 1.0;
+  const recentCISD = params.cisd.filter(c => c.type === (dir === 'LONG' ? 'BULLISH' : 'BEARISH'));
+  if (recentCISD.length > 0) po3Cisd += 0.5;
+
+  const total = Math.min(10, htfSweep + obBreaker + oteFvg + kzBos + po3Cisd);
+
+  const grade: SMCv4Score['grade'] =
+    total >= 9.0 ? 'A+ Prime' :
+    total >= 7.5 ? 'A Strong' :
+    total >= 6.0 ? 'B+ Good' :
+    total >= 5.0 ? 'B Fair' : 'Skip';
+
+  const labelParts: string[] = [];
+  if (relevantBreakers.length > 0) labelParts.push('Breaker');
+  else if (relevantOBs.length > 0) labelParts.push('OB');
+  if (sweepAligned) labelParts.push('Sweep');
+  if (inOTE) labelParts.push('OTE');
+  if (relevantFVGs.length > 0) labelParts.push('FVG');
+  if (po3Aligned) labelParts.push('PO3');
+  if (recentCISD.length > 0) labelParts.push('CISD');
+
+  return {
+    total: Math.round(total * 10) / 10,
+    grade,
+    breakdown: {
+      htfSweep: Math.round(htfSweep * 10) / 10,
+      obBreaker: Math.round(obBreaker * 10) / 10,
+      oteFvg: Math.round(oteFvg * 10) / 10,
+      kzBos: Math.round(kzBos * 10) / 10,
+      po3Cisd: Math.round(po3Cisd * 10) / 10,
+    },
+    label: labelParts.join(' + ') || 'No Setup',
+    direction: dir,
+  };
 }
 
 function detectBOS(data: BinanceKline[]): SMCAnalysis['bos'] {

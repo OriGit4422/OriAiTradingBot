@@ -55,6 +55,28 @@ export async function registerRoutes(
   });
 
   // ─── AI Analysis ──────────────────────────────────────────
+  app.post("/api/ai/test-connection", async (_req, res) => {
+    try {
+      const { callAIProvider, getActiveProviders } = await import('./ai-providers');
+      const providers = await getActiveProviders();
+      if (providers.length === 0) {
+        return res.status(400).json({ ok: false, message: 'No AI providers configured. Add API keys in Settings → AI Agents.' });
+      }
+      const probe = [{ role: 'user' as const, content: 'Reply with exactly: {"status":"ok"}' }];
+      const results = await Promise.allSettled(providers.map(p => callAIProvider(p, probe, 20)));
+      const report = providers.map((p, i) => {
+        const r = results[i];
+        return r.status === 'fulfilled'
+          ? { provider: p.name, model: p.model, ok: true }
+          : { provider: p.name, model: p.model, ok: false, error: (r.reason as Error).message };
+      });
+      const anyOk = report.some(r => r.ok);
+      res.status(anyOk ? 200 : 502).json({ ok: anyOk, providers: report });
+    } catch (e: any) {
+      res.status(500).json({ ok: false, message: e.message });
+    }
+  });
+
   app.post("/api/ai/analyze-signal", async (req, res) => {
     try {
       const signalData = req.body;

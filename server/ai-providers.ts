@@ -46,7 +46,7 @@ async function callOpenAICompatible(
       model: config.model,
       max_tokens: maxTokens,
       messages: formatted,
-      temperature: 0.7,
+      temperature: 0.35,
     }),
     signal: AbortSignal.timeout(30_000),
   });
@@ -89,7 +89,7 @@ async function callGemini(
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
       contents,
-      generationConfig: { maxOutputTokens: maxTokens, temperature: 0.7 },
+      generationConfig: { maxOutputTokens: maxTokens, temperature: 0.35 },
     }),
     signal: AbortSignal.timeout(30_000),
   });

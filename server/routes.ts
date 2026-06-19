@@ -25,6 +25,11 @@ import { triggerScanNow } from "./auto-scanner";
 import { runOrchestrator } from "./agents/agent-orchestrator";
 import { getMarketRegime } from "./agents/market-intelligence-agent";
 import { generatePerformanceReport, getQuickStats } from "./agents/trade-journal-agent";
+import {
+  startMarketScanner, stopMarketScanner, configureScanner,
+  getStatus as getScannerStatus, triggerManualScan, getConfig as getScannerConfig,
+  DEFAULT_SCAN_COINS, type ScanTimeframe,
+} from "./agents/market-scanner";
 
 function getAppVersionInfo() {
   let version = "unknown";
@@ -1252,6 +1257,81 @@ export async function registerRoutes(
     try {
       const stats = await getQuickStats();
       res.json({ ok: true, stats });
+    } catch (e: any) {
+      res.status(500).json({ ok: false, message: e.message });
+    }
+  });
+
+  // ── MARKET SCANNER ROUTES ──────────────────────────────────────────────────
+
+  // GET /api/agents/scanner/status — live scanner state
+  app.get("/api/agents/scanner/status", (_req, res) => {
+    res.json({ ok: true, status: getScannerStatus() });
+  });
+
+  // GET /api/agents/scanner/config — current config
+  app.get("/api/agents/scanner/config", (_req, res) => {
+    res.json({ ok: true, config: getScannerConfig(), defaultCoins: DEFAULT_SCAN_COINS });
+  });
+
+  // POST /api/agents/scanner/config — update config and restart if enabled
+  app.post("/api/agents/scanner/config", async (req, res) => {
+    try {
+      const { enabled, timeframes, coins, minConfidence, minGrade, notifyOnGenerate } = req.body;
+      const updates: any = {};
+      if (enabled !== undefined) updates.enabled = Boolean(enabled);
+      if (timeframes) updates.timeframes = timeframes;
+      if (coins) updates.coins = coins;
+      if (minConfidence !== undefined) updates.minConfidence = Number(minConfidence);
+      if (minGrade) updates.minGrade = minGrade;
+      if (notifyOnGenerate !== undefined) updates.notifyOnGenerate = Boolean(notifyOnGenerate);
+
+      configureScanner(updates);
+
+      // Restart scanner with new config
+      stopMarketScanner();
+      const config = getScannerConfig();
+      if (config.enabled) startMarketScanner();
+
+      await storage.createBotLog({
+        level: 'info',
+        event: 'SCANNER_CONFIG_UPDATED',
+        message: `Market scanner config updated: enabled=${config.enabled}, TFs=[${config.timeframes.join(',')}], coins=${config.coins.length}`,
+        meta: { config },
+      });
+
+      res.json({ ok: true, config: getScannerConfig() });
+    } catch (e: any) {
+      res.status(500).json({ ok: false, message: e.message });
+    }
+  });
+
+  // POST /api/agents/scanner/start — start scanner
+  app.post("/api/agents/scanner/start", (req, res) => {
+    try {
+      const { timeframes, coins } = req.body;
+      configureScanner({ enabled: true, ...(timeframes ? { timeframes } : {}), ...(coins ? { coins } : {}) });
+      stopMarketScanner();
+      startMarketScanner();
+      res.json({ ok: true, status: getScannerStatus() });
+    } catch (e: any) {
+      res.status(500).json({ ok: false, message: e.message });
+    }
+  });
+
+  // POST /api/agents/scanner/stop — stop scanner
+  app.post("/api/agents/scanner/stop", (_req, res) => {
+    stopMarketScanner();
+    configureScanner({ enabled: false });
+    res.json({ ok: true, message: 'Market scanner stopped' });
+  });
+
+  // POST /api/agents/scanner/scan-now — trigger immediate scan
+  app.post("/api/agents/scanner/scan-now", async (req, res) => {
+    try {
+      const timeframe = (req.body.timeframe ?? '1h') as ScanTimeframe;
+      const results = await triggerManualScan(timeframe);
+      res.json({ ok: true, results, count: results.length });
     } catch (e: any) {
       res.status(500).json({ ok: false, message: e.message });
     }

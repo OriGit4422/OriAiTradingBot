@@ -5,6 +5,7 @@ import { createServer } from "http";
 import { pool } from "./db";
 import { startHourlyAlertScheduler } from "./hourly-alerts";
 import { startAutoScanner } from "./auto-scanner";
+import { startMarketScanner, configureScanner } from "./agents/market-scanner";
 
 const app = express();
 const httpServer = createServer(app);
@@ -129,6 +130,21 @@ app.use((req, res, next) => {
 
   // Start auto-scanner (runs every 5 min, executes signals when autoExecute=true)
   startAutoScanner();
+
+  // Start autonomous market intelligence scanner
+  // Reads config from bot settings — enabled/timeframes/coins set via UI or API
+  try {
+    const bs = await storage.getBotSettings() as any;
+    const scannerConfig = bs?.scannerConfig;
+    if (scannerConfig?.enabled) {
+      configureScanner(scannerConfig);
+      startMarketScanner();
+    } else {
+      console.log('[market-scanner] not auto-started (disabled in settings — enable via /api/agents/scanner/config)');
+    }
+  } catch {
+    console.log('[market-scanner] could not read scanner config, skipping auto-start');
+  }
 
   app.use((err: any, _req: Request, res: Response, next: NextFunction) => {
     const status = err.status || err.statusCode || 500;

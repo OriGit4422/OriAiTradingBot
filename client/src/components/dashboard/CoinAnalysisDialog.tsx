@@ -9,7 +9,6 @@ import {
 } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { ScrollArea } from '@/components/ui/scroll-area';
 import {
   Select,
   SelectContent,
@@ -108,18 +107,20 @@ export function CoinAnalysisDialog({ open, onOpenChange, defaultCoin = 'BTC', de
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-2xl h-[92vh] flex flex-col bg-white overflow-hidden" data-testid="dialog-coin-analysis">
-        <DialogHeader>
-          <DialogTitle className="flex items-center gap-2">
-            <BrainCircuit className="w-5 h-5 text-primary" />
-            <span className="font-display">Deep AI Coin Analysis</span>
-          </DialogTitle>
-          <DialogDescription>
-            World-class SMC + ICT + Quantum-Liquidity + News + X-sentiment analysis with entry, SL and 3-tier TP.
-          </DialogDescription>
-        </DialogHeader>
+      <DialogContent className="sm:max-w-2xl h-[92vh] flex flex-col bg-white p-0 gap-0 overflow-hidden" data-testid="dialog-coin-analysis">
+        <div className="px-6 pt-6 pb-0 shrink-0">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <BrainCircuit className="w-5 h-5 text-primary" />
+              <span className="font-display">Deep AI Coin Analysis</span>
+            </DialogTitle>
+            <DialogDescription>
+              World-class SMC + ICT + Quantum-Liquidity + News + X-sentiment analysis with entry, SL and 3-tier TP.
+            </DialogDescription>
+          </DialogHeader>
+        </div>
 
-        <div className="flex items-end gap-2 pb-2 shrink-0">
+        <div className="flex items-end gap-2 px-6 pb-2 pt-3 shrink-0">
           <div className="flex-1">
             <label className="text-[10px] uppercase font-mono text-muted-foreground mb-1 block">Coin</label>
             <Select value={coin} onValueChange={setCoin}>
@@ -144,7 +145,7 @@ export function CoinAnalysisDialog({ open, onOpenChange, defaultCoin = 'BTC', de
           </Button>
         </div>
 
-        <ScrollArea className="flex-1 min-h-0 -mx-6 px-6">
+        <div className="flex-1 min-h-0 overflow-y-auto px-6">
           {!result && !loading && (
             <div className="flex flex-col items-center justify-center py-12 text-center text-muted-foreground gap-2">
               <BrainCircuit className="w-10 h-10 text-primary/40" />
@@ -337,10 +338,10 @@ export function CoinAnalysisDialog({ open, onOpenChange, defaultCoin = 'BTC', de
               )}
             </div>
           )}
-        </ScrollArea>
+        </div>
 
         {result && (
-          <DialogFooter className="gap-2 pt-2 border-t shrink-0">
+          <DialogFooter className="gap-2 pt-3 pb-4 px-6 border-t shrink-0">
             <Button variant="outline" onClick={() => setResult(null)} data-testid="button-clear-analysis">Clear</Button>
             <Button onClick={executeTrade} disabled={result.direction === 'NEUTRAL'} className="gap-1" data-testid="button-execute-analysis">
               <Target className="w-3.5 h-3.5" /> Execute {result.direction}

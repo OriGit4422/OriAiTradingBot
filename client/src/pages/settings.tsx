@@ -69,6 +69,7 @@ export default function SettingsPage() {
   const [maxRiskPercent, setMaxRiskPercent] = useState('2.0');
   const [binanceApiKey, setBinanceApiKey] = useState('');
   const [bybitApiKey, setBybitApiKey] = useState('');
+  const [telegramBotToken, setTelegramBotToken] = useState('');
   const [telegramChatId, setTelegramChatId] = useState('');
   const [goldMt5Login, setGoldMt5Login] = useState('');
   const [goldMt5Password, setGoldMt5Password] = useState('');
@@ -144,6 +145,7 @@ export default function SettingsPage() {
       setMaxRiskPercent(String(settings.maxRiskPercent));
       setBinanceApiKey(settings.binanceApiKey ?? '');
       setBybitApiKey(settings.bybitApiKey ?? '');
+      setTelegramBotToken(settings.telegramBotToken ?? '');
       setTelegramChatId(settings.telegramChatId ?? '');
       setDiscordWebhookUrl(settings.discordWebhookUrl ?? '');
       setCoinglassApiKey(settings.coinglassApiKey ?? '');
@@ -733,23 +735,47 @@ export default function SettingsPage() {
                     />
                   </div>
                   {settings.telegramEnabled && (
-                    <div className="space-y-2">
-                      <Label>Telegram Chat ID</Label>
-                      <div className="flex gap-2">
-                        <Input
-                          data-testid="input-telegram-chat-id"
-                          value={telegramChatId}
-                          onChange={(e) => setTelegramChatId(e.target.value)}
-                          placeholder="Enter your Telegram chat ID"
-                          className="bg-secondary/50"
-                        />
-                        <Button
-                          data-testid="button-save-telegram-chat-id"
-                          onClick={() => updateMutation.mutate({ telegramChatId: telegramChatId || null })}
-                          disabled={updateMutation.isPending || telegramChatId === (settings.telegramChatId ?? '')}
-                        >
-                          Save
-                        </Button>
+                    <div className="space-y-3">
+                      <div className="space-y-2">
+                        <Label>Telegram Bot Token</Label>
+                        <div className="flex gap-2">
+                          <Input
+                            data-testid="input-telegram-bot-token"
+                            value={telegramBotToken}
+                            onChange={(e) => setTelegramBotToken(e.target.value)}
+                            placeholder="123456789:ABCdefGHIjklMNOpqrSTUvwxYZ"
+                            className="bg-secondary/50 font-mono text-xs"
+                            type="password"
+                          />
+                          <Button
+                            data-testid="button-save-telegram-bot-token"
+                            onClick={() => updateMutation.mutate({ telegramBotToken: telegramBotToken || null })}
+                            disabled={updateMutation.isPending || telegramBotToken === (settings.telegramBotToken ?? '')}
+                          >
+                            Save
+                          </Button>
+                        </div>
+                        <div className="text-xs text-muted-foreground">Create a bot via @BotFather on Telegram to get your token.</div>
+                      </div>
+                      <div className="space-y-2">
+                        <Label>Telegram Chat ID</Label>
+                        <div className="flex gap-2">
+                          <Input
+                            data-testid="input-telegram-chat-id"
+                            value={telegramChatId}
+                            onChange={(e) => setTelegramChatId(e.target.value)}
+                            placeholder="Enter your Telegram chat ID"
+                            className="bg-secondary/50"
+                          />
+                          <Button
+                            data-testid="button-save-telegram-chat-id"
+                            onClick={() => updateMutation.mutate({ telegramChatId: telegramChatId || null })}
+                            disabled={updateMutation.isPending || telegramChatId === (settings.telegramChatId ?? '')}
+                          >
+                            Save
+                          </Button>
+                        </div>
+                        <div className="text-xs text-muted-foreground">Send a message to your bot, then visit: https://api.telegram.org/bot&lt;TOKEN&gt;/getUpdates to find your chat ID.</div>
                       </div>
                     </div>
                   )}

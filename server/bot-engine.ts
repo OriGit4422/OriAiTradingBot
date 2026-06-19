@@ -189,7 +189,7 @@ export async function getBotState() {
       unlocked: s.liveUnlocked,
       disclaimerAccepted: s.riskDisclaimerAccepted,
       paperTradeCount,
-      paperTradesRequired: 20,
+      paperTradesRequired: 5,
     },
     // Phase-1 connectivity stubs (no live exchange wiring yet)
     apiStatus: 'paper',
@@ -544,12 +544,12 @@ export async function unlockLive(accepted: boolean) {
 
   const trades = await storage.getBotTrades(1000);
   const paperCount = trades.filter((t) => t.mode === 'paper').length;
-  if (paperCount < 20) {
+  if (paperCount < 5) {
     return {
       ok: false,
-      message: `Complete at least 20 paper trades before enabling live trading (currently ${paperCount}).`,
+      message: `Complete at least 5 paper trades before enabling live trading (currently ${paperCount}).`,
       paperTradeCount: paperCount,
-      required: 20,
+      required: 5,
     };
   }
 

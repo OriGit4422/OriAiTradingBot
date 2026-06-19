@@ -4,6 +4,7 @@ import { serveStatic } from "./static";
 import { createServer } from "http";
 import { pool } from "./db";
 import { startHourlyAlertScheduler } from "./hourly-alerts";
+import { startAutoScanner } from "./auto-scanner";
 
 const app = express();
 const httpServer = createServer(app);
@@ -125,6 +126,9 @@ app.use((req, res, next) => {
 
   // Start hourly Telegram alert scheduler
   startHourlyAlertScheduler();
+
+  // Start auto-scanner (runs every 5 min, executes signals when autoExecute=true)
+  startAutoScanner();
 
   app.use((err: any, _req: Request, res: Response, next: NextFunction) => {
     const status = err.status || err.statusCode || 500;

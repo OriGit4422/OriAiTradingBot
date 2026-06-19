@@ -21,6 +21,7 @@ import { getNewsSentiment } from "./perplexity";
 import { getWhaleActivity } from "./arkham";
 import { runMultiAgentValidation } from "./signal-validator";
 import { sendHourlyAlert } from "./hourly-alerts";
+import { triggerScanNow } from "./auto-scanner";
 
 function getAppVersionInfo() {
   let version = "unknown";
@@ -365,6 +366,53 @@ export async function registerRoutes(
     try {
       const updated = await applySafeModePreset();
       res.json(updated);
+    } catch (e: any) {
+      res.status(500).json({ message: e.message });
+    }
+  });
+
+  // Apply the $100 live auto-trade preset: 95% confidence gate, max 3 trades, 2% risk
+  app.post("/api/bot/preset/live-auto", async (_req, res) => {
+    try {
+      const updated = await storage.upsertBotSettings({
+        paperBalance: 100,
+        paperStartingBalance: 100,
+        riskPerTradePercent: 2,
+        maxDailyLossPercent: 6,
+        maxOpenTrades: 3,
+        maxTradesPerDay: 6,
+        stopAfterLosses: 3,
+        defaultLeverage: 5,
+        maxLeverage: 10,
+        hardLeverageCap: 10,
+        minGrade: 'A',
+        minConfidence: 95,
+        minRr: 1.5,
+        allowedSymbols: ['BTCUSDT', 'ETHUSDT', 'SOLUSDT', 'BNBUSDT', 'XRPUSDT'],
+        manualApproval: false,
+        autoExecute: true,
+        newsFilter: true,
+        macroFilter: true,
+        dataStaleFilter: true,
+        liquidityFilter: true,
+        spreadFilter: true,
+      });
+      await storage.createBotLog({
+        level: 'info',
+        event: 'PRESET_APPLIED',
+        message: '$100 Live Auto-Trade preset applied (95% confidence gate, max 3 trades, 2% risk)',
+      });
+      res.json(updated);
+    } catch (e: any) {
+      res.status(500).json({ message: e.message });
+    }
+  });
+
+  // Trigger auto-scanner immediately (for testing / manual kick)
+  app.post("/api/bot/scanner/run", async (_req, res) => {
+    try {
+      await triggerScanNow();
+      res.json({ ok: true, message: 'Auto-scanner triggered' });
     } catch (e: any) {
       res.status(500).json({ message: e.message });
     }

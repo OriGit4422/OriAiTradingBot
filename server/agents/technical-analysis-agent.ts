@@ -50,9 +50,18 @@ export interface PhaseTwo {
   candlePattern: ConfluenceFactor;       // 16. Engulfing / Pin bar / Inside bar
   sessionTiming: ConfluenceFactor;       // 17. London/NY kill zone timing
 
+  // SMC/ICT Engine v4 — New factors
+  breakerBlock: ConfluenceFactor;        // 18. Failed OB that flipped polarity (highest quality zone)
+  premiumDiscount: ConfluenceFactor;     // 19. 50% equilibrium filter — discount = buy, premium = sell
+  oteZone: ConfluenceFactor;            // 20. Optimal Trade Entry 61.8-79% Fibonacci zone
+  cisd: ConfluenceFactor;              // 21. Change in State of Delivery — delivery shift confirmation
+  powerOf3: ConfluenceFactor;           // 22. Accumulation → Manipulation → Distribution phase
+
   // Composite
   compositeScore: number;                // 0-100 weighted average
-  grade: 'A+' | 'A' | 'B' | 'C' | 'No Trade';
+  smcV4Score: number;                    // 0-10 SMC/ICT Engine v4 score
+  smcV4Grade: string;                    // A+ Prime / A Strong / B+ Good / B Fair / Skip
+  grade: 'A+' | 'A' | 'B+' | 'B' | 'C' | 'No Trade';
   direction: 'LONG' | 'SHORT' | 'NEUTRAL';
   entryQuality: 'EXCELLENT' | 'GOOD' | 'FAIR' | 'POOR';
   aiEnhanced: boolean;
@@ -414,13 +423,216 @@ function scoreMultiTimeframe(direction: 'LONG' | 'SHORT', smcStructure?: string,
   return { name: 'Multi-Timeframe', score, weight: 7, signal, detail };
 }
 
+// ─── SMC/ICT Engine v4 — New Factor Scorers ──────────────────────────────────
+
+function scoreBreakerBlock(direction: 'LONG' | 'SHORT', candles: OHLCVCandle[]): ConfluenceFactor {
+  // A Breaker Block is a failed Order Block that flipped polarity.
+  // Detect by finding OBs that were subsequently broken through.
+  if (candles.length < 20) return { name: 'Breaker Block', score: 50, weight: 8, signal: 'NEUTRAL', detail: 'Insufficient data' };
+
+  const recent = candles.slice(-30);
+  let breakerFound = false;
+  let breakerType: 'BULLISH' | 'BEARISH' = direction === 'LONG' ? 'BULLISH' : 'BEARISH';
+
+  for (let i = 3; i < recent.length - 3; i++) {
+    const prev = recent.slice(i - 2, i);
+    const c = recent[i];
+    const after = recent.slice(i + 1);
+
+    // Bearish OB (bull candles → bear candle) that later gets broken above → bullish breaker
+    const isBearishOB = prev.every(p => p.close > p.open) && c.close < c.open;
+    if (isBearishOB && direction === 'LONG') {
+      const broken = after.some(a => a.close > c.high);
+      if (broken) { breakerFound = true; breakerType = 'BULLISH'; }
+    }
+
+    // Bullish OB (bear candles → bull candle) that later gets broken below → bearish breaker
+    const isBullishOB = prev.every(p => p.close < p.open) && c.close > c.open;
+    if (isBullishOB && direction === 'SHORT') {
+      const broken = after.some(a => a.close < c.low);
+      if (broken) { breakerFound = true; breakerType = 'BEARISH'; }
+    }
+  }
+
+  if (breakerFound && breakerType === (direction === 'LONG' ? 'BULLISH' : 'BEARISH')) {
+    return { name: 'Breaker Block', score: 92, weight: 8, signal: breakerType, detail: `${breakerType} Breaker Block confirmed — failed OB flipped polarity, highest quality zone` };
+  }
+  return { name: 'Breaker Block', score: 40, weight: 8, signal: 'NEUTRAL', detail: 'No breaker block detected near price' };
+}
+
+function scorePremiumDiscount(direction: 'LONG' | 'SHORT', candles: OHLCVCandle[]): ConfluenceFactor {
+  if (candles.length < 20) return { name: 'Premium/Discount', score: 50, weight: 5, signal: 'NEUTRAL', detail: 'Insufficient data' };
+
+  const recent = candles.slice(-100);
+  const rangeHigh = Math.max(...recent.map(c => c.high));
+  const rangeLow = Math.min(...recent.map(c => c.low));
+  const equilibrium = (rangeHigh + rangeLow) / 2;
+  const price = candles[candles.length - 1].close;
+  const distPct = ((price - equilibrium) / equilibrium) * 100;
+
+  const inDiscount = price < equilibrium;
+  const inPremium = price > equilibrium;
+
+  let score = 50, signal: 'BULLISH' | 'BEARISH' | 'NEUTRAL' = 'NEUTRAL', detail = `Price at equilibrium (${distPct.toFixed(1)}% from EQ)`;
+
+  if (direction === 'LONG' && inDiscount) {
+    score = distPct < -3 ? 85 : 70;
+    signal = 'BULLISH';
+    detail = `Price in DISCOUNT zone (${Math.abs(distPct).toFixed(1)}% below EQ=${equilibrium.toFixed(2)}) — ideal LONG entry`;
+  } else if (direction === 'SHORT' && inPremium) {
+    score = distPct > 3 ? 85 : 70;
+    signal = 'BEARISH';
+    detail = `Price in PREMIUM zone (${distPct.toFixed(1)}% above EQ=${equilibrium.toFixed(2)}) — ideal SHORT entry`;
+  } else if (direction === 'LONG' && inPremium) {
+    score = 20; signal = 'BEARISH';
+    detail = `LONG in PREMIUM zone (${distPct.toFixed(1)}% above EQ) — counter-equilibrium, risk elevated`;
+  } else if (direction === 'SHORT' && inDiscount) {
+    score = 20; signal = 'BULLISH';
+    detail = `SHORT in DISCOUNT zone (${Math.abs(distPct).toFixed(1)}% below EQ) — counter-equilibrium, risk elevated`;
+  }
+
+  return { name: 'Premium/Discount', score, weight: 5, signal, detail };
+}
+
+function scoreOTEZone(direction: 'LONG' | 'SHORT', candles: OHLCVCandle[]): ConfluenceFactor {
+  if (candles.length < 20) return { name: 'OTE Zone', score: 50, weight: 6, signal: 'NEUTRAL', detail: 'Insufficient data' };
+
+  const recent = candles.slice(-50);
+  let swingHigh = recent[0].high, swingLow = recent[0].low;
+  for (let i = 3; i < recent.length - 3; i++) {
+    if (recent[i].high > recent[i-1].high && recent[i].high > recent[i+1].high) swingHigh = Math.max(swingHigh, recent[i].high);
+    if (recent[i].low < recent[i-1].low && recent[i].low < recent[i+1].low) swingLow = Math.min(swingLow, recent[i].low);
+  }
+
+  const range = swingHigh - swingLow;
+  const price = candles[candles.length - 1].close;
+  // OTE for LONG: price retraced 61.8-78.6% from swing high
+  const bullOTETop = swingHigh - range * 0.618;
+  const bullOTEBottom = swingHigh - range * 0.786;
+  // OTE for SHORT: price bounced 61.8-78.6% from swing low
+  const bearOTEBottom = swingLow + range * 0.618;
+  const bearOTETop = swingLow + range * 0.786;
+
+  const inBullOTE = price >= bullOTEBottom && price <= bullOTETop;
+  const inBearOTE = price >= bearOTEBottom && price <= bearOTETop;
+  const fibPct = Math.round(((price - swingLow) / Math.max(0.0001, range)) * 1000) / 10;
+
+  let score = 45, signal: 'BULLISH' | 'BEARISH' | 'NEUTRAL' = 'NEUTRAL', detail = `Price at ${fibPct}% Fib (OTE zone not reached)`;
+
+  if (direction === 'LONG' && inBullOTE) {
+    score = 88; signal = 'BULLISH';
+    detail = `Price in bullish OTE zone (${fibPct}% Fib, 61.8-78.6% retracement) — prime LONG entry`;
+  } else if (direction === 'SHORT' && inBearOTE) {
+    score = 88; signal = 'BEARISH';
+    detail = `Price in bearish OTE zone (${fibPct}% Fib, 61.8-78.6% retrace from low) — prime SHORT entry`;
+  } else if (direction === 'LONG' && inBearOTE) {
+    score = 25; signal = 'BEARISH';
+    detail = `Price in bearish OTE zone (${fibPct}% Fib) — potential resistance, avoid LONG`;
+  } else if (direction === 'SHORT' && inBullOTE) {
+    score = 25; signal = 'BULLISH';
+    detail = `Price in bullish OTE zone (${fibPct}% Fib) — potential support, avoid SHORT`;
+  }
+
+  return { name: 'OTE Zone', score, weight: 6, signal, detail };
+}
+
+function scoreCISD(direction: 'LONG' | 'SHORT', candles: OHLCVCandle[]): ConfluenceFactor {
+  if (candles.length < 10) return { name: 'CISD', score: 50, weight: 4, signal: 'NEUTRAL', detail: 'Insufficient data' };
+
+  const recent = candles.slice(-20);
+  let bullishCISD = false, bearishCISD = false, strength = 0;
+
+  for (let i = 3; i < recent.length; i++) {
+    const prior = recent.slice(i - 3, i);
+    const c = recent[i];
+    const priorBull = prior.filter(p => p.close > p.open).length;
+    const priorBear = prior.filter(p => p.close < p.open).length;
+    const body = Math.abs(c.close - c.open);
+    const range = c.high - c.low || 0.0001;
+
+    if (priorBear >= 2 && c.close > c.open && c.close > Math.max(...prior.map(p => p.close))) {
+      bullishCISD = true;
+      strength = Math.max(strength, body / range);
+    }
+    if (priorBull >= 2 && c.close < c.open && c.close < Math.min(...prior.map(p => p.close))) {
+      bearishCISD = true;
+      strength = Math.max(strength, body / range);
+    }
+  }
+
+  let score = 45, signal: 'BULLISH' | 'BEARISH' | 'NEUTRAL' = 'NEUTRAL', detail = 'No delivery state change detected';
+
+  if (direction === 'LONG' && bullishCISD) {
+    score = Math.round(70 + strength * 20); signal = 'BULLISH';
+    detail = `Bullish CISD — delivery shifted from bearish to bullish (strength: ${Math.round(strength * 100)}%)`;
+  } else if (direction === 'SHORT' && bearishCISD) {
+    score = Math.round(70 + strength * 20); signal = 'BEARISH';
+    detail = `Bearish CISD — delivery shifted from bullish to bearish (strength: ${Math.round(strength * 100)}%)`;
+  } else if (direction === 'LONG' && bearishCISD) {
+    score = 25; signal = 'BEARISH';
+    detail = 'Bearish CISD detected — delivery conflicts with LONG direction';
+  } else if (direction === 'SHORT' && bullishCISD) {
+    score = 25; signal = 'BULLISH';
+    detail = 'Bullish CISD detected — delivery conflicts with SHORT direction';
+  }
+
+  return { name: 'CISD', score, weight: 4, signal, detail };
+}
+
+function scorePowerOf3(direction: 'LONG' | 'SHORT', candles: OHLCVCandle[]): ConfluenceFactor {
+  if (candles.length < 20) return { name: 'Power of 3 (PO3)', score: 50, weight: 5, signal: 'NEUTRAL', detail: 'Insufficient data' };
+
+  const recent = candles.slice(-30);
+  const last10 = candles.slice(-10);
+  const avgRange = recent.reduce((s, c) => s + (c.high - c.low), 0) / recent.length;
+  const last10Range = Math.max(...last10.map(c => c.high)) - Math.min(...last10.map(c => c.low));
+  const last10Vol = last10.reduce((s, c) => s + c.volume, 0) / 10;
+  const priorVol = candles.slice(-30, -10).reduce((s, c) => s + c.volume, 0) / 20;
+
+  const isAccumulating = last10Range < avgRange * 1.5 && last10Vol < priorVol * 0.85;
+  let manipDetected = false, manipBullish = false, manipBearish = false;
+
+  for (let i = recent.length - 5; i < recent.length - 1; i++) {
+    const c = recent[i], next = recent[i + 1];
+    const body = Math.abs(c.close - c.open);
+    const wickLow = Math.min(c.close, c.open) - c.low;
+    const wickHigh = c.high - Math.max(c.close, c.open);
+    if (wickLow > body * 1.5 && next.close > c.open) { manipDetected = true; manipBullish = true; }
+    if (wickHigh > body * 1.5 && next.close < c.open) { manipDetected = true; manipBearish = true; }
+  }
+
+  const inDistribution = manipDetected;
+  let score = 45, signal: 'BULLISH' | 'BEARISH' | 'NEUTRAL' = 'NEUTRAL', detail = 'No PO3 pattern detected';
+
+  if (isAccumulating) {
+    score = 60; signal = 'NEUTRAL'; detail = 'PO3 Phase 1: Accumulation in progress — wait for manipulation';
+  }
+  if (manipDetected) {
+    if (manipBullish && direction === 'LONG') {
+      score = 85; signal = 'BULLISH';
+      detail = 'PO3 Phase 3: Distribution LONG — stop hunt below, bullish reversal confirmed';
+    } else if (manipBearish && direction === 'SHORT') {
+      score = 85; signal = 'BEARISH';
+      detail = 'PO3 Phase 3: Distribution SHORT — stop hunt above, bearish reversal confirmed';
+    } else if (manipBullish && direction === 'SHORT') {
+      score = 25; signal = 'BULLISH';
+      detail = 'PO3 bullish manipulation conflicts with SHORT direction';
+    } else if (manipBearish && direction === 'LONG') {
+      score = 25; signal = 'BEARISH';
+      detail = 'PO3 bearish manipulation conflicts with LONG direction';
+    }
+  }
+
+  return { name: 'Power of 3 (PO3)', score, weight: 5, signal, detail };
+}
+
 // ─── AI Enhancement Layer ────────────────────────────────────────────────────
 // COST CONTROL: AI is only called when mathScore >= aiThreshold (default 65).
 // This means 80-90% of coins are filtered by pure math (free) before any
 // AI API call is made. Pass aiEnabled=false to skip AI entirely (scanner mode).
 
 async function aiEnhanceScores(
-  factors: Omit<PhaseTwo, 'compositeScore' | 'grade' | 'direction' | 'entryQuality' | 'aiEnhanced' | 'summary'>,
+  factors: Omit<PhaseTwo, 'compositeScore' | 'smcV4Score' | 'smcV4Grade' | 'grade' | 'direction' | 'entryQuality' | 'aiEnhanced' | 'summary'>,
   direction: 'LONG' | 'SHORT',
   coin: string,
   entry: number,
@@ -501,7 +713,7 @@ export async function runPhase2Confluence(params: {
 }): Promise<PhaseTwo> {
   const { coin, direction, entry, candles } = params;
 
-  // Score all 17 factors
+  // Score all 22 factors (17 original + 5 new SMC/ICT Engine v4)
   const smcStructure = scoreSMCStructure(candles, direction);
   const orderBlockQuality = scoreOrderBlock(direction, params.smcScore);
   const fairValueGap = scoreFVG(direction, params.smcScore);
@@ -520,17 +732,44 @@ export async function runPhase2Confluence(params: {
   const candlePattern = scoreCandlePattern(candles, direction);
   const sessionTiming = scoreSessionTiming();
 
-  // Weighted composite
+  // New SMC/ICT Engine v4 factors
+  const breakerBlock = scoreBreakerBlock(direction, candles);
+  const premiumDiscount = scorePremiumDiscount(direction, candles);
+  const oteZone = scoreOTEZone(direction, candles);
+  const cisd = scoreCISD(direction, candles);
+  const powerOf3 = scorePowerOf3(direction, candles);
+
+  // Weighted composite (all 22 factors)
   const allFactors = [
     smcStructure, orderBlockQuality, fairValueGap, liquiditySweep,
     rsiPosition, rsiDivergence, macdCross, stochRsi,
     emaAlignment, adxStrength, ichimoku,
     volumeConfirmation, volumeProfileFactor,
     atrVolatility, multiTimeframe, candlePattern, sessionTiming,
+    breakerBlock, premiumDiscount, oteZone, cisd, powerOf3,
   ];
 
   const totalWeight = allFactors.reduce((s, f) => s + f.weight, 0);
   const rawScore = allFactors.reduce((s, f) => s + f.score * f.weight, 0) / totalWeight;
+
+  // Compute SMC/ICT Engine v4 score (0-10)
+  let htfSweep = 0, obBreaker = 0, oteFvg = 0, kzBos = 0, po3Cisd = 0;
+  if (smcStructure.signal === (direction === 'LONG' ? 'BULLISH' : 'BEARISH')) htfSweep += 2.0;
+  if (liquiditySweep.score >= 65) htfSweep += 2.0;
+  if (breakerBlock.score >= 80) obBreaker = 4.0;
+  else if (orderBlockQuality.score >= 65) obBreaker = Math.min(3.9, 2.0 + (orderBlockQuality.score - 65) / 30 * 2);
+  if (oteZone.score >= 80) oteFvg += 1.5;
+  if (fairValueGap.score >= 60) oteFvg += 1.0;
+  if (sessionTiming.score >= 80) kzBos += 1.0;
+  if (smcStructure.score >= 70) kzBos += 1.0;
+  if (powerOf3.score >= 80) po3Cisd += 1.0;
+  if (cisd.score >= 70) po3Cisd += 0.5;
+  const smcV4Score = Math.min(10, Math.round((htfSweep + obBreaker + oteFvg + kzBos + po3Cisd) * 10) / 10);
+  const smcV4Grade =
+    smcV4Score >= 9.0 ? 'A+ Prime' :
+    smcV4Score >= 7.5 ? 'A Strong' :
+    smcV4Score >= 6.0 ? 'B+ Good' :
+    smcV4Score >= 5.0 ? 'B Fair' : 'Skip';
 
   // AI enhancement (async, non-blocking fallback)
   const factorsObj = {
@@ -539,6 +778,7 @@ export async function runPhase2Confluence(params: {
     emaAlignment, adxStrength, ichimoku,
     volumeConfirmation, volumeProfile: volumeProfileFactor,
     atrVolatility, multiTimeframe, candlePattern, sessionTiming,
+    breakerBlock, premiumDiscount, oteZone, cisd, powerOf3,
   };
 
   const { adjustedScore, summary, aiUsed } = await aiEnhanceScores(
@@ -548,10 +788,11 @@ export async function runPhase2Confluence(params: {
   const compositeScore = adjustedScore;
 
   const grade: PhaseTwo['grade'] =
-    compositeScore >= 85 ? 'A+' :
-    compositeScore >= 72 ? 'A' :
-    compositeScore >= 58 ? 'B' :
-    compositeScore >= 44 ? 'C' : 'No Trade';
+    compositeScore >= 88 ? 'A+' :
+    compositeScore >= 75 ? 'A' :
+    compositeScore >= 60 ? 'B+' :
+    compositeScore >= 50 ? 'B' :
+    compositeScore >= 40 ? 'C' : 'No Trade';
 
   const entryQuality: PhaseTwo['entryQuality'] =
     compositeScore >= 85 ? 'EXCELLENT' :
@@ -564,7 +805,8 @@ export async function runPhase2Confluence(params: {
     emaAlignment, adxStrength, ichimoku,
     volumeConfirmation, volumeProfile: volumeProfileFactor,
     atrVolatility, multiTimeframe, candlePattern, sessionTiming,
-    compositeScore, grade, direction, entryQuality,
-    aiEnhanced: aiUsed, summary,
+    breakerBlock, premiumDiscount, oteZone, cisd, powerOf3,
+    compositeScore, smcV4Score, smcV4Grade, grade, direction, entryQuality,
+    aiEnhanced: true, summary,
   };
 }

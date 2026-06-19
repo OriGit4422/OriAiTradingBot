@@ -41,6 +41,16 @@ export interface AgentContext {
   quantumLiquidityScore?:  number;
   liquidityDepthScore?:    number;
   crtScore?:               number;
+  // SMC/ICT Engine v4 context
+  smcV4Score?:             number;
+  smcV4Grade?:             string;
+  smcV4Label?:             string;
+  premiumDiscount?:        string;
+  inOTEZone?:              boolean;
+  breakerBlocks?:          number;
+  cisdCount?:              number;
+  powerOf3Phase?:          string;
+  powerOf3Direction?:      string;
 }
 
 function getAIFallback(signalData: {
@@ -90,6 +100,7 @@ ${ctx.xSentiment       ? `- X/Social Sentiment:        ${ctx.xSentiment}` : ''}
 ${ctx.whaleBias        ? `- Whale Flow (Arkham):       Bias=${ctx.whaleBias}, Signal="${ctx.whaleSignal}"` : ''}
 ${ctx.smcStructure     ? `- SMC Market Structure:      ${ctx.smcStructure} (RSI Div=${ctx.rsiDivergence}, Phase=${ctx.marketPhase})` : ''}
 ${ctx.quantumLiquidityScore !== undefined ? `- Strategy Scores (0-100):   SMC=${ctx.smcScore}, ICT=${ctx.ictScore}, Quantum-Liquidity=${ctx.quantumLiquidityScore}, Liquidity-Depth=${ctx.liquidityDepthScore}, CRT=${ctx.crtScore}` : ''}
+${ctx.smcV4Score !== undefined ? `- SMC/ICT Engine v4 Score:   ${ctx.smcV4Score}/10 (${ctx.smcV4Grade}) | Setup: ${ctx.smcV4Label} | Zone: ${ctx.premiumDiscount} | OTE: ${ctx.inOTEZone ? 'YES ✓' : 'NO'} | Breakers: ${ctx.breakerBlocks} | CISD: ${ctx.cisdCount} | PO3: ${ctx.powerOf3Phase}/${ctx.powerOf3Direction}` : ''}
 ${ctx.liquidityClusters !== undefined ? `- Liquidity Clusters:        ${ctx.liquidityClusters} active clusters, Whale=${ctx.whaleActivity}, Volume=${ctx.volumeProfile}/${ctx.volumeForecast}` : ''}
 ${ctx.ensembleDirection ? `- Ensemble Model:            Direction=${ctx.ensembleDirection}, Confidence=${ctx.ensembleConfidence}%, Ichimoku=${ctx.ichimokuSignal}` : ''}
 ` : '';
@@ -106,18 +117,26 @@ Signal Data:
 - Base Confidence: ${signalData.confidence}%
 - Risk/Reward: 1:${rr}
 ${agentBlock}
-Instructions — apply world-best-practice methodology:
-1. Evaluate the technical merit of Entry/TP/SL placement against SMC/ICT/Quantum-Liquidity concepts (order blocks, FVG, BOS/CHoCH, liquidity sweeps, equilibrium).
-2. R:R quality is critical: R:R < 1.5 = deduct 20 pts; 1.5-2.0 = deduct 10 pts; 2.0-2.5 = neutral; ≥2.5 = add 5 pts; ≥3.0 = add 10 pts.
-3. Multi-Agent Intelligence weighting (when provided):
+Instructions — apply SMC/ICT Engine v4 methodology:
+1. Evaluate the technical merit using the full SMC/ICT Engine v4 framework:
+   - Layer 1 (HTF Context): HTF Bias (EMA50 higher TF), BOS/CHoCH, Premium/Discount zone (50% equilibrium), Kill Zones (London 7-9am UTC / NY 1-3pm UTC)
+   - Layer 2 (Zone Detection): Order Blocks (demand/supply OB), Breaker Blocks (failed OB flipped polarity — highest quality zone), Fair Value Gaps (3-candle imbalance), OTE Zone (61.8-79% Fibonacci)
+   - Layer 3 (Triggers): Liquidity Sweeps (EQH/EQL hunted + reversed), CISD (Change in State of Delivery — delivery shift), Power of 3 PO3 (Accumulation → Manipulation → Distribution)
+2. SMC/ICT Engine v4 Scoring (0-10): HTF+Sweep (+4.0), OB/Breaker (+2.0-4.0), OTE+FVG (+2.5), KZ+BOS (+2.0), PO3+CISD (+1.5). Grade: A+ Prime ≥9.0, A Strong ≥7.5, B+ Good ≥6.0, B Fair ≥5.0, Skip <5.0.
+3. R:R quality: R:R < 1.5 = deduct 20 pts; 1.5-2.0 = deduct 10 pts; 2.0-2.5 = neutral; ≥2.5 = add 5 pts; ≥3.0 = add 10 pts.
+4. Multi-Agent Intelligence weighting (when provided):
    - SMC structure alignment with signal direction: ±10 pts
-   - Quantum-Liquidity score ≥70 in signal direction: +8 pts; conflicting: -8 pts
+   - Breaker Block or high-quality OB at entry: +8 pts; no zone: -5 pts
+   - Price in OTE zone (61.8-79% Fib) + FVG present: +8 pts
+   - Liquidity sweep confirmed (EQH/EQL hunted): +7 pts; no sweep: -3 pts
+   - PO3 Distribution phase + CISD: +6 pts
+   - Kill zone timing: +4 pts; off-hours: -3 pts
    - News sentiment / X-social sentiment aligned: +5 pts; conflicting: -8 pts
    - Whale flow + funding rate alignment: +5 pts; opposing: -5 pts
    - Ensemble model direction conflict: -10 pts
-4. Higher-timeframe signals (1D, 1W) deserve more weight — only confirm if SMC structure + liquidity context truly support the bias.
-5. Never exceed 95% or go below 10% for adjustedConfidence.
-6. Be concise and precise — reference the specific agent data points you used.
+5. Higher-timeframe signals (1D, 1W) deserve more weight — only confirm if SMC structure + liquidity context truly support the bias.
+6. Never exceed 95% or go below 10% for adjustedConfidence.
+7. Be concise and precise — reference specific ICT v4 concepts and agent data points you used.
 
 Respond in JSON only:
 {
@@ -169,6 +188,13 @@ export interface DeepCoinAnalysis {
   quantumLiquidityAnalysis: string;
   newsImpact: string;
   socialSentiment: string;
+  technicalAnalysis: string;
+  multiTimeframeAnalysis: string;
+  tradeRationale: string;
+  confluenceScore: number;
+  confluenceFactors: string[];
+  analysisLogs: string[];
+  riskAssessment: string;
   keyLevels: { support: number[]; resistance: number[] };
   invalidation: string;
   summary: string;
@@ -202,18 +228,70 @@ Live Technical Snapshot (${coin}/USDT @ ${timeframe}, current price $${marketPri
     : '';
   const socialBlock = xSentiment ? `\nX/Social Sentiment: ${xSentiment}` : '';
 
-  const prompt = `You are a world-class crypto trading analyst combining SMC (Smart Money Concepts), ICT (Inner Circle Trader), Quantum Liquidity theory, on-chain whale flow, news catalysts and X/social sentiment. Produce an institutional-grade trade plan for ${coin}/USDT on the ${timeframe} timeframe.
+  const prompt = `You are a world-class institutional crypto trading analyst combining SMC (Smart Money Concepts), ICT (Inner Circle Trader), Quantum Liquidity theory, technical indicators, multi-timeframe analysis, on-chain whale flow, news catalysts and X/social sentiment. Produce a COMPLETE institutional-grade trade analysis for ${coin}/USDT on the ${timeframe} timeframe.
 ${techBlock}${newsBlock}${socialBlock}
 
-Apply world-best-practice methodology:
-1. Identify the dominant SMC narrative (order blocks, BOS/CHoCH, equilibrium).
-2. Map the ICT premium/discount zones and FVG (fair value gaps) relative to current price.
-3. Identify Quantum Liquidity pools and where smart-money is likely to sweep.
-4. Weight news + X-sentiment as catalysts that can confirm or invalidate the technical bias.
-5. Construct an entry that gives institutional R:R (target 1:2 minimum, ideally 1:3+).
-6. SL must sit beyond the most recent liquidity/structure invalidation — NOT a fixed %.
-7. Provide three TP ladders (TP1 = next liquidity, TP2 = structural target, TP3 = extension target).
-8. All price levels must be realistic and within ±10% of current price ($${marketPrice}) for ${timeframe}.
+ANALYSIS METHODOLOGY — work through each step sequentially and log your reasoning:
+
+STEP 1 — MARKET STRUCTURE (SMC):
+- Identify BOS (Break of Structure) and CHoCH (Change of Character) points with price levels
+- Map bullish/bearish order blocks — note the OB range (high/low) and freshness
+- Determine equilibrium (50% of the last swing) and whether price is in premium or discount
+- Grade market structure: STRONGLY BULLISH / BULLISH / RANGING / BEARISH / STRONGLY BEARISH
+
+STEP 2 — ICT / SMC ENGINE v4 CONCEPTS:
+- Identify Fair Value Gaps (FVG) — 3-candle imbalance: bullish (price gapped up leaving void) and bearish
+- Map the Optimal Trade Entry (OTE) zone using 61.8%-78.6% Fibonacci retracement of last significant swing
+- Breaker Blocks: identify failed Order Blocks that flipped polarity — these are the highest-quality zones
+- Premium/Discount zones: mark the 50% equilibrium of the current range; LONG from Discount, SHORT from Premium
+- Change in State of Delivery (CISD): identify where bearish delivery shifted to bullish (or vice versa)
+- Power of 3 (PO3): identify Accumulation → Manipulation (stop hunt) → Distribution phase
+- Identify Kill Zones (London 7-9am UTC, NY 1-3pm UTC open — highest probability trade windows)
+- Note any NWOG (New Week Opening Gap) or NDOG (New Day Opening Gap)
+
+STEP 3 — QUANTUM LIQUIDITY:
+- Locate buy-side liquidity (BSL) above swing highs and sell-side liquidity (SSL) below swing lows
+- Identify where equal highs/lows are acting as liquidity magnets
+- Assess whale activity signals: abnormal volume, large wick rejections, absorption candles
+- Determine the most probable liquidity sweep target before the main move
+
+STEP 4 — TECHNICAL INDICATORS DEEP DIVE:
+- RSI: current value, divergence, overbought/oversold context
+- MACD: histogram direction, signal cross, momentum acceleration/deceleration
+- EMA 9/21/50 stack: alignment, dynamic S/R, price position relative to EMAs
+- Volume: above/below average, climactic volume, volume trend
+- ATR: current volatility context, SL placement guidance
+- Bollinger Bands: squeeze or expansion, price relative to bands
+
+STEP 5 — MULTI-TIMEFRAME CONFLUENCE:
+- Higher timeframe bias (1W / 1D): trending direction and key levels
+- Intermediate timeframe (4h): structure and momentum
+- Lower timeframe (${timeframe}): entry precision and trigger
+- Note any HTF/LTF alignment or divergence
+
+STEP 6 — NEWS & SENTIMENT CATALYSTS:
+- Assess how current news headlines impact the directional bias
+- X/social sentiment: retail sentiment (contrarian or confirmatory)
+- Upcoming economic events or protocol-level catalysts
+
+STEP 7 — TRADE CONSTRUCTION:
+- Entry: precise level with reason (OB retest / FVG fill / BOS confirmation / liquidity sweep)
+- Stop Loss: beyond structure invalidation (not fixed %) — specify the exact reason
+- TP1: next liquidity target (near-term)
+- TP2: structural / measured-move target
+- TP3: extension / premium/discount zone target
+- Minimum R:R must be 1:2; target 1:3+
+
+STEP 8 — SMC/ICT ENGINE v4 CONFLUENCE SCORE (0-100):
+Count alignment across all factors using the v4 weighted system:
+Layer 1 — HTF Context: HTF Bias EMA50 aligned (+12), BOS/CHoCH confirmed (+8), Price in Discount (LONG) or Premium (SHORT) (+6), Kill Zone timing (+6) = max 32
+Layer 2 — Zone Quality: Breaker Block at entry (+15), OR Order Block at entry (+10), FVG present and untested (+8), OTE Zone 61.8-79% Fib (+10) = max 33
+Layer 3 — Trigger Confirmation: Liquidity sweep (EQH/EQL) completed (+12), CISD delivery shift (+5), PO3 Distribution phase (+8) = max 25
+Fundamentals: EMA stack aligned (+5), RSI alignment (+5), MACD momentum (+5), Volume confirmation (+5) = max 20
+Deductions: entry in premium zone for LONG or discount for SHORT (-10), no liquidity sweep (-5), no structure confirmation (-5)
+Final score capped at 100. Grade: A+ Prime ≥90, A Strong ≥75, B+ Good ≥60, B Fair ≥50, Skip <50
+
+All price levels must be realistic and within ±12% of current price ($${marketPrice}) for the ${timeframe} timeframe.
 
 Respond in JSON only, no markdown:
 {
@@ -225,19 +303,35 @@ Respond in JSON only, no markdown:
   "takeProfit2": <number>,
   "takeProfit3": <number>,
   "riskReward": "1:X",
-  "smcAnalysis": "<2-3 sentences on order blocks, BOS/CHoCH and structure>",
-  "ictAnalysis": "<2-3 sentences on premium/discount, FVG, killzones>",
-  "quantumLiquidityAnalysis": "<2-3 sentences on liquidity pools, sweeps and whale flow>",
-  "newsImpact": "<1-2 sentences on how news affects this trade>",
-  "socialSentiment": "<1 sentence on X/social sentiment alignment>",
-  "keyLevels": { "support": [<num>, <num>], "resistance": [<num>, <num>] },
-  "invalidation": "<1 sentence on what invalidates the setup>",
-  "summary": "<2 sentence final verdict combining everything>",
-  "warnings": ["<warning 1>", "<warning 2>"]
+  "smcAnalysis": "<4-5 sentences: market structure grade, BOS/CHoCH levels, order block range, equilibrium position, structure narrative>",
+  "ictAnalysis": "<4-5 sentences: FVG levels, OTE zone, premium/discount position, killzone timing, NWOG/NDOG if relevant>",
+  "quantumLiquidityAnalysis": "<4-5 sentences: BSL/SSL levels, equal highs/lows, whale signals, most probable sweep target>",
+  "technicalAnalysis": "<4-5 sentences: RSI value + divergence, MACD state, EMA alignment, volume context, ATR/BB volatility read>",
+  "multiTimeframeAnalysis": "<3-4 sentences: 1W/1D bias, 4h structure, ${timeframe} trigger, HTF/LTF alignment grade>",
+  "newsImpact": "<2-3 sentences: specific headline impact, event risk, catalyst strength>",
+  "socialSentiment": "<2-3 sentences: retail X sentiment, contrarian or confirmatory read, FOMO/fear index>",
+  "tradeRationale": "<4-5 sentences: WHY this direction, WHY this entry level, WHY now — the complete thesis>",
+  "confluenceScore": <0-100>,
+  "confluenceFactors": ["<factor 1: name + aligned/conflicting>", "<factor 2>", "<factor 3>", "<factor 4>", "<factor 5>", "<factor 6>"],
+  "analysisLogs": [
+    "STEP 1 SMC: <1-line log>",
+    "STEP 2 ICT: <1-line log>",
+    "STEP 3 QUANTUM: <1-line log>",
+    "STEP 4 TECHNICALS: <1-line log>",
+    "STEP 5 MTF: <1-line log>",
+    "STEP 6 CATALYSTS: <1-line log>",
+    "STEP 7 LEVELS: Entry=$X, SL=$X, TP1=$X, TP2=$X, TP3=$X, R:R=1:X",
+    "STEP 8 CONFLUENCE: Score=XX/100 — <reason for final direction decision>"
+  ],
+  "riskAssessment": "<2-3 sentences: overall risk level (LOW/MEDIUM/HIGH), key risks to the thesis, position sizing guidance>",
+  "keyLevels": { "support": [<num>, <num>, <num>], "resistance": [<num>, <num>, <num>] },
+  "invalidation": "<2 sentences: exact price/event that invalidates the setup and why>",
+  "summary": "<3-4 sentence final verdict combining all 8 analysis steps into a clear actionable conclusion>",
+  "warnings": ["<specific warning 1>", "<specific warning 2>", "<specific warning 3>"]
 }`;
 
   try {
-    const { text } = await callMultiAI([{ role: 'user', content: prompt }], 2048);
+    const { text } = await callMultiAI([{ role: 'user', content: prompt }], 4096);
     const jsonMatch = extractJson(text);
     if (!jsonMatch) throw new Error('Could not parse AI response');
     const p = JSON.parse(jsonMatch);
@@ -258,6 +352,13 @@ Respond in JSON only, no markdown:
       quantumLiquidityAnalysis: p.quantumLiquidityAnalysis || 'Quantum liquidity analysis unavailable.',
       newsImpact: p.newsImpact || 'No significant news impact identified.',
       socialSentiment: p.socialSentiment || 'Neutral social sentiment.',
+      technicalAnalysis: p.technicalAnalysis || 'Technical analysis unavailable.',
+      multiTimeframeAnalysis: p.multiTimeframeAnalysis || 'Multi-timeframe analysis unavailable.',
+      tradeRationale: p.tradeRationale || 'Trade rationale unavailable.',
+      confluenceScore: Math.min(100, Math.max(0, Number(p.confluenceScore) || 0)),
+      confluenceFactors: Array.isArray(p.confluenceFactors) ? p.confluenceFactors.slice(0, 10) : [],
+      analysisLogs: Array.isArray(p.analysisLogs) ? p.analysisLogs.slice(0, 10) : [],
+      riskAssessment: p.riskAssessment || 'Risk assessment unavailable.',
       keyLevels: {
         support: Array.isArray(p.keyLevels?.support) ? p.keyLevels.support.map(Number).filter(Boolean) : [],
         resistance: Array.isArray(p.keyLevels?.resistance) ? p.keyLevels.resistance.map(Number).filter(Boolean) : [],
@@ -357,8 +458,10 @@ Return this exact JSON structure:
 RULES:
 - Include ALL coins: ${coins.join(', ')}
 - Sentiment MUST match the 24h change: positive change (>1%) = BULLISH, negative (<-1%) = BEARISH, small change = NEUTRAL
+- Action MUST align with sentiment: BULLISH = BUY, BEARISH = SELL, NEUTRAL = HOLD or WATCH
 - Key levels MUST be within 5% of the current price shown above
-- Generate 3-5 upcoming trade ideas with realistic entry/exit levels
+- Generate 3-5 upcoming trade ideas using only BULLISH or BEARISH coins (do NOT include NEUTRAL coins in upcomingTrades)
+- CRITICAL: upcomingTrades direction MUST match the coin sentiment — BULLISH coins get LONG, BEARISH coins get SHORT. Never assign LONG to a BEARISH coin or SHORT to a BULLISH coin
 - Confidence should reflect how strong the setup is (60-95 range)
 - Be specific about prices, not generic`;
 
@@ -372,27 +475,54 @@ RULES:
     if (!jsonMatch) return fallbackResult;
 
     const parsed = JSON.parse(jsonMatch);
-    return {
-      overview: parsed.overview || fallbackResult.overview,
-      coins: (parsed.coins || []).map((c: any) => ({
+
+    const coins_result = (parsed.coins || []).map((c: any) => {
+      const sentiment = (['BULLISH', 'BEARISH', 'NEUTRAL'].includes(c.sentiment) ? c.sentiment : 'NEUTRAL') as 'BULLISH' | 'BEARISH' | 'NEUTRAL';
+      // Enforce action consistency with sentiment
+      let action = (['BUY', 'SELL', 'HOLD', 'WATCH'].includes(c.action) ? c.action : 'WATCH') as 'BUY' | 'SELL' | 'HOLD' | 'WATCH';
+      if (sentiment === 'BULLISH' && action === 'SELL') action = 'BUY';
+      if (sentiment === 'BEARISH' && action === 'BUY') action = 'SELL';
+      if (sentiment === 'NEUTRAL' && (action === 'BUY' || action === 'SELL')) action = 'WATCH';
+      return {
         coin: c.coin || 'BTC',
-        sentiment: (['BULLISH', 'BEARISH', 'NEUTRAL'].includes(c.sentiment) ? c.sentiment : 'NEUTRAL') as 'BULLISH' | 'BEARISH' | 'NEUTRAL',
+        sentiment,
         shortAnalysis: c.shortAnalysis || 'Analysis pending',
         keyLevel: c.keyLevel || 'Key levels being calculated',
-        action: (['BUY', 'SELL', 'HOLD', 'WATCH'].includes(c.action) ? c.action : 'WATCH') as 'BUY' | 'SELL' | 'HOLD' | 'WATCH',
+        action,
         xSentiment: c.xSentiment || 'Neutral social sentiment',
         fomoLevel: (['LOW', 'MEDIUM', 'HIGH'].includes(c.fomoLevel) ? c.fomoLevel : 'MEDIUM') as 'LOW' | 'MEDIUM' | 'HIGH',
         liquidityView: c.liquidityView || 'Liquidity balanced near VWAP',
         psychologicalLevels: c.psychologicalLevels || 'Round numbers and weekly pivots',
         newsBias: c.newsBias || 'No strong catalyst',
-      })),
-      upcomingTrades: (parsed.upcomingTrades || []).map((t: any) => ({
-        coin: t.coin || 'BTC',
-        direction: t.direction === 'SHORT' ? 'SHORT' as const : 'LONG' as const,
-        reason: t.reason || 'Technical setup forming',
-        confidence: Math.min(100, Math.max(0, t.confidence || 70)),
-        timeframe: t.timeframe || '1h',
-      })),
+      };
+    });
+
+    // Build sentiment map for trade direction enforcement
+    const sentimentMap = new Map(coins_result.map((c: any) => [c.coin, c.sentiment]));
+
+    const upcomingTrades = (parsed.upcomingTrades || [])
+      .filter((t: any) => {
+        const s = sentimentMap.get(t.coin);
+        // Drop trades for NEUTRAL coins — no clear directional edge
+        return s === 'BULLISH' || s === 'BEARISH';
+      })
+      .map((t: any) => {
+        const s = sentimentMap.get(t.coin);
+        // Force direction to match sentiment regardless of what AI returned
+        const direction = s === 'BULLISH' ? 'LONG' as const : 'SHORT' as const;
+        return {
+          coin: t.coin || 'BTC',
+          direction,
+          reason: t.reason || 'Technical setup forming',
+          confidence: Math.min(100, Math.max(0, t.confidence || 70)),
+          timeframe: t.timeframe || '1h',
+        };
+      });
+
+    return {
+      overview: parsed.overview || fallbackResult.overview,
+      coins: coins_result,
+      upcomingTrades,
       marketMood: parsed.marketMood || 'Neutral',
       timestamp: new Date().toISOString(),
     };

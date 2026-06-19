@@ -22,6 +22,9 @@ import { getWhaleActivity } from "./arkham";
 import { runMultiAgentValidation } from "./signal-validator";
 import { sendHourlyAlert } from "./hourly-alerts";
 import { triggerScanNow } from "./auto-scanner";
+import { runOrchestrator } from "./agents/agent-orchestrator";
+import { getMarketRegime } from "./agents/market-intelligence-agent";
+import { generatePerformanceReport, getQuickStats } from "./agents/trade-journal-agent";
 
 function getAppVersionInfo() {
   let version = "unknown";
@@ -1195,6 +1198,62 @@ export async function registerRoutes(
       res.json({ articles, sentiment });
     } catch (e: any) {
       res.status(500).json({ message: e.message, articles: [], sentiment: null });
+    }
+  });
+
+  // ── AGENT ROUTES ─────────────────────────────────────────────────────────────
+
+  // POST /api/agents/orchestrate — run full 6-agent analysis on a signal
+  app.post("/api/agents/orchestrate", async (req, res) => {
+    try {
+      const { coin, direction, entry, sl, tp, confidence, strategy, timeframe, marketPrice, candles, agentContext } = req.body;
+      if (!coin || !direction || !entry || !sl || !tp) {
+        return res.status(400).json({ ok: false, message: 'Missing required fields: coin, direction, entry, sl, tp' });
+      }
+      const result = await runOrchestrator({
+        coin, direction, entry, sl, tp,
+        confidence: confidence ?? 70,
+        strategy: strategy ?? 'SMC',
+        timeframe: timeframe ?? '1h',
+        marketPrice: marketPrice ?? entry,
+        candles, agentContext,
+      });
+      res.json({ ok: true, result });
+    } catch (e: any) {
+      res.status(500).json({ ok: false, message: e.message });
+    }
+  });
+
+  // GET /api/agents/market-regime — current macro regime
+  app.get("/api/agents/market-regime", async (req, res) => {
+    try {
+      const force = req.query.force === 'true';
+      const regime = await getMarketRegime(force);
+      res.json({ ok: true, regime });
+    } catch (e: any) {
+      res.status(500).json({ ok: false, message: e.message });
+    }
+  });
+
+  // GET /api/agents/performance — trade journal performance report
+  app.get("/api/agents/performance", async (req, res) => {
+    try {
+      const period = (req.query.period as 'daily' | 'weekly' | 'monthly') ?? 'weekly';
+      const force = req.query.force === 'true';
+      const report = await generatePerformanceReport(period, force);
+      res.json({ ok: true, report });
+    } catch (e: any) {
+      res.status(500).json({ ok: false, message: e.message });
+    }
+  });
+
+  // GET /api/agents/quick-stats — fast P&L + win rate snapshot
+  app.get("/api/agents/quick-stats", async (_req, res) => {
+    try {
+      const stats = await getQuickStats();
+      res.json({ ok: true, stats });
+    } catch (e: any) {
+      res.status(500).json({ ok: false, message: e.message });
     }
   });
 

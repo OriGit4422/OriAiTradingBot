@@ -2,6 +2,7 @@ import express, { type Request, Response, NextFunction } from "express";
 import { registerRoutes } from "./routes";
 import { serveStatic } from "./static";
 import { createServer } from "http";
+import { execSync } from "child_process";
 import { pool } from "./db";
 import { startHourlyAlertScheduler } from "./hourly-alerts";
 import { startAutoScanner } from "./auto-scanner";
@@ -174,14 +175,32 @@ app.use((req, res, next) => {
   // this serves both the API and the client.
   // It is the only port that is not firewalled.
   const port = parseInt(process.env.PORT || "5000", 10);
-  httpServer.listen(
-    {
-      port,
-      host: "0.0.0.0",
-      reusePort: true,
-    },
-    () => {
+
+  const startListening = (retry = true) => {
+    httpServer.listen({ port, host: "0.0.0.0", reusePort: true }, () => {
       log(`serving on port ${port}`);
-    },
-  );
+    });
+  };
+
+  httpServer.on("error", (err: any) => {
+    if (err.code === "EADDRINUSE") {
+      console.warn(`[server] Port ${port} in use — killing occupying process and retrying...`);
+      try {
+        execSync(`fuser -k ${port}/tcp 2>/dev/null || true`);
+      } catch {}
+      setTimeout(() => {
+        httpServer.removeAllListeners("error");
+        httpServer.on("error", (e: any) => {
+          console.error("[server] Failed to start after retry:", e.message);
+          process.exit(1);
+        });
+        startListening(false);
+      }, 1000);
+    } else {
+      console.error("[server] Unexpected error:", err.message);
+      process.exit(1);
+    }
+  });
+
+  startListening();
 })();

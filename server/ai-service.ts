@@ -210,7 +210,7 @@ Important: You are part of the WINM AI Trading Bot platform. The user is a crypt
   ];
 
   try {
-    const { text } = await callMultiAI(fullMessages, 2048);
+    const { text } = await callMultiAI(fullMessages, 1024);
     return text;
   } catch (error: any) {
     console.error('AI Chat error:', error.message);

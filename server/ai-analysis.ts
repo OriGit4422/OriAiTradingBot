@@ -3,6 +3,12 @@ import { callMultiAI, extractJson, type AIMessage } from './ai-providers';
 const AI_PROVIDER_COOLDOWN_MS = 5 * 60 * 1000;
 let aiProviderDisabledUntil = 0;
 
+// ── Response caches to avoid redundant AI calls ──────────────────────────────
+const signalAnalysisCache = new Map<string, { result: any; expiresAt: number }>();
+const marketInsightCache = new Map<string, { result: any; expiresAt: number }>();
+const SIGNAL_CACHE_TTL_MS = 5 * 60 * 1000;   // 5 min — signals don't change that fast
+const MARKET_INSIGHT_CACHE_TTL_MS = 10 * 60 * 1000; // 10 min
+
 export interface AISignalAnalysis {
   verdict: 'STRONG_BUY' | 'BUY' | 'NEUTRAL' | 'SELL' | 'STRONG_SELL';
   adjustedConfidence: number;
@@ -87,6 +93,13 @@ export async function analyzeSignalWithAI(signalData: {
     return getAIFallback(signalData);
   }
 
+  // Check cache: same coin+type+timeframe+confidence bucket within 5 min
+  const cacheKey = `${signalData.coin}:${signalData.type}:${signalData.timeframe}:${Math.round(signalData.confidence / 5) * 5}`;
+  const cached = signalAnalysisCache.get(cacheKey);
+  if (cached && Date.now() < cached.expiresAt) {
+    return cached.result as AISignalAnalysis;
+  }
+
   try {
     const rr = (Math.abs(signalData.tp - signalData.entry) / Math.abs(signalData.entry - signalData.sl)).toFixed(2);
     const ctx = signalData.agentContext;
@@ -149,13 +162,13 @@ Respond in JSON only:
 }`;
 
     const messages: AIMessage[] = [{ role: 'user', content: prompt }];
-    const { text } = await callMultiAI(messages, 1200);
+    const { text } = await callMultiAI(messages, 800);
 
     const jsonMatch = extractJson(text);
     if (!jsonMatch) throw new Error('Could not parse AI response');
 
     const parsed = JSON.parse(jsonMatch);
-    return {
+    const result: AISignalAnalysis = {
       verdict: parsed.verdict || 'NEUTRAL',
       adjustedConfidence: Math.min(100, Math.max(0, parsed.adjustedConfidence || signalData.confidence)),
       reasoning: parsed.reasoning || 'Analysis unavailable',
@@ -163,6 +176,8 @@ Respond in JSON only:
       keyLevels: parsed.keyLevels || { support: signalData.sl, resistance: signalData.tp },
       marketSentiment: parsed.marketSentiment || 'Neutral',
     };
+    signalAnalysisCache.set(cacheKey, { result, expiresAt: Date.now() + SIGNAL_CACHE_TTL_MS });
+    return result;
   } catch (error: any) {
     if (error.message?.includes('No AI providers configured')) {
       aiProviderDisabledUntil = Date.now() + AI_PROVIDER_COOLDOWN_MS;
@@ -406,6 +421,13 @@ export interface MarketInsightResult {
 }
 
 export async function getMarketInsight(coins: string[], marketData?: any[]): Promise<MarketInsightResult> {
+  // Cache keyed by sorted coin list — reuse result for 10 min
+  const insightKey = [...coins].sort().join(',');
+  const cachedInsight = marketInsightCache.get(insightKey);
+  if (cachedInsight && Date.now() < cachedInsight.expiresAt) {
+    return cachedInsight.result as MarketInsightResult;
+  }
+
   const fallbackResult: MarketInsightResult = {
     overview: 'Crypto markets are showing mixed signals. Monitor key support and resistance levels across major pairs for breakout opportunities.',
     coins: coins.map(c => ({
@@ -470,7 +492,7 @@ RULES:
       { role: 'user', content: userMsg },
     ];
 
-    const { text } = await callMultiAI(messages, 8192);
+    const { text } = await callMultiAI(messages, 2048);
     const jsonMatch = extractJson(text);
     if (!jsonMatch) return fallbackResult;
 
@@ -519,13 +541,15 @@ RULES:
         };
       });
 
-    return {
+    const insightResult: MarketInsightResult = {
       overview: parsed.overview || fallbackResult.overview,
       coins: coins_result,
       upcomingTrades,
       marketMood: parsed.marketMood || 'Neutral',
       timestamp: new Date().toISOString(),
     };
+    marketInsightCache.set(insightKey, { result: insightResult, expiresAt: Date.now() + MARKET_INSIGHT_CACHE_TTL_MS });
+    return insightResult;
   } catch (error: any) {
     if (error.message?.includes('No AI providers configured')) {
       aiProviderDisabledUntil = Date.now() + AI_PROVIDER_COOLDOWN_MS;

@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { Badge } from '@/components/ui/badge';
-import { useSignalStore } from '@/lib/signal-store';
+import { useSignalStore, SIGNAL_COINS } from '@/lib/signal-store';
 import { cn } from '@/lib/utils';
 import {
   Flame, TrendingUp, TrendingDown, RefreshCw, Loader2,

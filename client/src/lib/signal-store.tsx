@@ -10,7 +10,7 @@ import { getQuantumSignal, calculateMultiTFConfluence } from './strategies';
 import { fetchKlines } from './binance';
 import { enhanceSignalsWithAI } from './signal-ai';
 
-const SIGNAL_COINS = ['BTC', 'ETH', 'SOL', 'BNB', 'XRP', 'ADA', 'DOGE', 'AVAX'];
+export const SIGNAL_COINS = ['BTC', 'ETH', 'SOL', 'BNB', 'XRP', 'ADA', 'DOGE', 'AVAX'];
 const TIMEFRAMES = ['5m', '15m', '1h', '4h', '1d', '1w'];
 const REFRESH_INTERVAL_MS = 90_000; // 90 s
 

@@ -70,6 +70,18 @@ export interface ScanResult {
   timestamp: string;
 }
 
+export interface ScanSummary {
+  timeframe: string;
+  coinsScanned: number;
+  passedMathFilter: number;
+  filteredByMacro: number;
+  filteredByGrade: number;
+  signalsGenerated: number;
+  scanDurationMs: number;
+  timestamp: string;
+  macroRegime: string | null;
+}
+
 export interface ScannerStatus {
   running: boolean;
   lastScanAt: string | null;
@@ -77,6 +89,7 @@ export interface ScannerStatus {
   signalsGenerated: number;
   signalsToday: number;
   lastResults: ScanResult[];
+  lastScanSummary: ScanSummary | null;
   config: ScannerConfig;
 }
 
@@ -228,10 +241,11 @@ let _nextScanAt: string | null = null;
 let _signalsGenerated = 0;
 let _signalsToday = 0;
 let _lastResults: ScanResult[] = [];
+let _lastScanSummary: ScanSummary | null = null;
 let _todayStart = new Date();
 
 // Math pre-filter threshold — coins below this skip AI entirely (saves 80-90% of costs)
-const MATH_PREFILTER_THRESHOLD = 60;
+const MATH_PREFILTER_THRESHOLD = 55;
 
 // ─── Core scan logic ──────────────────────────────────────────────────────────
 
@@ -329,6 +343,12 @@ async function runScan(timeframe: ScanTimeframe): Promise<void> {
 
   console.log(`[market-scanner] ⟳ Starting ${timeframe} scan of ${_config.coins.length} coins...`);
 
+  // Activity tracking
+  let coinsScanned = 0;
+  let passedMathFilter = 0;
+  let filteredByMacro = 0;
+  let filteredByGrade = 0;
+
   try {
     await storage.createBotLog({
       level: 'info',
@@ -349,6 +369,7 @@ async function runScan(timeframe: ScanTimeframe): Promise<void> {
         message: `Macro regime is ${regime.regime} — scan skipped to protect capital`,
       });
       _running = false;
+      _nextScanAt = new Date(Date.now() + _config.scanIntervalMs).toISOString();
       return;
     }
 
@@ -359,13 +380,23 @@ async function runScan(timeframe: ScanTimeframe): Promise<void> {
     for (const coin of _config.coins) {
       if (generated >= _config.maxSignalsPerScan) break;
 
-      // Only scan direction aligned with macro
+      coinsScanned++;
       const scanResult = await scanCoin(coin, timeframe);
       if (!scanResult) continue;
 
-      // Macro filter: if regime strongly favors one direction, skip opposite
-      if (regime?.tradeableSide === 'LONG' && scanResult.direction === 'SHORT') continue;
-      if (regime?.tradeableSide === 'SHORT' && scanResult.direction === 'LONG') continue;
+      passedMathFilter++;
+
+      // Macro soft-filter: in strongly directional regimes, deprioritise counter-trend
+      // signals — but don't hard-block them so the user always sees output.
+      const isCounterTrend =
+        (regime?.tradeableSide === 'LONG' && scanResult.direction === 'SHORT') ||
+        (regime?.tradeableSide === 'SHORT' && scanResult.direction === 'LONG');
+
+      if (isCounterTrend) {
+        filteredByMacro++;
+        // Include counter-trend only if confidence is very high (≥ 80)
+        if (scanResult.confidence < 80) continue;
+      }
 
       results.push(scanResult);
       generated++;
@@ -386,11 +417,8 @@ async function runScan(timeframe: ScanTimeframe): Promise<void> {
         });
         scanResult.signalId = signal.id;
 
-        // Send Telegram/Discord notification
         if (_config.notifyOnGenerate) {
-          try {
-            await notifySignal(signal as Signal);
-          } catch { /* notification failure is non-fatal */ }
+          try { await notifySignal(signal as Signal); } catch { /* non-fatal */ }
         }
 
         _signalsGenerated++;
@@ -416,18 +444,35 @@ async function runScan(timeframe: ScanTimeframe): Promise<void> {
       await new Promise(r => setTimeout(r, 300));
     }
 
-    _lastResults = results;
+    // Keep previous results if this scan found nothing — avoids blank UI
+    if (results.length > 0) {
+      _lastResults = results;
+    }
+
     _lastScanAt = new Date().toISOString();
-    const duration = ((Date.now() - scanStart) / 1000).toFixed(1);
+    _nextScanAt = new Date(Date.now() + _config.scanIntervalMs).toISOString();
+    const scanDurationMs = Date.now() - scanStart;
+
+    _lastScanSummary = {
+      timeframe,
+      coinsScanned,
+      passedMathFilter,
+      filteredByMacro,
+      filteredByGrade,
+      signalsGenerated: results.length,
+      scanDurationMs,
+      macroRegime: regime?.regime ?? null,
+      timestamp: _lastScanAt,
+    };
 
     await storage.createBotLog({
       level: 'info',
       event: 'MARKET_SCAN_COMPLETE',
-      message: `Market scanner: ${timeframe} scan complete in ${duration}s — ${results.length} signal(s) generated`,
-      meta: { timeframe, signalsGenerated: results.length, duration, totalToday: _signalsToday },
+      message: `Market scanner: ${timeframe} scan complete in ${(scanDurationMs / 1000).toFixed(1)}s — ${results.length} signal(s) | ${coinsScanned} scanned, ${passedMathFilter} passed TA, ${filteredByMacro} filtered by macro`,
+      meta: { timeframe, signalsGenerated: results.length, scanDurationMs, totalToday: _signalsToday, coinsScanned, passedMathFilter, filteredByMacro },
     });
 
-    console.log(`[market-scanner] ✓ ${timeframe} scan done in ${duration}s — ${results.length} signals`);
+    console.log(`[market-scanner] ✓ ${timeframe} scan done in ${(scanDurationMs / 1000).toFixed(1)}s — ${results.length} signals (${coinsScanned} scanned, ${passedMathFilter} passed TA, ${filteredByMacro} macro-filtered)`);
   } catch (err: any) {
     console.error(`[market-scanner] scan error: ${err?.message}`);
     await storage.createBotLog({
@@ -458,6 +503,7 @@ export function getStatus(): ScannerStatus {
     signalsGenerated: _signalsGenerated,
     signalsToday: _signalsToday,
     lastResults: _lastResults,
+    lastScanSummary: _lastScanSummary,
     config: { ..._config },
   };
 }

@@ -30,10 +30,17 @@ interface ScanResult {
   signalId?: string; timestamp: string;
 }
 
+interface ScanSummary {
+  timeframe: string; coinsScanned: number; passedMathFilter: number;
+  filteredByMacro: number; filteredByGrade: number; signalsGenerated: number;
+  scanDurationMs: number; macroRegime: string | null; timestamp: string;
+}
+
 interface ScannerStatus {
   running: boolean; lastScanAt: string | null; nextScanAt: string | null;
   signalsGenerated: number; signalsToday: number;
   lastResults: ScanResult[];
+  lastScanSummary: ScanSummary | null;
   config: {
     enabled: boolean; timeframes: string[]; coins: string[];
     minConfidence: number; minGrade: string;
@@ -215,10 +222,10 @@ export default function AgentsPage() {
   });
 
   const scanNowMut = useMutation({
-    mutationFn: () => fetch('/api/agents/scanner/scan-now', {
+    mutationFn: (tf: string) => fetch('/api/agents/scanner/scan-now', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ timeframe: manualTF }),
+      body: JSON.stringify({ timeframe: tf }),
     }).then(r => r.json()),
     onSuccess: () => refetchScanner(),
   });
@@ -374,7 +381,7 @@ export default function AgentsPage() {
               {ALL_TIMEFRAMES.map(tf => (
                 <button
                   key={tf}
-                  onClick={() => { setManualTF(tf); scanNowMut.mutate(); }}
+                  onClick={() => { setManualTF(tf); scanNowMut.mutate(tf); }}
                   disabled={scanNowMut.isPending}
                   className="px-3 py-1 rounded-lg text-xs font-semibold border border-slate-600 text-slate-300 hover:border-violet-500 hover:text-violet-400 transition-all disabled:opacity-50"
                 >
@@ -385,19 +392,94 @@ export default function AgentsPage() {
             </div>
           </div>
 
-          {/* ── LATEST SIGNALS FROM SCANNER ────────────────────────────────── */}
-          {scanner?.lastResults && scanner.lastResults.length > 0 && (
-            <div>
-              <h3 className="text-sm font-semibold text-slate-300 mb-3 flex items-center gap-2">
+          {/* ── LATEST SIGNALS FROM SCANNER ─────────────────────────────────────── */}
+          <div>
+            <div className="flex items-center gap-3 mb-3">
+              <h3 className="text-sm font-semibold text-slate-300 flex items-center gap-2">
                 <Radar className="w-4 h-4 text-emerald-400" />
                 Latest Scanner Signals
-                <span className="text-xs text-slate-500">({scanner.lastResults.length} from last scan)</span>
               </h3>
-              <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
-                {scanner.lastResults.map((r, i) => <SignalCard key={i} r={r} />)}
-              </div>
+              {/* Live scan activity summary */}
+              {scanner?.lastScanSummary && (
+                <div className="flex items-center gap-2 flex-wrap">
+                  <span className="text-xs bg-slate-800 border border-slate-700 rounded-full px-2 py-0.5 text-slate-400">
+                    {scanner.lastScanSummary.coinsScanned} scanned
+                  </span>
+                  <span className="text-xs bg-slate-800 border border-violet-700/40 rounded-full px-2 py-0.5 text-violet-400">
+                    {scanner.lastScanSummary.passedMathFilter} passed TA
+                  </span>
+                  {scanner.lastScanSummary.filteredByMacro > 0 && (
+                    <span className="text-xs bg-slate-800 border border-yellow-700/40 rounded-full px-2 py-0.5 text-yellow-400">
+                      {scanner.lastScanSummary.filteredByMacro} macro-filtered
+                    </span>
+                  )}
+                  <span className="text-xs bg-slate-800 border border-emerald-700/40 rounded-full px-2 py-0.5 text-emerald-400">
+                    {scanner.lastScanSummary.signalsGenerated} signals
+                  </span>
+                  <span className="text-xs text-slate-600">
+                    {scanner.lastScanSummary.timeframe} · {(scanner.lastScanSummary.scanDurationMs / 1000).toFixed(1)}s
+                  </span>
+                </div>
+              )}
             </div>
-          )}
+
+            {/* Manual scan results take priority over stored results */}
+            {(() => {
+              const displayResults: ScanResult[] =
+                (scanNowMut.data as any)?.results?.length > 0
+                  ? (scanNowMut.data as any).results
+                  : (scanner?.lastResults ?? []);
+
+              if (scanNowMut.isPending) {
+                return (
+                  <div className="border border-slate-700/50 rounded-xl p-8 flex flex-col items-center gap-3 bg-slate-800/30">
+                    <Loader2 className="w-8 h-8 text-violet-400 animate-spin" />
+                    <p className="text-sm text-slate-400">Scanning {selectedCoins.length} coins on {manualTF}...</p>
+                    <p className="text-xs text-slate-600">Stage 1: math filter → Stage 2: sentiment → Stage 3: AI (only for top coins)</p>
+                  </div>
+                );
+              }
+
+              if (scanner?.running) {
+                return (
+                  <div className="border border-slate-700/50 rounded-xl p-6 flex items-center gap-3 bg-slate-800/30">
+                    <Loader2 className="w-5 h-5 text-emerald-400 animate-spin" />
+                    <div>
+                      <p className="text-sm text-slate-300">Auto-scan in progress...</p>
+                      <p className="text-xs text-slate-500">Results will appear here when complete</p>
+                    </div>
+                  </div>
+                );
+              }
+
+              if (displayResults.length === 0) {
+                return (
+                  <div className="border border-slate-700/50 rounded-xl p-8 text-center bg-slate-800/30 space-y-2">
+                    <Radar className="w-8 h-8 text-slate-600 mx-auto" />
+                    <p className="text-sm text-slate-400">No signals met the quality threshold</p>
+                    {scanner?.lastScanSummary ? (
+                      <div className="text-xs text-slate-600 space-y-1">
+                        <p>
+                          {scanner.lastScanSummary.coinsScanned} coins scanned ·{' '}
+                          {scanner.lastScanSummary.passedMathFilter} passed TA filter ·{' '}
+                          {scanner.lastScanSummary.filteredByMacro > 0 && `${scanner.lastScanSummary.filteredByMacro} blocked by ${scanner.lastScanSummary.macroRegime ?? 'macro'} regime`}
+                        </p>
+                        <p>Try "Scan 1h" or lower Min Confidence in Configure to see more results</p>
+                      </div>
+                    ) : (
+                      <p className="text-xs text-slate-600">Click one of the Scan buttons above to run an immediate scan</p>
+                    )}
+                  </div>
+                );
+              }
+
+              return (
+                <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
+                  {displayResults.map((r, i) => <SignalCard key={i} r={r} />)}
+                </div>
+              );
+            })()}
+          </div>
 
           {/* ── QUICK STATS ────────────────────────────────────────────────── */}
           {stats && (

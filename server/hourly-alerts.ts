@@ -96,7 +96,7 @@ Return JSON array:
       { role: 'system', content: system },
       { role: 'user', content: userMsg },
     ];
-    const { text } = await callMultiAI(messages, 4096);
+    const { text } = await callMultiAI(messages, 1200);
     const jsonMatch = extractJson(text);
     if (!jsonMatch) return [];
     const parsed: any[] = JSON.parse(jsonMatch);
@@ -216,13 +216,16 @@ function buildHourlyMessage(signals: AlertSignal[], marketMood: string): string 
 // ─── Core: build and send hourly alert ───────────────────────────────────────
 
 async function generateMarketMood(): Promise<string> {
+  if (cachedMood && Date.now() < cachedMood.expiresAt) return cachedMood.value;
   try {
     const messages: AIMessage[] = [
       { role: 'system', content: 'You are a crypto market analyst. Reply with ONLY a 2-4 word market mood phrase. Examples: "Bullish Momentum", "Cautious Accumulation", "Bearish Pressure", "Range-Bound Consolidation".' },
       { role: 'user', content: 'What is the current overall crypto market mood right now? Reply with ONLY the mood phrase, nothing else.' },
     ];
     const { text } = await callMultiAI(messages, 32);
-    return text.trim().replace(/['"]/g, '').slice(0, 40) || 'Neutral Outlook';
+    const mood = text.trim().replace(/['"]/g, '').slice(0, 40) || 'Neutral Outlook';
+    cachedMood = { value: mood, expiresAt: Date.now() + 60 * 60 * 1000 };
+    return mood;
   } catch {
     return 'Neutral Outlook';
   }
@@ -250,13 +253,14 @@ export async function sendHourlyAlert(): Promise<{ sent: boolean; error?: string
     const dedupedDb = Array.from(byTf.values()).slice(0, 10);
     const existingTFs = new Set(dedupedDb.map(s => s.timeframe));
 
-    // 3. If we need more signals, ask AI to generate them
-    const needed = 10 - dedupedDb.length;
+    // 3. If we have fewer than 5 DB signals, generate AI signals to fill gaps
+    const needed = Math.max(0, 5 - dedupedDb.length);
     const aiRaw = needed > 0 ? await generateAISignals(needed, existingTFs) : [];
 
-    // 4. Enrich DB signals with AI reasoning
+    // 4. Enrich DB signals with AI reasoning (cap at 5 to limit token spend)
+    const toEnrich = dedupedDb.slice(0, 5);
     const dbEnriched: AlertSignal[] = await Promise.all(
-      dedupedDb.map(async (sig) => ({
+      toEnrich.map(async (sig) => ({
         coin: sig.coin,
         type: sig.type as 'LONG' | 'SHORT',
         entry: sig.entry,
@@ -303,6 +307,9 @@ export async function sendHourlyAlert(): Promise<{ sent: boolean; error?: string
     return { sent: false, error: error?.message || 'Unknown error' };
   }
 }
+
+// ─── Market mood cache (reuse within same hour) ───────────────────────────────
+let cachedMood: { value: string; expiresAt: number } | null = null;
 
 // ─── Scheduler ────────────────────────────────────────────────────────────────
 

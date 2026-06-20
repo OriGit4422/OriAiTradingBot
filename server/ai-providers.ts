@@ -250,10 +250,21 @@ export async function getActiveProviders(): Promise<AIProviderConfig[]> {
   const s = await storage.getSettings();
   if (!s) return [];
   const ss = s as any;
-  const providers: AIProviderConfig[] = [];
+  const primary: AIProviderConfig[] = [];
+  const fallback: AIProviderConfig[] = [];
+
+  // Gemini is always first — cheapest, highest quota
+  if (ss.geminiEnabled && ss.geminiApiKey) {
+    // Auto-correct legacy model names that no longer exist on v1beta
+    const rawModel: string = ss.geminiModel || 'gemini-2.0-flash';
+    const model = rawModel === 'gemini-1.5-pro' ? 'gemini-1.5-pro-latest'
+                : rawModel === 'gemini-1.0-pro' ? 'gemini-1.5-flash'
+                : rawModel;
+    primary.push({ name: 'Gemini', type: 'gemini', apiKey: ss.geminiApiKey, model });
+  }
 
   if (ss.customAi1Enabled && ss.customAi1ApiKey) {
-    providers.push({
+    fallback.push({
       name: ss.customAi1Name || 'Custom AI 1',
       type: 'custom',
       baseUrl: ss.customAi1BaseUrl || 'https://api.openai.com/v1',
@@ -263,7 +274,7 @@ export async function getActiveProviders(): Promise<AIProviderConfig[]> {
   }
 
   if (ss.customAi2Enabled && ss.customAi2ApiKey) {
-    providers.push({
+    fallback.push({
       name: ss.customAi2Name || 'Custom AI 2',
       type: 'custom',
       baseUrl: ss.customAi2BaseUrl || 'https://api.openai.com/v1',
@@ -273,7 +284,7 @@ export async function getActiveProviders(): Promise<AIProviderConfig[]> {
   }
 
   if (ss.openaiEnabled && ss.openaiApiKey) {
-    providers.push({
+    fallback.push({
       name: 'OpenAI',
       type: 'custom',
       baseUrl: 'https://api.openai.com/v1',
@@ -283,7 +294,7 @@ export async function getActiveProviders(): Promise<AIProviderConfig[]> {
   }
 
   if (ss.anthropicEnabled && ss.anthropicApiKey) {
-    providers.push({
+    fallback.push({
       name: 'Claude',
       type: 'anthropic',
       apiKey: ss.anthropicApiKey,
@@ -291,16 +302,8 @@ export async function getActiveProviders(): Promise<AIProviderConfig[]> {
     });
   }
 
-  if (ss.geminiEnabled && ss.geminiApiKey) {
-    providers.push({
-      name: 'Gemini',
-      type: 'gemini',
-      apiKey: ss.geminiApiKey,
-      model: ss.geminiModel || 'gemini-2.0-flash',
-    });
-  }
-
-  return providers;
+  // Gemini first, others after
+  return [...primary, ...fallback];
 }
 
 // ── Multi-AI: run all providers in parallel, aggregate JSON numeric fields ────
@@ -367,25 +370,34 @@ export async function callMultiAI(
     throw new Error('No AI providers configured. Add API keys in Settings → AI Agents.');
   }
 
-  if (providers.length === 1) {
-    const r = await callAIProvider(providers[0], messages, maxTokens);
+  // Try Gemini first (index 0 — always placed first by getActiveProviders).
+  // If it succeeds, return immediately without burning quota on other providers.
+  const primary = providers[0];
+  const fallbacks = providers.slice(1);
+
+  try {
+    const r = await callAIProvider(primary, messages, maxTokens);
     return { text: r.text, providers: [r.provider] };
+  } catch (primaryErr: any) {
+    console.warn(`[ai-providers] Primary (${primary.name}) failed: ${primaryErr?.message} — trying fallbacks`);
+    if (fallbacks.length === 0) throw primaryErr;
   }
 
-  // Run all in parallel
+  // Primary failed — run all fallbacks in parallel
   const results = await Promise.allSettled(
-    providers.map(p => callAIProvider(p, messages, maxTokens)),
+    fallbacks.map(p => callAIProvider(p, messages, maxTokens)),
   );
   const ok = results
     .filter((r): r is PromiseFulfilledResult<AIResponse> => r.status === 'fulfilled')
     .map(r => r.value);
 
   if (ok.length === 0) {
-    const errors = results.map((r, i) => {
-      const name = providers[i].name;
+    const errors = [primary, ...fallbacks].map((p, i) => {
+      if (i === 0) return `${p.name}: (failed — see above)`;
+      const r = results[i - 1];
       const reason = r.status === 'rejected' ? (r.reason?.message ?? String(r.reason)) : 'unknown';
-      console.error(`[ai-providers] ${name} failed:`, reason);
-      return `${name}: ${reason}`;
+      console.error(`[ai-providers] ${p.name} failed:`, reason);
+      return `${p.name}: ${reason}`;
     });
     throw new Error(`All AI providers failed — ${errors.join(' | ')}`);
   }

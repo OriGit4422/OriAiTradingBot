@@ -147,6 +147,55 @@ export async function computeDrawdownState(trades: BotTrade[], startingBalance: 
   };
 }
 
+// ─── Volatility Regime Detection ─────────────────────────────────────────────
+
+export interface VolatilityRegime {
+  regime: 'NORMAL' | 'ELEVATED' | 'EXTREME';
+  realizedVol: number;    // annualized %, last 24h
+  avgVol30d: number;      // annualized %, 30-day average
+  positionSizeMultiplier: number; // 1.0 | 0.5 | 0.25
+}
+
+export async function detectRegime(candles: { close: number }[]): Promise<VolatilityRegime> {
+  const fallback: VolatilityRegime = { regime: 'NORMAL', realizedVol: 0, avgVol30d: 0, positionSizeMultiplier: 1.0 };
+  if (candles.length < 30) return fallback;
+
+  const closes = candles.map(c => c.close).filter(v => v > 0);
+  if (closes.length < 30) return fallback;
+
+  const logReturns = closes.slice(1).map((c, i) => Math.log(c / closes[i]));
+
+  // Realized vol of last 24 bars (annualized)
+  const recent = logReturns.slice(-24);
+  const recentMean = recent.reduce((a, b) => a + b, 0) / recent.length;
+  const recentVar = recent.reduce((a, b) => a + Math.pow(b - recentMean, 2), 0) / recent.length;
+  const realizedVol = Math.sqrt(recentVar * 365 * 24) * 100;
+
+  // 30-day average vol
+  const all = logReturns.slice(-720); // 30d × 24h
+  const allMean = all.reduce((a, b) => a + b, 0) / all.length;
+  const allVar = all.reduce((a, b) => a + Math.pow(b - allMean, 2), 0) / all.length;
+  const avgVol30d = Math.sqrt(allVar * 365 * 24) * 100;
+
+  const ratio = avgVol30d > 0 ? realizedVol / avgVol30d : 1;
+  let regime: VolatilityRegime['regime'] = 'NORMAL';
+  let positionSizeMultiplier = 1.0;
+  if (ratio >= 2.5) { regime = 'EXTREME'; positionSizeMultiplier = 0.25; }
+  else if (ratio >= 1.5) { regime = 'ELEVATED'; positionSizeMultiplier = 0.5; }
+
+  return { regime, realizedVol, avgVol30d, positionSizeMultiplier };
+}
+
+// ─── Weekly loss limit check ──────────────────────────────────────────────────
+
+export function checkWeeklyLossLimit(trades: BotTrade[], startingBalance: number, weeklyLimitPct = 6.0): boolean {
+  const weekAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
+  const weekTrades = trades.filter(t => t.status === 'closed' && t.closedAt && new Date(t.closedAt) >= weekAgo);
+  const weekPnl = weekTrades.reduce((s, t) => s + (t.pnl ?? 0), 0);
+  const weekLossPct = startingBalance > 0 ? (-weekPnl / startingBalance) * 100 : 0;
+  return weekLossPct >= weeklyLimitPct;
+}
+
 export async function assessTradeRisk(params: {
   coin: string;
   direction: 'LONG' | 'SHORT';
@@ -196,6 +245,12 @@ export async function assessTradeRisk(params: {
     riskScore += 15;
   }
 
+  // 1b. Weekly loss limit (-6% weekly)
+  if (checkWeeklyLossLimit(allTrades, startingBalance)) {
+    blocked = true;
+    blockReason = 'Weekly loss limit (-6%) reached — trading paused until next week';
+  }
+
   // 2. Correlation check
   const { hasCorrelation, correlatedCoins } = detectCorrelationRisk(coin, direction, openTrades);
   if (hasCorrelation) {
@@ -227,11 +282,13 @@ export async function assessTradeRisk(params: {
   const kellyFraction = computeKelly(winRate, avgWin, avgLoss);
 
   // 5. Compute final risk %
+  // Hard cap: 0.5-1.0% per trade (plan constraint — not config-overridable below this floor)
   const adjustedRiskPct = Math.min(
     baseRiskPct * riskReductionFactor,
     kellyFraction * 100,
-    3.0, // hard cap at 3% per trade
+    1.0,  // hard cap at 1%
   );
+  const clampedRiskPct = Math.max(0.5, adjustedRiskPct); // floor at 0.5%
 
   // 6. R:R check
   const rr = Math.abs(tp - entry) / Math.abs(entry - sl);
@@ -245,7 +302,7 @@ export async function assessTradeRisk(params: {
 
   // 7. Confidence-based risk scaling
   const confFactor = confidence / 100;
-  const finalRiskPct = adjustedRiskPct * Math.max(0.5, confFactor);
+  const finalRiskPct = Math.max(0.5, clampedRiskPct * Math.max(0.5, confFactor));
 
   // 8. Position sizing
   const stopDistance = Math.abs(entry - sl);

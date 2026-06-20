@@ -1309,6 +1309,57 @@ export async function registerRoutes(
     }
   });
 
+  // GET /api/agents/calibration — predicted confidence vs realized win rate per bucket
+  app.get("/api/agents/calibration", async (_req, res) => {
+    try {
+      const logs = await storage.getBotLogs(2000);
+      const records = logs
+        .filter(l => l.event === 'CALIBRATION_RECORD' && l.meta)
+        .map(l => l.meta as { predictedConfidence: number; grade: string; outcome: string; pnlR: number });
+
+      const buckets: Record<string, { label: string; min: number; max: number; wins: number; total: number; pnlR: number[] }> = {
+        'C':  { label: 'C (50-64%)',  min: 50, max: 64,  wins: 0, total: 0, pnlR: [] },
+        'B':  { label: 'B (65-74%)',  min: 65, max: 74,  wins: 0, total: 0, pnlR: [] },
+        'B+': { label: 'B+ (75-84%)', min: 75, max: 84,  wins: 0, total: 0, pnlR: [] },
+        'A':  { label: 'A (85-89%)',  min: 85, max: 89,  wins: 0, total: 0, pnlR: [] },
+        'A+': { label: 'A+ (90%+)',   min: 90, max: 100, wins: 0, total: 0, pnlR: [] },
+      };
+
+      for (const r of records) {
+        const conf = r.predictedConfidence ?? 0;
+        for (const [, b] of Object.entries(buckets)) {
+          if (conf >= b.min && conf <= b.max) {
+            b.total++;
+            if (r.outcome === 'WIN') b.wins++;
+            b.pnlR.push(r.pnlR ?? 0);
+            break;
+          }
+        }
+      }
+
+      const curve = Object.entries(buckets).map(([key, b]) => {
+        const realizedWinRate = b.total > 0 ? b.wins / b.total : null;
+        const avgPnlR = b.pnlR.length > 0 ? b.pnlR.reduce((a, x) => a + x, 0) / b.pnlR.length : null;
+        const expectedWinRate = (b.min + b.max) / 2 / 100;
+        const divergence = realizedWinRate !== null ? Math.abs(realizedWinRate - expectedWinRate) : null;
+        return {
+          grade: key,
+          label: b.label,
+          trades: b.total,
+          realizedWinRate,
+          expectedWinRate,
+          divergence,
+          divergenceFlagged: divergence !== null && divergence > 0.15,
+          avgPnlR,
+        };
+      });
+
+      res.json({ ok: true, curve, totalRecords: records.length });
+    } catch (e: any) {
+      res.status(500).json({ ok: false, message: e.message });
+    }
+  });
+
   // ── MARKET SCANNER ROUTES ──────────────────────────────────────────────────
 
   // GET /api/agents/scanner/status — live scanner state

@@ -1,12 +1,10 @@
-import { useEffect, useState, useCallback } from 'react';
+import { useState } from 'react';
 import { Badge } from '@/components/ui/badge';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Input } from '@/components/ui/input';
-import { getQuantumSignal, calculateMultiTFConfluence } from '@/lib/strategies';
-import { fetchKlines } from '@/lib/binance';
-import { enhanceSignalsWithAI } from '@/lib/signal-ai';
+import { useSignalStore } from '@/lib/signal-store';
 import { cn } from '@/lib/utils';
-import { Clock, Loader2, BrainCircuit, Zap, Flame, Send, TrendingUp, TrendingDown, BarChart3, RefreshCw, ChevronDown, ChevronRight, Activity, X, Target, Shield, Search } from 'lucide-react';
+import { Loader2, BrainCircuit, Zap, Flame, Send, TrendingUp, TrendingDown, RefreshCw, Activity, Target, Shield, Search } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { toast } from '@/hooks/use-toast';
 import { apiRequest, queryClient } from '@/lib/queryClient';
@@ -25,9 +23,6 @@ import {
   TabsList,
   TabsTrigger
 } from '@/components/ui/tabs';
-import { useIsMobile } from '@/hooks/use-mobile';
-
-const SIGNAL_COINS = ['BTC', 'ETH', 'SOL', 'BNB', 'XRP', 'ADA', 'DOGE', 'AVAX'];
 const TIMEFRAMES = ['15m', '1h', '4h', '1d', '1w'];
 
 interface SignalFeedProps {
@@ -36,52 +31,10 @@ interface SignalFeedProps {
 }
 
 export function SignalFeed({ compact = false, onSelectCoin }: SignalFeedProps) {
-  const isMobile = useIsMobile();
-  const [allSignals, setAllSignals] = useState<any[]>([]);
-  const [confluenceData, setConfluenceData] = useState<any[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
+  const { signals: allSignals, confluenceData, isLoading, refresh: generateAllSignals } = useSignalStore();
   const [selectedTF, setSelectedTF] = useState('ALL');
   const [selectedSignal, setSelectedSignal] = useState<any | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
-
-  const generateAllSignals = useCallback(async () => {
-    setIsLoading(true);
-    const coins = isMobile ? SIGNAL_COINS.slice(0, 6) : SIGNAL_COINS;
-    const tfs = isMobile ? ['1h', '4h', '1d', '1w'] : TIMEFRAMES;
-    const candleLimit = isMobile ? 120 : 180;
-
-    const tasks = coins.flatMap(coin =>
-      tfs.map(tf => ({ coin, tf }))
-    );
-
-    const results = await Promise.allSettled(
-      tasks.map(async ({ coin, tf }) => {
-        const data = await fetchKlines(coin, tf, candleLimit);
-        if (data.length > 50) {
-          const signal = getQuantumSignal(coin, data[data.length - 1].close, data, tf);
-          signal.timeframe = tf;
-          return signal;
-        }
-        return null;
-      })
-    );
-
-    const newSignals = results
-      .filter((r): r is PromiseFulfilledResult<any> => r.status === 'fulfilled' && r.value !== null)
-      .map(r => r.value);
-
-    const aiConfirmed = await enhanceSignalsWithAI(newSignals, isMobile ? 6 : 10);
-    setAllSignals(aiConfirmed);
-    const confluence = calculateMultiTFConfluence(aiConfirmed);
-    setConfluenceData(confluence);
-    setIsLoading(false);
-  }, [isMobile]);
-
-  useEffect(() => {
-    generateAllSignals();
-    const interval = setInterval(() => { if (!document.hidden) generateAllSignals(); }, 90000);
-    return () => clearInterval(interval);
-  }, [generateAllSignals]);
 
   const filteredSignals = (selectedTF === 'ALL' ? allSignals : allSignals.filter(s => s.timeframe === selectedTF))
     .filter(s => !searchQuery || s.coin.toLowerCase().includes(searchQuery.toLowerCase()))

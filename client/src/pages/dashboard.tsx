@@ -1,4 +1,5 @@
 import { useState, useEffect, useMemo } from 'react';
+import { SignalStoreProvider } from '@/lib/signal-store';
 import { useQuery } from '@tanstack/react-query';
 import { Sidebar } from '@/components/layout/Sidebar';
 import { TradingChart } from '@/components/dashboard/TradingChart';
@@ -279,6 +280,7 @@ export default function Dashboard() {
   };
 
   return (
+    <SignalStoreProvider>
     <div className="min-h-screen bg-background text-foreground font-sans selection:bg-primary/30">
       <Sidebar />
 
@@ -824,5 +826,6 @@ export default function Dashboard() {
         defaultTimeframe={timeframe}
       />
     </div>
+    </SignalStoreProvider>
   );
 }

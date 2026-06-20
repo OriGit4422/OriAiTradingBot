@@ -1,8 +1,9 @@
 import { useQuery } from '@tanstack/react-query';
-import { Brain, Zap, Globe, Activity, CheckCircle2, AlertCircle, RefreshCw, Cpu, Shield, Filter } from 'lucide-react';
+import { Brain, Zap, Globe, Activity, CheckCircle2, AlertCircle, RefreshCw, Cpu, Shield, Filter, TrendingUp, TrendingDown, Target } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import { queryClient } from '@/lib/queryClient';
+import { queryClient, apiRequest } from '@/lib/queryClient';
 import { useState } from 'react';
+import { Badge } from '@/components/ui/badge';
 
 interface AgentStatus {
   name: string;
@@ -43,6 +44,28 @@ const AGENT_META = {
   arkham:     { icon: Zap,      color: 'text-cyan-400',   bg: 'bg-cyan-500/10',   border: 'border-cyan-500/20' },
 };
 
+interface ScanResult {
+  coin: string;
+  timeframe: string;
+  direction: 'LONG' | 'SHORT';
+  entry: number;
+  sl: number;
+  tp: number;
+  confidence: number;
+  grade: string;
+  verdict: string;
+  summary: string;
+  timestamp: string;
+}
+
+interface ScannerStatus {
+  running: boolean;
+  lastScanAt: string | null;
+  signalsGenerated: number;
+  signalsToday: number;
+  lastResults: ScanResult[];
+}
+
 export function AIAgentsPanel() {
   const [refreshing, setRefreshing] = useState(false);
 
@@ -52,10 +75,22 @@ export function AIAgentsPanel() {
     staleTime: 15000,
   });
 
+  const { data: scannerData } = useQuery<ScannerStatus>({
+    queryKey: ['/api/agents/scanner/status'],
+    refetchInterval: 60000,
+    staleTime: 30000,
+  });
+
   const handleRefresh = async () => {
     setRefreshing(true);
-    await queryClient.invalidateQueries({ queryKey: ['/api/intelligence/status'] });
-    await queryClient.refetchQueries({ queryKey: ['/api/intelligence/status'] });
+    await Promise.all([
+      queryClient.invalidateQueries({ queryKey: ['/api/intelligence/status'] }),
+      queryClient.invalidateQueries({ queryKey: ['/api/agents/scanner/status'] }),
+    ]);
+    await Promise.all([
+      queryClient.refetchQueries({ queryKey: ['/api/intelligence/status'] }),
+      queryClient.refetchQueries({ queryKey: ['/api/agents/scanner/status'] }),
+    ]);
     setRefreshing(false);
   };
 
@@ -195,6 +230,100 @@ export function AIAgentsPanel() {
         <p className="mt-3 text-[10px] text-muted-foreground text-center">
           Add API keys in <strong>Settings → AI Agents</strong> to activate validation
         </p>
+      )}
+
+      {/* Scanner Trade Calls */}
+      {scannerData && (
+        <div className="mt-3 border-t border-border pt-3">
+          <div className="flex items-center justify-between mb-2">
+            <div className="flex items-center gap-1.5">
+              <Target className="h-3 w-3 text-primary" />
+              <span className="text-[10px] font-semibold text-foreground uppercase tracking-wide">Agent Trade Calls</span>
+            </div>
+            <div className="flex items-center gap-2">
+              {scannerData.running ? (
+                <span className="flex items-center gap-1 text-[9px] text-green-500 font-medium">
+                  <Activity className="h-2.5 w-2.5 animate-pulse" /> Scanning
+                </span>
+              ) : (
+                <span className="text-[9px] text-muted-foreground">Idle</span>
+              )}
+              <span className="text-[9px] text-muted-foreground font-mono">
+                {scannerData.signalsToday} today
+              </span>
+            </div>
+          </div>
+
+          {!scannerData.lastResults || scannerData.lastResults.length === 0 ? (
+            <div className="text-center py-3 bg-muted/20 rounded-lg">
+              <Activity className="h-5 w-5 text-muted-foreground mx-auto mb-1 animate-pulse" />
+              <p className="text-[10px] text-muted-foreground">
+                {scannerData.running ? 'Scanner running — waiting for first approved trade...' : 'Start the scanner in Agents page to generate trade calls'}
+              </p>
+            </div>
+          ) : (
+            <div className="space-y-1.5">
+              {scannerData.lastResults.slice(0, 4).map((r, i) => (
+                <div
+                  key={`${r.coin}-${r.timeframe}-${i}`}
+                  className={cn(
+                    'rounded-lg border px-2.5 py-2 relative overflow-hidden',
+                    r.direction === 'LONG'
+                      ? 'bg-green-500/5 border-green-500/20'
+                      : 'bg-red-500/5 border-red-500/20'
+                  )}
+                >
+                  <div className={cn(
+                    'absolute left-0 top-0 h-full w-0.5',
+                    r.direction === 'LONG' ? 'bg-green-500' : 'bg-red-500'
+                  )} />
+                  <div className="flex items-center justify-between mb-1">
+                    <div className="flex items-center gap-1.5">
+                      <span className="text-xs font-black">{r.coin}</span>
+                      <Badge
+                        variant={r.direction === 'LONG' ? 'default' : 'destructive'}
+                        className="text-[7px] h-3.5 px-1 font-bold"
+                      >
+                        {r.direction === 'LONG'
+                          ? <TrendingUp className="w-2 h-2 mr-0.5" />
+                          : <TrendingDown className="w-2 h-2 mr-0.5" />}
+                        {r.direction}
+                      </Badge>
+                      <span className="text-[9px] text-muted-foreground font-mono">{r.timeframe}</span>
+                    </div>
+                    <div className="flex items-center gap-1">
+                      <span className={cn(
+                        'text-[9px] font-black font-mono',
+                        r.confidence >= 80 ? 'text-green-500' : r.confidence >= 70 ? 'text-primary' : 'text-muted-foreground'
+                      )}>
+                        {r.confidence}%
+                      </span>
+                      <Badge variant="outline" className={cn(
+                        'text-[7px] h-3.5 px-1',
+                        r.grade?.startsWith('A') ? 'text-green-500 border-green-500/30' : 'text-yellow-500 border-yellow-500/30'
+                      )}>
+                        {r.grade}
+                      </Badge>
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-3 gap-1 text-[9px] font-mono">
+                    <div><span className="text-muted-foreground">E </span><span className="font-semibold">{r.entry?.toLocaleString(undefined, { maximumFractionDigits: 2 })}</span></div>
+                    <div><span className="text-green-500">TP </span><span className="text-green-400">{r.tp?.toLocaleString(undefined, { maximumFractionDigits: 2 })}</span></div>
+                    <div><span className="text-red-500">SL </span><span className="text-red-400">{r.sl?.toLocaleString(undefined, { maximumFractionDigits: 2 })}</span></div>
+                  </div>
+                  {r.verdict && (
+                    <div className="mt-1 text-[8px] text-muted-foreground truncate">{r.verdict}</div>
+                  )}
+                </div>
+              ))}
+              {scannerData.lastResults.length > 4 && (
+                <p className="text-[9px] text-muted-foreground text-center pt-1">
+                  +{scannerData.lastResults.length - 4} more — see Agents page
+                </p>
+              )}
+            </div>
+          )}
+        </div>
       )}
     </div>
   );

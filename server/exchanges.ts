@@ -121,7 +121,7 @@ export async function placeBinanceOrder(apiKey: string, apiSecret: string, req: 
         }
       }
     }
-    if (req.marginType) await setBinanceMarginType(apiKey, apiSecret, sym, req.marginType).catch(() => {});
+    if (req.marginType) await setBinanceMarginType(apiKey, apiSecret, sym, req.marginType).catch((err) => console.warn('[exchanges] Non-critical operation failed:', err instanceof Error ? err.message : err));
 
     const order: Record<string, any> = {
       symbol: sym,

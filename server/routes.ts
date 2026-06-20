@@ -169,30 +169,62 @@ export async function registerRoutes(
     try {
       const patch = { ...req.body };
 
-      if (typeof patch.binanceApiKey === "string") {
-        const test = await testBinanceConnectivity(patch.binanceApiKey);
+      // When API keys are updated together, do a full auth test to set connected status
+      if (patch.binanceApiKey && patch.binanceApiSecret) {
+        const test = await testExchangeConnection("binance", patch.binanceApiKey, patch.binanceApiSecret);
         patch.binanceConnected = test.ok;
       }
 
-      if (typeof patch.bybitApiKey === "string") {
-        const test = await testBybitConnectivity(patch.bybitApiKey);
+      if (patch.bybitApiKey && patch.bybitApiSecret) {
+        const test = await testExchangeConnection("bybit", patch.bybitApiKey, patch.bybitApiSecret);
         patch.bybitConnected = test.ok;
       }
 
+      if (patch.mexcApiKey && patch.mexcApiSecret) {
+        const test = await testExchangeConnection("mexc", patch.mexcApiKey, patch.mexcApiSecret);
+        patch.mexcConnected = test.ok;
+      }
+
       const updated = await storage.upsertSettings(patch);
+
+      // Sync auto-trading toggles to bot settings so the bot engine picks them up
+      if (typeof patch.bybitAutoTrading === 'boolean' || typeof patch.binanceAutoTrading === 'boolean' || typeof patch.mexcAutoTrading === 'boolean') {
+        const s = await storage.getSettings() as any;
+        const bybitOn = patch.bybitAutoTrading ?? s?.bybitAutoTrading ?? false;
+        const binanceOn = patch.binanceAutoTrading ?? s?.binanceAutoTrading ?? false;
+        const mexcOn = patch.mexcAutoTrading ?? s?.mexcAutoTrading ?? false;
+        const anyOn = bybitOn || binanceOn || mexcOn;
+        const connectedExchange = bybitOn ? 'bybit' : binanceOn ? 'binance' : mexcOn ? 'mexc' : 'bybit';
+        await storage.upsertBotSettings({ autoExecute: anyOn, connectedExchange } as any);
+      }
+
       res.json(updated);
     } catch (e: any) {
       res.status(500).json({ message: e.message });
     }
   });
 
+  // Legacy connectivity-only test routes — kept for backward compat but now use
+  // the full auth-based test so callers always get meaningful credential validation.
   app.post("/api/exchange/binance/test", async (req, res) => {
-    const result = await testBinanceConnectivity(req.body?.apiKey);
+    const { apiKey, apiSecret } = req.body ?? {};
+    if (apiKey && apiSecret) {
+      const result = await testExchangeConnection("binance", apiKey, apiSecret);
+      if (result.ok) await storage.upsertSettings({ binanceConnected: true } as any);
+      return res.status(result.ok ? 200 : 503).json(result);
+    }
+    const result = await testBinanceConnectivity(apiKey);
     res.status(result.ok ? 200 : 503).json(result);
   });
 
   app.post("/api/exchange/bybit/test", async (req, res) => {
-    const result = await testBybitConnectivity(req.body?.apiKey);
+    const { apiKey, apiSecret } = req.body ?? {};
+    if (apiKey && apiSecret) {
+      const result = await testExchangeConnection("bybit", apiKey, apiSecret);
+      if (result.ok) await storage.upsertSettings({ bybitConnected: true } as any);
+      return res.status(result.ok ? 200 : 503).json(result);
+    }
+    const result = await testBybitConnectivity(apiKey);
     res.status(result.ok ? 200 : 503).json(result);
   });
 

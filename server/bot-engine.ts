@@ -236,21 +236,25 @@ async function dispatchOrder(
 ): Promise<ExecResult> {
   // Live / Testnet execution — route to real exchange
   if (s.mode === 'live' || s.mode === 'testnet') {
-    const ss = s as any;
     const exchange = (intent.exchange || s.connectedExchange || 'bybit') as ExchangeName;
 
-    // Resolve API keys based on exchange and mode
+    // API keys live in the settings table, not botSettings
+    const userSettings = await storage.getSettings() as any;
     let apiKey = '';
     let apiSecret = '';
+    let marginType: 'ISOLATED' | 'CROSSED' = 'ISOLATED';
     if (exchange === 'binance') {
-      apiKey = ss.binanceApiKey || '';
-      apiSecret = ss.binanceApiSecret || '';
+      apiKey = userSettings?.binanceApiKey || '';
+      apiSecret = userSettings?.binanceApiSecret || '';
+      marginType = (userSettings?.binanceMarginType as 'ISOLATED' | 'CROSSED') || 'ISOLATED';
     } else if (exchange === 'bybit') {
-      apiKey = ss.bybitApiKey || '';
-      apiSecret = ss.bybitApiSecret || '';
+      apiKey = userSettings?.bybitApiKey || '';
+      apiSecret = userSettings?.bybitApiSecret || '';
+      marginType = (userSettings?.bybitMarginType as 'ISOLATED' | 'CROSSED') || 'ISOLATED';
     } else if (exchange === 'mexc') {
-      apiKey = ss.mexcApiKey || '';
-      apiSecret = ss.mexcApiSecret || '';
+      apiKey = userSettings?.mexcApiKey || '';
+      apiSecret = userSettings?.mexcApiSecret || '';
+      marginType = (userSettings?.mexcMarginType as 'ISOLATED' | 'CROSSED') || 'ISOLATED';
     }
 
     if (!apiKey || !apiSecret) {
@@ -275,21 +279,21 @@ async function dispatchOrder(
       result = await placeBinanceOrder(apiKey, apiSecret, {
         symbol: intent.symbol, side, quantity: intent.positionSize,
         orderType: 'MARKET', leverage: intent.leverage,
-        marginType: ss.defaultMarginType || 'ISOLATED',
+        marginType,
         stopLoss: intent.stopLoss, takeProfit: intent.tp1 ?? undefined,
       });
     } else if (exchange === 'bybit') {
       result = await placeBybitOrder(apiKey, apiSecret, {
         symbol: intent.symbol, side, quantity: intent.positionSize,
         orderType: 'MARKET', leverage: intent.leverage,
-        marginType: ss.defaultMarginType || 'ISOLATED',
+        marginType,
         stopLoss: intent.stopLoss, takeProfit: intent.tp1 ?? undefined,
       });
     } else {
       result = await placeMexcOrder(apiKey, apiSecret, {
         symbol: intent.symbol, side, quantity: intent.positionSize,
         orderType: 'MARKET', leverage: intent.leverage,
-        marginType: ss.defaultMarginType || 'ISOLATED',
+        marginType,
         stopLoss: intent.stopLoss, takeProfit: intent.tp1 ?? undefined,
       });
     }

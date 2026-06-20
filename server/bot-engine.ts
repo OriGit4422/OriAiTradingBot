@@ -67,10 +67,11 @@ export function computePositionSize(params: {
   const stopDistance = Math.abs(entry - stopLoss);
   if (!(stopDistance > 0)) return { ok: false, reason: 'Stop distance is zero', ...empty };
 
-  const riskAmount = walletBalance * (riskPercent / 100);
-  const positionSize = riskAmount / stopDistance;
-  const notionalValue = positionSize * entry;
-  const requiredMargin = notionalValue / leverage;
+  // Financial arithmetic — round to avoid floating-point accumulation
+  const riskAmount = Math.round(walletBalance * (riskPercent / 100) * 1e8) / 1e8;
+  const positionSize = Math.round((riskAmount / stopDistance) * 1e8) / 1e8;
+  const notionalValue = Math.round(positionSize * entry * 1e8) / 1e8;
+  const requiredMargin = Math.round((notionalValue / leverage) * 1e8) / 1e8;
 
   return { ok: true, riskAmount, stopDistance, positionSize, notionalValue, requiredMargin };
 }
@@ -478,8 +479,9 @@ export async function closeBotTrade(id: string, exitPrice: number, exitReason = 
 
   const s = await storage.getBotSettings();
   const dir = trade.direction === 'LONG' ? 1 : -1;
-  const pnl = (exitPrice - trade.entry) * trade.positionSize * dir;
-  const newBalance = s.paperBalance + pnl;
+  // Financial arithmetic — round to avoid floating-point accumulation
+  const pnl = Math.round((exitPrice - trade.entry) * trade.positionSize * dir * 1e8) / 1e8;
+  const newBalance = Math.round((s.paperBalance + pnl) * 1e8) / 1e8;
 
   await storage.upsertBotSettings({ paperBalance: newBalance });
   const updated = await storage.updateBotTrade(id, {

@@ -69,29 +69,35 @@ async function generateAISignals(count: number, existingTimeframes: Set<string>,
   const system = `You are an elite crypto trading analyst. Generate high-confidence trade signals with detailed reasoning.
 Return ONLY valid JSON array. No markdown, no code blocks.`;
 
-  const userMsg = `Generate ${count} realistic crypto trading signals for the hourly alert at ${hourTag}. Be honest about confidence — do NOT inflate scores.
+  const userMsg = `Generate ${count} crypto trading signals for the hourly alert at ${hourTag}.
+
+CRITICAL — use CURRENT realistic market prices for ${hourTag}. Approximate price ranges as of mid-2026:
+- BTC: ~$105,000–115,000  ETH: ~$3,800–4,400  BNB: ~$680–720  SOL: ~$180–220
+- XRP: ~$2.80–3.20  ADA: ~$0.90–1.10  DOGE: ~$0.22–0.28  AVAX: ~$35–45
+- LINK: ~$18–24  DOT: ~$8–12  LTC: ~$110–130  UNI: ~$9–13
+- ATOM: ~$7–10  NEAR: ~$5–8  ARB: ~$0.80–1.20  OP: ~$1.20–1.80
+- APT: ~$8–12  INJ: ~$20–30  TIA: ~$4–7
 
 Requirements:
-- This is a FRESH analysis for ${hourTag} — generate NEW setups based on current hour conditions, not repeats of prior alerts.
-- Confidence should reflect real technical setup quality: range 55-78%. Only assign higher if multiple strong factors truly align.
-- Use DIVERSE timeframes, preferring: ${preferredTF.slice(0, 6).join(', ')}
-- Shorter timeframes (15m, 1h) should have lower confidence than higher timeframes (4h, 1d)
+- FRESH analysis for ${hourTag} — do NOT use prices from old signals or training data.
+- Use realistic current prices from the ranges above (add variation, not round numbers).
+- Confidence range 55–78%. Only assign higher if multiple strong factors truly align.
+- Diverse timeframes, preferring: ${preferredTF.slice(0, 6).join(', ')}
+- TP should be 1.5x–3x the SL distance (good R:R)
 - Coins to analyze: ${coins.join(', ')}
-- Include specific entry, TP, SL levels (realistic, not round numbers — vary them each hour)
-- TP should be 1.5x-3x the SL distance (good R:R)
 
 Return JSON array:
 [
   {
     "coin": "BTC",
     "type": "LONG or SHORT",
-    "entry": 67450.50,
-    "tp": 69200.00,
-    "sl": 66100.00,
+    "entry": 108450.50,
+    "tp": 112800.00,
+    "sl": 106200.00,
     "confidence": 68,
     "timeframe": "4h",
     "strategy": "SMC Breakout / ICT MSS / RSI Divergence / etc",
-    "reasoning": "2-3 sentence detailed technical analysis explaining why this trade has high conviction. Include pattern, momentum, and key level references.",
+    "reasoning": "2-3 sentence technical analysis with pattern, momentum, and key level references.",
     "riskLevel": "LOW or MEDIUM",
     "keyLevels": "Support $X / Resistance $Y",
     "sentiment": "BULLISH or BEARISH"
@@ -292,11 +298,27 @@ function buildFallbackSignals(count: number, excludeCoins: Set<string>): AlertSi
     const isLong = Math.random() > 0.5;
     const tf = FALLBACK_TFS[Math.floor(Math.random() * FALLBACK_TFS.length)];
     const strategy = FALLBACK_STRATEGIES[Math.floor(Math.random() * FALLBACK_STRATEGIES.length)];
-    const basePrice = coin === 'BTC' ? 67000 + Math.random() * 3000
-      : coin === 'ETH' ? 3400 + Math.random() * 300
-      : coin === 'BNB' ? 560 + Math.random() * 40
-      : coin === 'SOL' ? 140 + Math.random() * 20
-      : 1 + Math.random() * 50;
+    const basePrice = coin === 'BTC' ? 105000 + Math.random() * 10000
+      : coin === 'ETH' ? 3800 + Math.random() * 600
+      : coin === 'BNB' ? 680 + Math.random() * 40
+      : coin === 'SOL' ? 180 + Math.random() * 40
+      : coin === 'XRP' ? 2.80 + Math.random() * 0.40
+      : coin === 'ADA' ? 0.90 + Math.random() * 0.20
+      : coin === 'DOGE' ? 0.22 + Math.random() * 0.06
+      : coin === 'AVAX' ? 35 + Math.random() * 10
+      : coin === 'LINK' ? 18 + Math.random() * 6
+      : coin === 'DOT' ? 8 + Math.random() * 4
+      : coin === 'LTC' ? 110 + Math.random() * 20
+      : coin === 'UNI' ? 9 + Math.random() * 4
+      : coin === 'ATOM' ? 7 + Math.random() * 3
+      : coin === 'NEAR' ? 5 + Math.random() * 3
+      : coin === 'ARB' ? 0.80 + Math.random() * 0.40
+      : coin === 'OP' ? 1.20 + Math.random() * 0.60
+      : coin === 'APT' ? 8 + Math.random() * 4
+      : coin === 'INJ' ? 20 + Math.random() * 10
+      : coin === 'TIA' ? 4 + Math.random() * 3
+      : coin === 'MATIC' ? 0.50 + Math.random() * 0.30
+      : 1 + Math.random() * 20;
     const riskPct = 0.008 + Math.random() * 0.012; // 0.8–2%
     const sl = isLong ? basePrice * (1 - riskPct) : basePrice * (1 + riskPct);
     const rrMulti = 1.8 + Math.random() * 1.2;
@@ -330,11 +352,30 @@ export async function sendHourlyAlert(): Promise<{ sent: boolean; error?: string
     // 0. Restore persisted state (survives server restarts)
     await loadPersistedState();
 
-    // 1. Fetch high-confidence signals from DB (last 24h, ACTIVE)
+    // 1. Fetch high-confidence signals from DB — use timeframe-based expiry so
+    //    stale signals with frozen prices never appear in the hourly alert.
+    const TF_MAX_AGE_MS: Record<string, number> = {
+      '1m': 15 * 60 * 1000,
+      '5m': 30 * 60 * 1000,
+      '15m': 60 * 60 * 1000,
+      '30m': 2 * 60 * 60 * 1000,
+      '1h': 3 * 60 * 60 * 1000,
+      '2h': 5 * 60 * 60 * 1000,
+      '4h': 10 * 60 * 60 * 1000,
+      '6h': 14 * 60 * 60 * 1000,
+      '12h': 20 * 60 * 60 * 1000,
+      '1d': 36 * 60 * 60 * 1000,
+      '3d': 72 * 60 * 60 * 1000,
+      '1w': 7 * 24 * 60 * 60 * 1000,
+    };
+    const now = Date.now();
     const allSignals = await storage.getSignals();
-    const cutoff = Date.now() - 24 * 60 * 60 * 1000;
     const highConf = allSignals
-      .filter(s => s.confidence >= 90 && s.status === 'ACTIVE' && new Date(s.createdAt).getTime() > cutoff)
+      .filter(s => {
+        if (s.confidence < 90 || s.status !== 'ACTIVE') return false;
+        const maxAge = TF_MAX_AGE_MS[s.timeframe] ?? (4 * 60 * 60 * 1000);
+        return (now - new Date(s.createdAt).getTime()) < maxAge;
+      })
       .sort((a, b) => b.confidence - a.confidence);
 
     // 2. Deduplicate by timeframe — skip coins sent in previous alert for variety

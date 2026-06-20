@@ -49,6 +49,15 @@ export interface PositionSizing {
  *   notional     = positionSize * entry
  *   margin       = notional / leverage
  */
+/**
+ * Validate risk percent is in the plan-mandated range (0.5–1.0%).
+ * This is a hard constraint — not config-overridable below the floor.
+ */
+export function validateRiskPercent(pct: number): number {
+  if (pct < 0.5 || pct > 1.0) throw new Error(`Risk percent ${pct}% is outside allowed range 0.5–1.0%`);
+  return pct;
+}
+
 export function computePositionSize(params: {
   walletBalance: number;
   riskPercent: number;
@@ -56,7 +65,9 @@ export function computePositionSize(params: {
   stopLoss: number;
   leverage: number;
 }): PositionSizing {
-  const { walletBalance, riskPercent, entry, stopLoss, leverage } = params;
+  const { walletBalance, entry, stopLoss, leverage } = params;
+  // Clamp to 0.5-1.0% range (floor at 0.5, cap at 1.0)
+  const riskPercent = Math.min(1.0, Math.max(0.5, params.riskPercent));
   const empty = { riskAmount: 0, stopDistance: 0, positionSize: 0, notionalValue: 0, requiredMargin: 0 };
 
   if (!(walletBalance > 0)) return { ok: false, reason: 'Wallet balance is zero', ...empty };
@@ -88,9 +99,12 @@ export interface BotMetrics {
   tradesToday: number;
   closedToday: number;
   dailyPnl: number;
+  weeklyPnl: number;
   dailyLossLimitUsd: number;
+  weeklyLossLimitUsd: number;
   dailyLossUsedUsd: number;
   dailyLossUsedPct: number;
+  weeklyLossUsedPct: number;
   consecutiveLosses: number;
   marginInUse: number;
   availableBalance: number;
@@ -105,8 +119,13 @@ export async function computeMetrics(s: BotSettings, trades: BotTrade[]): Promis
   const tradesToday = trades.filter((t) => t.createdAt >= dayStart && t.status !== 'cancelled').length;
 
   const dailyPnl = closedToday.reduce((sum, t) => sum + (t.pnl || 0), 0);
+  const weekAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
+  const closedThisWeek = closed.filter(t => t.closedAt! >= weekAgo);
+  const weeklyPnl = closedThisWeek.reduce((sum, t) => sum + (t.pnl || 0), 0);
   const dailyLossLimitUsd = s.paperBalance * (s.maxDailyLossPercent / 100);
+  const weeklyLossLimitUsd = s.paperBalance * 0.06; // 6% weekly — hard limit from plan
   const dailyLossUsedUsd = Math.max(0, -dailyPnl);
+  const weeklyLossUsedPct = weeklyLossLimitUsd > 0 ? (Math.max(0, -weeklyPnl) / weeklyLossLimitUsd) * 100 : 0;
   const dailyLossUsedPct = dailyLossLimitUsd > 0 ? (dailyLossUsedUsd / dailyLossLimitUsd) * 100 : 0;
 
   // Consecutive losses: scan most-recently-closed trades until a win breaks the streak.
@@ -127,9 +146,12 @@ export async function computeMetrics(s: BotSettings, trades: BotTrade[]): Promis
     tradesToday,
     closedToday: closedToday.length,
     dailyPnl,
+    weeklyPnl,
     dailyLossLimitUsd,
+    weeklyLossLimitUsd,
     dailyLossUsedUsd,
     dailyLossUsedPct,
+    weeklyLossUsedPct,
     consecutiveLosses,
     marginInUse,
     availableBalance,
@@ -143,7 +165,9 @@ export function stateBlockReasons(s: BotSettings, m: BotMetrics): string[] {
   if (s.status === 'stopped') reasons.push(s.lockReason || 'Bot is stopped');
   if (s.status === 'paused') reasons.push('Bot is paused');
   if (m.dailyLossUsedUsd >= m.dailyLossLimitUsd && m.dailyLossLimitUsd > 0)
-    reasons.push('Daily loss limit reached');
+    reasons.push('Daily loss limit reached (-3%)');
+  if (m.weeklyLossUsedPct >= 100)
+    reasons.push('Weekly loss limit reached (-6%) — paused until next week');
   if (m.consecutiveLosses >= s.stopAfterLosses)
     reasons.push(`Stopped after ${s.stopAfterLosses} consecutive losses`);
   if (m.tradesToday >= s.maxTradesPerDay) reasons.push('Max trades per day reached');
@@ -155,6 +179,7 @@ export function effectiveState(s: BotSettings, m: BotMetrics): 'active' | 'pause
   if (s.status === 'stopped') return 'stopped';
   const hardLock =
     (m.dailyLossUsedUsd >= m.dailyLossLimitUsd && m.dailyLossLimitUsd > 0) ||
+    m.weeklyLossUsedPct >= 100 ||
     m.consecutiveLosses >= s.stopAfterLosses;
   if (hardLock) return 'locked';
   return s.status as 'active' | 'paused';
@@ -498,6 +523,23 @@ export async function closeBotTrade(id: string, exitPrice: number, exitReason = 
     event: pnl >= 0 ? 'TRADE_CLOSED_WIN' : 'TRADE_CLOSED_LOSS',
     message: `Paper trade closed: ${trade.symbol} ${trade.direction} ${pnl >= 0 ? '+' : ''}${pnl.toFixed(2)} USDT`,
     meta: { tradeId: id, pnl, exitPrice },
+  });
+
+  // Calibration record: predicted confidence vs realized outcome
+  // Used by the calibration curve endpoint to detect when predicted vs actual diverge.
+  const pnlR = trade.rr ? (pnl >= 0 ? trade.rr : -1) : (pnl >= 0 ? 1 : -1);
+  await storage.createBotLog({
+    level: 'info',
+    event: 'CALIBRATION_RECORD',
+    message: `Calibration: confidence=${trade.confidence ?? 0}% outcome=${pnl >= 0 ? 'WIN' : 'LOSS'} pnlR=${pnlR.toFixed(2)}`,
+    meta: {
+      tradeId: id,
+      predictedConfidence: trade.confidence ?? 0,
+      grade: trade.grade ?? 'C',
+      outcome: pnl >= 0 ? 'WIN' : 'LOSS',
+      pnlUsd: pnl,
+      pnlR,
+    },
   });
 
   return { ok: true, message: 'Trade closed', trade: updated, pnl };

@@ -372,7 +372,7 @@ export async function sendHourlyAlert(): Promise<{ sent: boolean; error?: string
     const allSignals = await storage.getSignals();
     const highConf = allSignals
       .filter(s => {
-        if (s.confidence < 90 || s.status !== 'ACTIVE') return false;
+        if (s.confidence < 65 || s.status !== 'ACTIVE') return false;
         const maxAge = TF_MAX_AGE_MS[s.timeframe] ?? (4 * 60 * 60 * 1000);
         return (now - new Date(s.createdAt).getTime()) < maxAge;
       })
@@ -402,20 +402,7 @@ export async function sendHourlyAlert(): Promise<{ sent: boolean; error?: string
     const existingTFs = new Set(dedupedDb.map(s => s.timeframe));
     const existingCoins = new Set(dedupedDb.map(s => s.coin));
 
-    // 3. Always generate AI signals (target 5 total, at least 2 always from AI)
-    const aiNeeded = Math.max(2, 5 - dedupedDb.length);
-    const excludeForAI = new Set([...lastSentCoins, ...existingCoins]);
-    let aiRaw = await generateAISignals(aiNeeded, existingTFs, excludeForAI);
-
-    // 3b. Fallback to static signals if AI returned too few
-    if (aiRaw.length < aiNeeded) {
-      const fallbackExclude = new Set([...excludeForAI, ...aiRaw.map(s => s.coin)]);
-      const staticFill = buildFallbackSignals(aiNeeded - aiRaw.length, fallbackExclude);
-      aiRaw = [...aiRaw, ...staticFill];
-      console.log(`[hourly-alert] AI returned ${aiRaw.length - staticFill.length} signals; added ${staticFill.length} static fallbacks`);
-    }
-
-    // 4. Enrich DB signals with AI reasoning
+    // 3. Enrich DB signals with AI reasoning (no hallucinated/fake signals)
     const dbEnriched: AlertSignal[] = await Promise.all(
       dedupedDb.map(async (sig) => ({
         coin: sig.coin,
@@ -430,24 +417,13 @@ export async function sendHourlyAlert(): Promise<{ sent: boolean; error?: string
       }))
     );
 
-    const aiEnriched: AlertSignal[] = aiRaw.slice(0, aiNeeded).map(s => ({
-      coin: s.coin,
-      type: s.type,
-      entry: s.entry,
-      tp: s.tp,
-      sl: s.sl,
-      confidence: s.confidence,
-      timeframe: s.timeframe,
-      strategy: s.strategy,
-      reasoning: s.reasoning,
-    }));
-
-    const combined = [...dbEnriched, ...aiEnriched]
+    const combined = [...dbEnriched]
       .sort((a, b) => b.confidence - a.confidence)
-      .slice(0, 5); // show top 5
+      .slice(0, 5);
 
     if (combined.length === 0) {
-      return { sent: false, error: 'No signals to send' };
+      console.log('[hourly-alert] No real signals available — skipping alert to avoid sending fake data');
+      return { sent: false, error: 'No real signals available — alert skipped to avoid fake data' };
     }
 
     // 5. Fresh market mood every hour

@@ -611,7 +611,9 @@ export async function registerRoutes(
   app.get("/api/signals", async (_req, res) => {
     try {
       const sigs = await storage.getSignals();
-      res.json(sigs);
+      const cutoff = new Date(Date.now() - 3 * 24 * 60 * 60 * 1000);
+      const recent = sigs.filter(s => !s.createdAt || new Date(s.createdAt) >= cutoff);
+      res.json(recent);
     } catch (e: any) {
       res.status(500).json({ message: e.message });
     }

@@ -56,21 +56,28 @@ interface AIGeneratedSignal {
 const TIMEFRAMES = ['1m', '5m', '15m', '30m', '1h', '2h', '4h', '6h', '12h', '1d', '3d', '1w'];
 const TOP_COINS = ['BTC', 'ETH', 'BNB', 'SOL', 'XRP', 'ADA', 'DOGE', 'AVAX', 'DOT', 'LINK', 'MATIC', 'LTC'];
 
-async function generateAISignals(count: number, existingTimeframes: Set<string>): Promise<AIGeneratedSignal[]> {
+async function generateAISignals(count: number, existingTimeframes: Set<string>, excludeCoins: Set<string> = new Set()): Promise<AIGeneratedSignal[]> {
   const preferredTF = TIMEFRAMES.filter(tf => !existingTimeframes.has(tf));
-  const coins = [...TOP_COINS].sort(() => Math.random() - 0.5).slice(0, Math.min(count + 2, TOP_COINS.length));
+  // Exclude coins already sent last hour to force variety
+  const availableCoins = TOP_COINS.filter(c => !excludeCoins.has(c));
+  const coinPool = availableCoins.length >= count ? availableCoins : TOP_COINS;
+  const coins = [...coinPool].sort(() => Math.random() - 0.5).slice(0, Math.min(count + 2, coinPool.length));
+
+  const now = new Date();
+  const hourTag = `${now.toISOString().slice(0, 13)}:00 UTC`; // e.g. "2025-06-20T14:00 UTC"
 
   const system = `You are an elite crypto trading analyst. Generate high-confidence trade signals with detailed reasoning.
 Return ONLY valid JSON array. No markdown, no code blocks.`;
 
-  const userMsg = `Generate ${count} realistic crypto trading signals for an hourly alert. Be honest about confidence — do NOT inflate scores.
+  const userMsg = `Generate ${count} realistic crypto trading signals for the hourly alert at ${hourTag}. Be honest about confidence — do NOT inflate scores.
 
 Requirements:
+- This is a FRESH analysis for ${hourTag} — generate NEW setups based on current hour conditions, not repeats of prior alerts.
 - Confidence should reflect real technical setup quality: range 55-78%. Only assign higher if multiple strong factors truly align.
 - Use DIVERSE timeframes, preferring: ${preferredTF.slice(0, 6).join(', ')}
 - Shorter timeframes (15m, 1h) should have lower confidence than higher timeframes (4h, 1d)
 - Coins to analyze: ${coins.join(', ')}
-- Include specific entry, TP, SL levels (realistic, not round numbers)
+- Include specific entry, TP, SL levels (realistic, not round numbers — vary them each hour)
 - TP should be 1.5x-3x the SL distance (good R:R)
 
 Return JSON array:
@@ -126,10 +133,11 @@ Return JSON array:
 async function enrichSignalWithReasoning(signal: Signal): Promise<string> {
   const dir = signal.type === 'LONG' ? 'bullish' : 'bearish';
   const rr = signal.sl !== 0 ? (Math.abs(signal.tp - signal.entry) / Math.abs(signal.entry - signal.sl)).toFixed(2) : 'N/A';
+  const hourTag = new Date().toISOString().slice(0, 13); // changes every hour, forces fresh AI response
   try {
     const messages: AIMessage[] = [
       { role: 'system', content: 'You are a professional crypto analyst. Provide a concise 2-sentence trade reasoning.' },
-      { role: 'user', content: `Explain why ${signal.coin}/USDT is a ${dir} trade on ${signal.timeframe} timeframe. Entry: ${signal.entry}, TP: ${signal.tp}, SL: ${signal.sl}, R:R ${rr}. Strategy: ${signal.strategy}. Keep it under 200 characters.` },
+      { role: 'user', content: `[${hourTag}] Explain why ${signal.coin}/USDT is a ${dir} trade on ${signal.timeframe} timeframe. Entry: ${signal.entry}, TP: ${signal.tp}, SL: ${signal.sl}, R:R ${rr}. Strategy: ${signal.strategy}. Keep it under 200 characters.` },
     ];
     const { text } = await callMultiAI(messages, 256);
     return text.trim().slice(0, 280);
@@ -246,16 +254,30 @@ export async function sendHourlyAlert(): Promise<{ sent: boolean; error?: string
       .sort((a, b) => b.confidence - a.confidence);
 
     // 2. Deduplicate by timeframe — pick best signal per timeframe
+    //    Also skip coins that were already sent last hour to ensure variety
     const byTf = new Map<string, Signal>();
     for (const sig of highConf) {
       if (!byTf.has(sig.timeframe)) byTf.set(sig.timeframe, sig);
     }
-    const dedupedDb = Array.from(byTf.values()).slice(0, 10);
+    let dedupedDb = Array.from(byTf.values());
+
+    // Build a key representing what DB signals would be sent (coin+tf+id)
+    const dbKey = dedupedDb.slice(0, 10).map(s => `${s.id}:${s.coin}:${s.timeframe}`).sort().join('|');
+
+    // If ALL DB signals are identical to last hour, force AI-only this round for variety
+    const forceFreshAI = (dbKey === lastSentSignalKey && dedupedDb.length > 0);
+    if (forceFreshAI) {
+      console.log('[hourly-alert] Same DB signals as last hour — forcing fresh AI signals for variety');
+      dedupedDb = [];
+    } else {
+      dedupedDb = dedupedDb.slice(0, 10);
+    }
+
     const existingTFs = new Set(dedupedDb.map(s => s.timeframe));
 
-    // 3. If we have fewer than 5 DB signals, generate AI signals to fill gaps
-    const needed = Math.max(0, 5 - dedupedDb.length);
-    const aiRaw = needed > 0 ? await generateAISignals(needed, existingTFs) : [];
+    // 3. Generate AI signals to fill gaps (always at least 3 for freshness)
+    const needed = Math.max(3, 5 - dedupedDb.length);
+    const aiRaw = await generateAISignals(needed, existingTFs, lastSentCoins);
 
     // 4. Enrich DB signals with AI reasoning (cap at 5 to limit token spend)
     const toEnrich = dedupedDb.slice(0, 5);
@@ -293,14 +315,19 @@ export async function sendHourlyAlert(): Promise<{ sent: boolean; error?: string
       return { sent: false, error: 'No signals to send' };
     }
 
-    // 5. Generate market mood
+    // 5. Generate market mood (force fresh each hour)
+    cachedMood = null; // always regenerate mood so it reflects current conditions
     const marketMood = await generateMarketMood();
 
     // 6. Build and send message
     const message = buildHourlyMessage(combined, marketMood);
     await pushTelegram(message, settings.telegramBotToken, settings.telegramChatId);
 
-    console.log(`[hourly-alert] Sent ${combined.length} signals to Telegram`);
+    // 7. Track what we sent to enforce variety next hour
+    lastSentSignalKey = dbKey;
+    lastSentCoins = new Set(combined.map(s => s.coin));
+
+    console.log(`[hourly-alert] Sent ${combined.length} signals to Telegram (DB: ${dbEnriched.length}, AI: ${aiEnriched.length}, forceFreshAI: ${forceFreshAI})`);
     return { sent: true, signalCount: combined.length };
   } catch (error: any) {
     console.error('[hourly-alert] Failed:', error?.message || error);
@@ -308,8 +335,10 @@ export async function sendHourlyAlert(): Promise<{ sent: boolean; error?: string
   }
 }
 
-// ─── Market mood cache (reuse within same hour) ───────────────────────────────
+// ─── State tracking to prevent duplicate alerts ───────────────────────────────
 let cachedMood: { value: string; expiresAt: number } | null = null;
+let lastSentSignalKey: string | null = null; // hash of last sent coin+timeframe set
+let lastSentCoins: Set<string> = new Set(); // coins sent in the previous alert
 
 // ─── Scheduler ────────────────────────────────────────────────────────────────
 

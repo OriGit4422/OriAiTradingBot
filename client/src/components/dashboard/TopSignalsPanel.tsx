@@ -1,8 +1,6 @@
-import { useEffect, useState, useCallback } from 'react';
+import { useState } from 'react';
 import { Badge } from '@/components/ui/badge';
-import { getQuantumSignal } from '@/lib/strategies';
-import { fetchKlines } from '@/lib/binance';
-import { enhanceSignalsWithAI } from '@/lib/signal-ai';
+import { useSignalStore } from '@/lib/signal-store';
 import { cn } from '@/lib/utils';
 import {
   Flame, TrendingUp, TrendingDown, RefreshCw, Loader2,
@@ -13,7 +11,6 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { toast } from '@/hooks/use-toast';
 import { apiRequest, queryClient } from '@/lib/queryClient';
 
-const SIGNAL_COINS = ['BTC', 'ETH', 'SOL', 'BNB', 'XRP', 'ADA', 'DOGE', 'AVAX'];
 const TIMEFRAMES = ['5m', '15m', '1h', '4h'];
 
 interface TopSignalsPanelProps {
@@ -21,42 +18,8 @@ interface TopSignalsPanelProps {
 }
 
 export function TopSignalsPanel({ onSelectCoin }: TopSignalsPanelProps) {
-  const [allSignals, setAllSignals] = useState<any[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
+  const { signals: allSignals, isLoading, lastUpdated, refresh: fetchSignals } = useSignalStore();
   const [activeTab, setActiveTab] = useState('1h');
-  const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
-
-  const fetchSignals = useCallback(async () => {
-    setIsLoading(true);
-    const tasks = SIGNAL_COINS.flatMap(coin => TIMEFRAMES.map(tf => ({ coin, tf })));
-
-    const results = await Promise.allSettled(
-      tasks.map(async ({ coin, tf }) => {
-        const data = await fetchKlines(coin, tf, 150);
-        if (data.length > 50) {
-          const signal = getQuantumSignal(coin, data[data.length - 1].close, data, tf);
-          signal.timeframe = tf;
-          return signal;
-        }
-        return null;
-      })
-    );
-
-    const signals = results
-      .filter((r): r is PromiseFulfilledResult<any> => r.status === 'fulfilled' && r.value !== null)
-      .map(r => r.value);
-
-    const enhanced = await enhanceSignalsWithAI(signals, 12);
-    setAllSignals(enhanced);
-    setLastUpdated(new Date());
-    setIsLoading(false);
-  }, []);
-
-  useEffect(() => {
-    fetchSignals();
-    const interval = setInterval(() => { if (!document.hidden) fetchSignals(); }, 120000);
-    return () => clearInterval(interval);
-  }, [fetchSignals]);
 
   const calcRR = (s: any) =>
     Math.abs(s.tp - s.entry) / (Math.abs(s.entry - s.sl) || 1);

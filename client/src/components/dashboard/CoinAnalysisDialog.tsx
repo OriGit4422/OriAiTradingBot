@@ -22,6 +22,7 @@ import { cn } from '@/lib/utils';
 import { apiRequest, queryClient } from '@/lib/queryClient';
 import { fetchKlines } from '@/lib/binance';
 import { getQuantumSignal } from '@/lib/strategies';
+import { useSignalStore } from '@/lib/signal-store';
 import { toast } from '@/hooks/use-toast';
 
 interface CoinAnalysisDialogProps {
@@ -40,6 +41,7 @@ export function CoinAnalysisDialog({ open, onOpenChange, defaultCoin = 'BTC', de
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState<any | null>(null);
   const [logsExpanded, setLogsExpanded] = useState(false);
+  const { signals: storeSignals } = useSignalStore();
 
   // Resync local selectors with new defaults each time the dialog is opened.
   useEffect(() => {
@@ -58,20 +60,33 @@ export function CoinAnalysisDialog({ open, onOpenChange, defaultCoin = 'BTC', de
     setLoading(true);
     setResult(null);
     try {
-      const klines = await fetchKlines(coin, timeframe, 250);
-      if (klines.length < 50) {
-        toast({ title: 'Not enough data', description: 'Try a lower timeframe.', variant: 'destructive' });
-        setLoading(false);
-        return;
+      // Prefer the already-computed signal from the shared store to avoid a
+      // separate kline fetch that would produce divergent indicator values.
+      const cached = storeSignals.find(s => s.coin === coin && s.timeframe === timeframe);
+
+      let marketPrice: number;
+      let indicators: any;
+
+      if (cached) {
+        marketPrice = cached.marketPrice ?? cached.entry;
+        indicators = cached.indicators;
+      } else {
+        const klines = await fetchKlines(coin, timeframe, 250);
+        if (klines.length < 50) {
+          toast({ title: 'Not enough data', description: 'Try a lower timeframe.', variant: 'destructive' });
+          setLoading(false);
+          return;
+        }
+        marketPrice = klines[klines.length - 1].close;
+        const signal = getQuantumSignal(coin, marketPrice, klines, timeframe);
+        indicators = signal.indicators;
       }
-      const marketPrice = klines[klines.length - 1].close;
-      const signal = getQuantumSignal(coin, marketPrice, klines, timeframe);
 
       const resp = await apiRequest('POST', '/api/ai/coin-analysis', {
         coin,
         timeframe,
         marketPrice,
-        indicators: signal.indicators,
+        indicators,
       });
       const data = await resp.json();
       setResult(data);

@@ -380,7 +380,15 @@ export async function callMultiAI(
     .filter((r): r is PromiseFulfilledResult<AIResponse> => r.status === 'fulfilled')
     .map(r => r.value);
 
-  if (ok.length === 0) throw new Error('All AI providers failed');
+  if (ok.length === 0) {
+    const errors = results.map((r, i) => {
+      const name = providers[i].name;
+      const reason = r.status === 'rejected' ? (r.reason?.message ?? String(r.reason)) : 'unknown';
+      console.error(`[ai-providers] ${name} failed:`, reason);
+      return `${name}: ${reason}`;
+    });
+    throw new Error(`All AI providers failed — ${errors.join(' | ')}`);
+  }
   if (ok.length === 1) return { text: ok[0].text, providers: [ok[0].provider] };
 
   const aggregatedText = aggregateJsonResponses(ok.map(r => r.text));

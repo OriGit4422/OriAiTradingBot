@@ -141,8 +141,11 @@ export default function Signals() {
   }, [generateSignals]);
 
   const mergedSignals = (() => {
+    const cutoff = Date.now() - 3 * 24 * 60 * 60 * 1000;
     const liveKeys = new Set(liveSignals.map(s => `${s.coin}-${s.timeframe}`));
-    const dbOnly = dbSignals.filter(s => !liveKeys.has(`${s.coin}-${s.timeframe}`));
+    const dbOnly = dbSignals
+      .filter(s => !liveKeys.has(`${s.coin}-${s.timeframe}`))
+      .filter(s => !s.createdAt || new Date(s.createdAt).getTime() >= cutoff);
     const merged = [
       ...liveSignals.map(s => ({ ...s, source: 'live' as const })),
       ...dbOnly.map(s => ({ ...s, source: 'db' as const })),

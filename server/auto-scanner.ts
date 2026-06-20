@@ -20,11 +20,12 @@ import { runOrchestrator } from './agents/agent-orchestrator';
 const SCAN_INTERVAL_MS = 5 * 60 * 1000; // 5 minutes
 
 let _timer: ReturnType<typeof setInterval> | null = null;
-let _running = false;
+let _scanLock: Promise<void> | null = null;
 
 async function scanAndExecute(): Promise<void> {
-  if (_running) return; // skip overlapping tick
-  _running = true;
+  if (_scanLock) return;
+  let resolve!: () => void;
+  _scanLock = new Promise<void>(r => { resolve = r; });
   try {
     const s = await storage.getBotSettings();
 
@@ -139,7 +140,8 @@ async function scanAndExecute(): Promise<void> {
   } catch (err: any) {
     console.error('[auto-scanner] tick error:', err?.message);
   } finally {
-    _running = false;
+    _scanLock = null;
+    resolve();
   }
 }
 

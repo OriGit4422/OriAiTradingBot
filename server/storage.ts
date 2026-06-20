@@ -1,4 +1,4 @@
-import { eq, desc } from "drizzle-orm";
+import { eq, desc, gte, and } from "drizzle-orm";
 import { db } from "./db";
 import {
   users, type User, type InsertUser,
@@ -27,7 +27,8 @@ export interface IStorage {
   updateStrategy(id: string, data: Partial<InsertStrategy>): Promise<Strategy | undefined>;
   deleteStrategy(id: string): Promise<void>;
 
-  getSignals(): Promise<Signal[]>;
+  getSignals(filters?: { minConfidence?: number; limit?: number; since?: Date }): Promise<Signal[]>;
+  getRecentSignals(since: Date): Promise<Signal[]>;
   getSignal(id: string): Promise<Signal | undefined>;
   createSignal(data: InsertSignal): Promise<Signal>;
   updateSignalStatus(id: string, status: string): Promise<Signal | undefined>;
@@ -272,8 +273,28 @@ export class DatabaseStorage implements IStorage {
     await db.delete(strategies).where(eq(strategies.id, id));
   }
 
-  async getSignals(): Promise<Signal[]> {
-    return db.select().from(signals).orderBy(signals.createdAt);
+  async getSignals(filters?: { minConfidence?: number; limit?: number; since?: Date }): Promise<Signal[]> {
+    const conditions = [];
+    if (filters?.minConfidence !== undefined) conditions.push(gte(signals.confidence, filters.minConfidence));
+    if (filters?.since !== undefined) conditions.push(gte(signals.createdAt, filters.since));
+
+    const whereClause = conditions.length > 0 ? and(...conditions) : undefined;
+
+    if (filters?.limit !== undefined) {
+      return db.select().from(signals)
+        .where(whereClause)
+        .orderBy(signals.createdAt)
+        .limit(filters.limit);
+    }
+    return db.select().from(signals)
+      .where(whereClause)
+      .orderBy(signals.createdAt);
+  }
+
+  async getRecentSignals(since: Date): Promise<Signal[]> {
+    return db.select().from(signals)
+      .where(gte(signals.createdAt, since))
+      .orderBy(signals.createdAt);
   }
 
   async getSignal(id: string): Promise<Signal | undefined> {

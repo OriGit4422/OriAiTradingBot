@@ -167,7 +167,7 @@ async function streamGemini(
         const parsed = JSON.parse(data);
         const chunk: string = parsed.candidates?.[0]?.content?.parts?.[0]?.text ?? '';
         if (chunk) onChunk(chunk);
-      } catch { /* skip malformed */ }
+      } catch (err) { console.warn('[ai-providers] Skipped entry:', err instanceof Error ? err.message : err); }
     }
   }
 }
@@ -321,7 +321,7 @@ function aggregateJsonResponses(texts: string[]): string {
   for (const t of texts) {
     const m = extractJson(t);
     if (!m) continue;
-    try { parsed.push(JSON.parse(m)); } catch { /* skip */ }
+    try { parsed.push(JSON.parse(m)); } catch (err) { console.warn('[ai-providers] Skipped entry:', err instanceof Error ? err.message : err); }
   }
   if (parsed.length === 0) return texts[0] ?? '';
   if (parsed.length === 1) return JSON.stringify(parsed[0]);
@@ -457,7 +457,7 @@ export async function streamChatResponse(
         const parsed = JSON.parse(data);
         const chunk = parsed.choices?.[0]?.delta?.content ?? '';
         if (chunk) onChunk(chunk);
-      } catch { /* skip malformed */ }
+      } catch (err) { console.warn('[ai-providers] Skipped entry:', err instanceof Error ? err.message : err); }
     }
   }
 }

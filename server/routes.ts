@@ -55,8 +55,11 @@ export async function registerRoutes(
   // ─── Auth ─────────────────────────────────────────────────
   app.post("/api/auth/login", (req, res) => {
     const { username, password } = req.body;
-    const validUser = process.env.AUTH_USERNAME || "patyqm2010@gmail.com";
-    const validPass = process.env.AUTH_PASSWORD || "Ori@4422";
+    const validUser = process.env.AUTH_USERNAME;
+    const validPass = process.env.AUTH_PASSWORD;
+    if (!validUser || !validPass) {
+      throw new Error("AUTH_USERNAME and AUTH_PASSWORD environment variables are required");
+    }
     if (username === validUser && password === validPass) {
       res.json({ success: true, user: { username: validUser, role: "admin" } });
     } else {
@@ -644,7 +647,7 @@ export async function registerRoutes(
     try {
       const sigs = await storage.getSignals();
       const cutoff = new Date(Date.now() - 3 * 24 * 60 * 60 * 1000);
-      const recent = sigs.filter(s => !s.createdAt || new Date(s.createdAt) >= cutoff);
+      const recent = sigs.filter(s => s.createdAt && new Date(s.createdAt) >= cutoff);
       res.json(recent);
     } catch (e: any) {
       res.status(500).json({ message: e.message });
@@ -1100,6 +1103,16 @@ export async function registerRoutes(
   // POST /api/exchange/:exchange/trade  — manual / auto-triggered trade
   app.post("/api/exchange/:exchange/trade", async (req, res) => {
     try {
+      const { symbol, side, size } = req.body;
+      if (!symbol || !side || !size) {
+        return res.status(400).json({ error: "symbol, side, and size are required" });
+      }
+      if (!["BUY", "SELL", "buy", "sell"].includes(side)) {
+        return res.status(400).json({ error: "side must be BUY or SELL" });
+      }
+      if (isNaN(Number(size)) || Number(size) <= 0) {
+        return res.status(400).json({ error: "size must be a positive number" });
+      }
       const exchange = req.params.exchange as ExchangeName;
       const s = await storage.getSettings();
       if (!s) return res.status(400).json({ ok: false, message: "Settings not found" });

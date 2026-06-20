@@ -452,6 +452,10 @@ function msUntilNextHour(): number {
 }
 
 export function startHourlyAlertScheduler(): void {
+  // Clear any existing timers before setting new ones to prevent leaks
+  if (alertTimer) { clearTimeout(alertTimer); alertTimer = null; }
+  if (alertInterval) { clearInterval(alertInterval); alertInterval = null; }
+
   if (isSchedulerRunning) return;
   isSchedulerRunning = true;
 
@@ -460,6 +464,7 @@ export function startHourlyAlertScheduler(): void {
   console.log(`[hourly-alert] Scheduler started. First alert in ${mins} min (at next hour mark).`);
 
   alertTimer = setTimeout(() => {
+    alertTimer = null;
     // fire immediately at the hour
     sendHourlyAlert().catch(e => console.error('[hourly-alert] Error:', e));
 
@@ -475,4 +480,8 @@ export function stopHourlyAlertScheduler(): void {
   if (alertInterval) { clearInterval(alertInterval); alertInterval = null; }
   isSchedulerRunning = false;
   console.log('[hourly-alert] Scheduler stopped.');
+}
+
+export function stopHourlyAlerts(): void {
+  stopHourlyAlertScheduler();
 }

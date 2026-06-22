@@ -3,8 +3,19 @@ Phase 0 — Edge Validation Backtest
 ===================================
 Validates the core deterministic setup before any bot infrastructure is trusted.
 
-Strategy: HTF (4H) EMA50 bias + liquidity sweep (EQH/EQL swept & reclaimed) on 15m,
-          valid only inside London (07:00-10:00 UTC) or NY (12:00-15:00 UTC) kill zones.
+Strategy v2 improvements over v1:
+  1. Confirmation candle: enter on the bar AFTER the sweep, not the sweep bar itself.
+     This avoids chasing false breakouts that reverse immediately.
+  2. Volume surge filter: the sweep bar must have volume >= 1.5× its 20-bar average.
+     Real liquidity grabs attract institutional volume; noise sweeps don't.
+  3. RSI momentum filter (1H): bullish entries only when RSI(14) < 60 (not overbought);
+     bearish entries only when RSI(14) > 40 (not oversold).  Avoids counter-trend
+     exhaustion trades that were diluting the edge on BTC and ETH.
+  4. ATR-based stops: stop distance = 1.0× ATR(14) on 15m instead of a fixed 0.5%.
+     Adapts to volatility regime so stops are neither too tight (stopped out by noise)
+     nor too wide (destroying R expectancy on calm days).
+
+HTF bias, kill-zone filter, and bootstrap gate are unchanged from v1.
 
 Compare against an identical-risk random-entry control on the same data.
 Apply realistic fees + slippage to both runs.
@@ -33,7 +44,7 @@ except ImportError:
 
 PAIRS       = ['BTC/USDT', 'ETH/USDT', 'SOL/USDT']
 RISK_PCT    = 0.0075   # 0.75% per trade
-RR_TP       = 1.5      # take-profit at 1.5R
+RR_TP       = 2.0      # take-profit at 2R (raised from 1.5R — improves EV at ~50% WR)
 RR_SL       = 1.0      # stop-loss at 1R
 TAKER_FEE   = 0.0005   # 0.05% per side
 SLIPPAGE    = 0.0003   # 0.03% per side
@@ -44,6 +55,13 @@ LONDON_START = 7
 LONDON_END   = 10
 NY_START     = 12
 NY_END       = 15
+
+VOLUME_SURGE_MULT = 1.5   # sweep bar volume must be >= this × 20-bar avg
+RSI_PERIOD        = 14
+RSI_BULL_MAX      = 60    # bullish entries blocked above this RSI
+RSI_BEAR_MIN      = 40    # bearish entries blocked below this RSI
+ATR_PERIOD        = 14
+ATR_MULT          = 1.0   # stop distance = ATR_MULT × ATR(14)
 
 # ─── Data fetch ──────────────────────────────────────────────────────────────
 
@@ -77,11 +95,10 @@ def htf_bias(df_4h: pd.DataFrame) -> pd.Series:
 
 def liquidity_sweep(df_15m: pd.DataFrame, lookback: int = 20) -> pd.Series:
     """
-    Returns 1 (bullish sweep) when:
-      - price wicks below the rolling low of the last `lookback` bars and closes above it
-    Returns -1 (bearish sweep) when:
-      - price wicks above the rolling high and closes below it
-    Otherwise 0.
+    Returns 1 (bullish sweep) when price wicks below rolling low and closes above it.
+    Returns -1 (bearish sweep) when price wicks above rolling high and closes below it.
+    Signal is shifted forward by 1 bar so entry happens on the confirmation candle,
+    not the sweep candle itself (improvement #1).
     """
     prev_low  = df_15m['low'].rolling(lookback).min().shift(1)
     prev_high = df_15m['high'].rolling(lookback).max().shift(1)
@@ -90,7 +107,31 @@ def liquidity_sweep(df_15m: pd.DataFrame, lookback: int = 20) -> pd.Series:
     result = pd.Series(0, index=df_15m.index)
     result[bullish] = 1
     result[bearish] = -1
-    return result
+    # Shift by 1: enter on the bar after the sweep is confirmed
+    return result.shift(1).fillna(0)
+
+def volume_surge(df_15m: pd.DataFrame, lookback: int = 20, mult: float = VOLUME_SURGE_MULT) -> pd.Series:
+    """True on bars where volume >= mult × rolling average (improvement #2)."""
+    avg_vol = df_15m['volume'].rolling(lookback).mean().shift(1)
+    # Shift back 1 to align with the sweep signal shift
+    surge = (df_15m['volume'].shift(1) >= avg_vol * mult)
+    return surge.fillna(False)
+
+def rsi(series: pd.Series, n: int = RSI_PERIOD) -> pd.Series:
+    delta = series.diff()
+    gain = delta.clip(lower=0)
+    loss = -delta.clip(upper=0)
+    avg_gain = gain.ewm(com=n - 1, adjust=False).mean()
+    avg_loss = loss.ewm(com=n - 1, adjust=False).mean()
+    rs = avg_gain / avg_loss.replace(0, np.nan)
+    return 100 - (100 / (1 + rs))
+
+def atr(df: pd.DataFrame, n: int = ATR_PERIOD) -> pd.Series:
+    hl  = df['high'] - df['low']
+    hpc = (df['high'] - df['close'].shift(1)).abs()
+    lpc = (df['low']  - df['close'].shift(1)).abs()
+    tr  = pd.concat([hl, hpc, lpc], axis=1).max(axis=1)
+    return tr.ewm(com=n - 1, adjust=False).mean()
 
 def in_kill_zone(index: pd.DatetimeIndex) -> pd.Series:
     hours = index.hour
@@ -100,56 +141,54 @@ def in_kill_zone(index: pd.DatetimeIndex) -> pd.Series:
 
 # ─── Backtest engine ──────────────────────────────────────────────────────────
 
-def run_backtest(df_15m: pd.DataFrame, df_4h: pd.DataFrame, random_entries: bool = False) -> list[float]:
+def run_backtest(df_15m: pd.DataFrame, df_4h: pd.DataFrame,
+                 df_1h: pd.DataFrame, random_entries: bool = False) -> list[float]:
     """
     Returns list of trade P&L in R-multiples.
-    Each trade risks 1R, targets 1.5R (configurable via RR_TP/RR_SL).
+    Each trade risks 1R, targets RR_TP R.
     """
-    # Align 4H bias to 15m index
-    bias_4h = htf_bias(df_4h).reindex(df_15m.index, method='ffill')
+    bias_4h   = htf_bias(df_4h).reindex(df_15m.index, method='ffill')
     sweep_15m = liquidity_sweep(df_15m)
-    kz = in_kill_zone(df_15m.index)
+    vol_surge = volume_surge(df_15m)
+    kz        = in_kill_zone(df_15m.index)
+    atr_15m   = atr(df_15m)
+
+    rsi_1h    = rsi(df_1h['close']).reindex(df_15m.index, method='ffill')
 
     trades: list[float] = []
     in_trade = False
     entry = sl = tp = direction = None
 
-    valid_bars = df_15m.index[kz & df_15m.index.notnull()]
+    valid_bars = df_15m.index[kz]
 
     if random_entries:
-        # Uniformly random valid bar timestamps, same count as real strategy expects
         n_signals = max(1, len(valid_bars) // 50)
         entry_bars = set(pd.DatetimeIndex(random.sample(list(valid_bars), min(n_signals, len(valid_bars)))))
     else:
         entry_bars = None
 
     for i, ts in enumerate(df_15m.index):
-        row = df_15m.iloc[i]
+        row   = df_15m.iloc[i]
         price = row['close']
 
-        # Exit open trade
         if in_trade:
             if direction == 1:
                 if row['low'] <= sl:
-                    raw = -RR_SL
                     cost = (TAKER_FEE + SLIPPAGE) * 2
-                    trades.append(raw - cost * (1 / RISK_PCT))
+                    trades.append(-RR_SL - cost * (1 / RISK_PCT))
                     in_trade = False
                 elif row['high'] >= tp:
-                    raw = RR_TP
                     cost = (TAKER_FEE + SLIPPAGE) * 2
-                    trades.append(raw - cost * (1 / RISK_PCT))
+                    trades.append(RR_TP - cost * (1 / RISK_PCT))
                     in_trade = False
             else:
                 if row['high'] >= sl:
-                    raw = -RR_SL
                     cost = (TAKER_FEE + SLIPPAGE) * 2
-                    trades.append(raw - cost * (1 / RISK_PCT))
+                    trades.append(-RR_SL - cost * (1 / RISK_PCT))
                     in_trade = False
                 elif row['low'] <= tp:
-                    raw = RR_TP
                     cost = (TAKER_FEE + SLIPPAGE) * 2
-                    trades.append(raw - cost * (1 / RISK_PCT))
+                    trades.append(RR_TP - cost * (1 / RISK_PCT))
                     in_trade = False
             continue
 
@@ -159,28 +198,45 @@ def run_backtest(df_15m: pd.DataFrame, df_4h: pd.DataFrame, random_entries: bool
         if random_entries:
             if ts not in entry_bars:
                 continue
-            dir_rand = random.choice([1, -1])
-            sl_dist = price * 0.005  # 0.5% default stop
-            entry = price
-            sl = entry - dir_rand * sl_dist
-            tp = entry + dir_rand * sl_dist * RR_TP
+            dir_rand  = random.choice([1, -1])
+            sl_dist   = float(atr_15m.iloc[i]) * ATR_MULT
+            if sl_dist <= 0 or np.isnan(sl_dist):
+                sl_dist = price * 0.005
+            entry     = price
+            sl        = entry - dir_rand * sl_dist
+            tp        = entry + dir_rand * sl_dist * RR_TP
             direction = dir_rand
-            in_trade = True
+            in_trade  = True
         else:
-            bias = bias_4h.get(ts, 0)
+            bias  = bias_4h.get(ts, 0)
             sweep = sweep_15m.iloc[i]
-            if bias == 0 or sweep == 0:
-                continue
-            if bias != sweep:
-                continue  # direction must agree
 
-            dir_val = int(bias)
-            sl_dist = price * 0.005
-            entry = price
-            sl = entry - dir_val * sl_dist
-            tp = entry + dir_val * sl_dist * RR_TP
+            if bias == 0 or sweep == 0 or bias != sweep:
+                continue
+
+            # Volume surge filter (improvement #2)
+            if not vol_surge.iloc[i]:
+                continue
+
+            # RSI momentum filter (improvement #3)
+            r = rsi_1h.iloc[i]
+            if not np.isnan(r):
+                if bias == 1 and r > RSI_BULL_MAX:
+                    continue
+                if bias == -1 and r < RSI_BEAR_MIN:
+                    continue
+
+            # ATR-based stop (improvement #4)
+            sl_dist = float(atr_15m.iloc[i]) * ATR_MULT
+            if sl_dist <= 0 or np.isnan(sl_dist):
+                sl_dist = price * 0.005
+
+            dir_val   = int(bias)
+            entry     = price
+            sl        = entry - dir_val * sl_dist
+            tp        = entry + dir_val * sl_dist * RR_TP
             direction = dir_val
-            in_trade = True
+            in_trade  = True
 
     return trades
 
@@ -205,8 +261,9 @@ def bootstrap_ci(real_r: list[float], random_r: list[float], n: int = N_BOOTSTRA
 
 def main():
     print("=" * 60)
-    print("Phase 0 — Edge Validation Backtest")
-    print(f"Strategy: HTF EMA50 bias + liquidity sweep + kill zones")
+    print("Phase 0 — Edge Validation Backtest v2")
+    print("Improvements: confirmation candle, volume surge,")
+    print("  RSI momentum filter, ATR-based stops, 2R target")
     print(f"Fees: {TAKER_FEE*100:.3f}% taker | Slippage: {SLIPPAGE*100:.3f}%")
     print("=" * 60)
 
@@ -214,18 +271,19 @@ def main():
 
     for pair in PAIRS:
         print(f"\n▶ {pair}")
-        print("  Fetching 2 years of 15m + 4H candles...")
+        print("  Fetching 2 years of 15m, 1H + 4H candles...")
         try:
             df_15m = fetch_ohlcv(pair, '15m', since_days=730)
+            df_1h  = fetch_ohlcv(pair, '1h',  since_days=730)
             df_4h  = fetch_ohlcv(pair, '4h',  since_days=730)
         except Exception as e:
             print(f"  ✗ Data fetch failed: {e}")
             continue
 
-        print(f"  15m bars: {len(df_15m)} | 4H bars: {len(df_4h)}")
+        print(f"  15m bars: {len(df_15m)} | 1H bars: {len(df_1h)} | 4H bars: {len(df_4h)}")
 
-        real_trades   = run_backtest(df_15m, df_4h, random_entries=False)
-        random_trades = run_backtest(df_15m, df_4h, random_entries=True)
+        real_trades   = run_backtest(df_15m, df_4h, df_1h, random_entries=False)
+        random_trades = run_backtest(df_15m, df_4h, df_1h, random_entries=True)
 
         if not real_trades or not random_trades:
             print("  ✗ No trades generated")
@@ -234,9 +292,9 @@ def main():
         real_r   = np.array(real_trades)
         random_r = np.array(random_trades)
 
-        win_rate  = float((real_r > 0).mean())
+        win_rate   = float((real_r > 0).mean())
         expectancy = float(real_r.mean())
-        max_dd    = float(np.min(np.minimum.accumulate(np.cumsum(real_r))))
+        max_dd     = float(np.min(np.minimum.accumulate(np.cumsum(real_r))))
 
         lo, hi = bootstrap_ci(real_trades, random_trades)
 

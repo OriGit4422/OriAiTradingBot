@@ -3,19 +3,24 @@ Phase 0 — Edge Validation Backtest
 ===================================
 Validates the core deterministic setup before any bot infrastructure is trusted.
 
-Strategy v2 improvements over v1:
-  1. Confirmation candle: enter on the bar AFTER the sweep, not the sweep bar itself.
-     This avoids chasing false breakouts that reverse immediately.
-  2. Volume surge filter: the sweep bar must have volume >= 1.5× its 20-bar average.
-     Real liquidity grabs attract institutional volume; noise sweeps don't.
-  3. RSI momentum filter (1H): bullish entries only when RSI(14) < 60 (not overbought);
-     bearish entries only when RSI(14) > 40 (not oversold).  Avoids counter-trend
-     exhaustion trades that were diluting the edge on BTC and ETH.
-  4. ATR-based stops: stop distance = 1.0× ATR(14) on 15m instead of a fixed 0.5%.
-     Adapts to volatility regime so stops are neither too tight (stopped out by noise)
-     nor too wide (destroying R expectancy on calm days).
+Strategy v3 improvements over v2 (based on real Binance backtest results):
+  Real data showed win rates of 33–37% — below the ~38% breakeven at 2R after fees.
+  Three root causes identified and fixed:
 
-HTF bias, kill-zone filter, and bootstrap gate are unchanged from v1.
+  1. RR raised to 3.0: fee breakeven drops from 38% to ~29%, giving real headroom
+     at the observed 33–37% win rates. EV at 35% WR, 3R: 0.35×3 - 0.65×1 - 0.21 = +0.19R.
+
+  2. Volume threshold raised from 1.5× to 2.5×: real data produced 324–347 trades
+     (too many; quality suffers). 2.5× selects only the clearest institutional sweeps
+     and targets ~80–120 trades per year per pair.
+
+  3. Candle body quality filter: for bullish sweeps, the confirmation candle close
+     must be in the top 40% of its own range (close > low + 0.4×(high-low)).
+     For bearish sweeps, close must be in the bottom 40%. Eliminates indecision doji
+     candles that signal no real directional commitment.
+
+  Previous improvements retained: confirmation candle, RSI momentum filter, ATR stops,
+  HTF EMA50 bias, kill-zone filter, bootstrap gate.
 
 Compare against an identical-risk random-entry control on the same data.
 Apply realistic fees + slippage to both runs.
@@ -44,7 +49,7 @@ except ImportError:
 
 PAIRS       = ['BTC/USDT', 'ETH/USDT', 'SOL/USDT']
 RISK_PCT    = 0.0075   # 0.75% per trade
-RR_TP       = 2.0      # take-profit at 2R (raised from 1.5R — improves EV at ~50% WR)
+RR_TP       = 3.0      # take-profit at 3R — breakeven WR drops to ~29% after fees
 RR_SL       = 1.0      # stop-loss at 1R
 TAKER_FEE   = 0.0005   # 0.05% per side
 SLIPPAGE    = 0.0003   # 0.03% per side
@@ -56,10 +61,11 @@ LONDON_END   = 10
 NY_START     = 12
 NY_END       = 15
 
-VOLUME_SURGE_MULT = 1.5   # sweep bar volume must be >= this × 20-bar avg
+VOLUME_SURGE_MULT = 2.5   # sweep bar volume must be >= this × 20-bar avg (raised from 1.5)
 RSI_PERIOD        = 14
-RSI_BULL_MAX      = 60    # bullish entries blocked above this RSI
-RSI_BEAR_MIN      = 40    # bearish entries blocked below this RSI
+RSI_BULL_MAX      = 55    # bullish entries blocked above this RSI (tightened from 60)
+RSI_BEAR_MIN      = 45    # bearish entries blocked below this RSI (tightened from 40)
+BODY_QUALITY_PCT  = 0.40  # confirmation candle close must be in top/bottom 40% of range
 ATR_PERIOD        = 14
 ATR_MULT          = 1.0   # stop distance = ATR_MULT × ATR(14)
 
@@ -111,11 +117,24 @@ def liquidity_sweep(df_15m: pd.DataFrame, lookback: int = 20) -> pd.Series:
     return result.shift(1).fillna(0)
 
 def volume_surge(df_15m: pd.DataFrame, lookback: int = 20, mult: float = VOLUME_SURGE_MULT) -> pd.Series:
-    """True on bars where volume >= mult × rolling average (improvement #2)."""
+    """True on bars where volume >= mult × rolling average."""
     avg_vol = df_15m['volume'].rolling(lookback).mean().shift(1)
-    # Shift back 1 to align with the sweep signal shift
+    # shift(1) aligns the sweep bar's volume with the confirmation bar index
     surge = (df_15m['volume'].shift(1) >= avg_vol * mult)
     return surge.fillna(False)
+
+def body_quality(df_15m: pd.DataFrame, direction: pd.Series) -> pd.Series:
+    """
+    True when the confirmation candle shows committed directional body.
+    Bullish (direction=1): close in top BODY_QUALITY_PCT of candle range.
+    Bearish (direction=-1): close in bottom BODY_QUALITY_PCT of candle range.
+    Eliminates doji and indecision bars.
+    """
+    rng = (df_15m['high'] - df_15m['low']).replace(0, np.nan)
+    pos = (df_15m['close'] - df_15m['low']) / rng  # 0=at low, 1=at high
+    bull_ok = (direction == 1) & (pos >= (1 - BODY_QUALITY_PCT))
+    bear_ok = (direction == -1) & (pos <= BODY_QUALITY_PCT)
+    return (bull_ok | bear_ok).fillna(False)
 
 def rsi(series: pd.Series, n: int = RSI_PERIOD) -> pd.Series:
     delta = series.diff()
@@ -150,6 +169,7 @@ def run_backtest(df_15m: pd.DataFrame, df_4h: pd.DataFrame,
     bias_4h   = htf_bias(df_4h).reindex(df_15m.index, method='ffill')
     sweep_15m = liquidity_sweep(df_15m)
     vol_surge = volume_surge(df_15m)
+    body_ok   = body_quality(df_15m, sweep_15m)
     kz        = in_kill_zone(df_15m.index)
     atr_15m   = atr(df_15m)
 
@@ -214,11 +234,15 @@ def run_backtest(df_15m: pd.DataFrame, df_4h: pd.DataFrame,
             if bias == 0 or sweep == 0 or bias != sweep:
                 continue
 
-            # Volume surge filter (improvement #2)
+            # Volume surge filter
             if not vol_surge.iloc[i]:
                 continue
 
-            # RSI momentum filter (improvement #3)
+            # Candle body quality filter
+            if not body_ok.iloc[i]:
+                continue
+
+            # RSI momentum filter
             r = rsi_1h.iloc[i]
             if not np.isnan(r):
                 if bias == 1 and r > RSI_BULL_MAX:
@@ -261,9 +285,9 @@ def bootstrap_ci(real_r: list[float], random_r: list[float], n: int = N_BOOTSTRA
 
 def main():
     print("=" * 60)
-    print("Phase 0 — Edge Validation Backtest v2")
-    print("Improvements: confirmation candle, volume surge,")
-    print("  RSI momentum filter, ATR-based stops, 2R target")
+    print("Phase 0 — Edge Validation Backtest v3")
+    print("v3 fixes: 3R target, 2.5× volume threshold,")
+    print("  candle body quality filter, tighter RSI (55/45)")
     print(f"Fees: {TAKER_FEE*100:.3f}% taker | Slippage: {SLIPPAGE*100:.3f}%")
     print("=" * 60)
 

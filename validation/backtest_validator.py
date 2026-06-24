@@ -142,8 +142,8 @@ def sweep_signals(df: pd.DataFrame, atr_series: pd.Series,
       - wick sweeps the rolling level
       - close recovers back past the level (confirmed reversal in same candle)
       - close is in top/bottom RECOVERY_PCT of the candle range
-      - volume >= VOLUME_SURGE_MULT × 20-bar rolling average
-      - wick depth >= WICK_DEPTH_MULT × ATR
+      - volume >= VOLUME_SURGE_MULT x 20-bar rolling average
+      - wick depth >= WICK_DEPTH_MULT x ATR
     """
     prev_low  = df['low'].rolling(lookback).min().shift(1)
     prev_high = df['high'].rolling(lookback).max().shift(1)
@@ -152,11 +152,11 @@ def sweep_signals(df: pd.DataFrame, atr_series: pd.Series,
     close_pos  = (df['close'] - df['low']) / candle_rng  # 0=at low, 1=at high
 
     bull = (
-        (df['low'] < prev_low) &                          # wick sweeps low
-        (df['close'] > prev_low) &                        # close recovers above level
-        (close_pos >= (1 - RECOVERY_PCT)) &               # strong recovery body
-        (df['volume'] >= vol_avg * VOLUME_SURGE_MULT) &   # volume surge
-        ((prev_low - df['low']) >= atr_series * WICK_DEPTH_MULT)  # deep wick
+        (df['low'] < prev_low) &
+        (df['close'] > prev_low) &
+        (close_pos >= (1 - RECOVERY_PCT)) &
+        (df['volume'] >= vol_avg * VOLUME_SURGE_MULT) &
+        ((prev_low - df['low']) >= atr_series * WICK_DEPTH_MULT)
     )
     bear = (
         (df['high'] > prev_high) &
@@ -170,7 +170,6 @@ def sweep_signals(df: pd.DataFrame, atr_series: pd.Series,
     direction[bull] = 1
     direction[bear] = -1
 
-    # Natural stop: wick extreme + small ATR buffer
     sl_bull = df['low']  - atr_series * SL_BUFFER_MULT
     sl_bear = df['high'] + atr_series * SL_BUFFER_MULT
     sl_price = pd.Series(np.nan, index=df.index)
@@ -250,7 +249,6 @@ def run_backtest(df_15m: pd.DataFrame, df_4h: pd.DataFrame,
             if bias == 0 or sweep == 0 or bias != sweep:
                 continue
 
-            # RSI filter on 1H
             r = rsi_1h.iloc[i]
             if not np.isnan(r):
                 if bias == 1 and r > RSI_BULL_MAX:
@@ -258,7 +256,6 @@ def run_backtest(df_15m: pd.DataFrame, df_4h: pd.DataFrame,
                 if bias == -1 and r < RSI_BEAR_MIN:
                     continue
 
-            # Natural stop from sweep wick
             sl_price = sweeps['sl_price'].iloc[i]
             if np.isnan(sl_price):
                 continue
@@ -268,8 +265,8 @@ def run_backtest(df_15m: pd.DataFrame, df_4h: pd.DataFrame,
             sl_dist  = abs(entry - sl_price)
             if sl_dist <= 0:
                 continue
-            sl       = sl_price
-            tp       = entry + dir_val * sl_dist * RR_TP
+            sl        = sl_price
+            tp        = entry + dir_val * sl_dist * RR_TP
             direction = dir_val
             in_trade  = True
 

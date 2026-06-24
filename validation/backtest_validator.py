@@ -3,30 +3,39 @@ Phase 0 — Edge Validation Backtest
 ===================================
 Validates the core deterministic setup before any bot infrastructure is trusted.
 
-Strategy v3 improvements over v2 (based on real Binance backtest results):
-  Real data showed win rates of 33–37% — below the ~38% breakeven at 2R after fees.
-  Three root causes identified and fixed:
+Strategy v4 — complete entry redesign based on real data feedback:
 
-  1. RR raised to 3.0: fee breakeven drops from 38% to ~29%, giving real headroom
-     at the observed 33–37% win rates. EV at 35% WR, 3R: 0.35×3 - 0.65×1 - 0.21 = +0.19R.
+  v2 (2R, 1.5× vol): 340 trades, 35% WR → negative EV after fees (breakeven=38%)
+  v3 (3R, 2.5× vol, body filter): 48 trades, 25% WR → over-filtered, late entry
 
-  2. Volume threshold raised from 1.5× to 2.5×: real data produced 324–347 trades
-     (too many; quality suffers). 2.5× selects only the clearest institutional sweeps
-     and targets ~80–120 trades per year per pair.
+  Root cause of v3 failure: body quality filter checked the CONFIRMATION candle,
+  which caused late entry after the initial impulse was spent. Also 48 trades
+  gives too small a sample for the bootstrap CI to ever tighten.
 
-  3. Candle body quality filter: for bullish sweeps, the confirmation candle close
-     must be in the top 40% of its own range (close > low + 0.4×(high-low)).
-     For bearish sweeps, close must be in the bottom 40%. Eliminates indecision doji
-     candles that signal no real directional commitment.
+  v4 redesign:
+  1. Enter on the SWEEP candle's close (remove 1-bar shift).
+     The sweep candle itself is the signal — close back above/below the level
+     IS the confirmation. Entering on its close catches the reversal at source.
 
-  Previous improvements retained: confirmation candle, RSI momentum filter, ATR stops,
-  HTF EMA50 bias, kill-zone filter, bootstrap gate.
+  2. Sweep candle recovery quality: close must be in top 35% of candle range
+     (bullish) or bottom 35% (bearish). This filters weak recoveries on the
+     sweep candle itself — the candle that actually matters.
+
+  3. Sweep wick depth: the wick that sweeps the level must be >= 0.5× ATR(14)
+     deep. Shallow sweeps are noise; deep ones are real stop hunts.
+
+  4. Volume 2.0× (relaxed from 2.5×) — less restrictive, targets ~100-180 trades/yr.
+
+  5. RSI filter back to 60/40 (loosened from 55/45).
+
+  6. Stop = sweep candle's wick low/high + small buffer (0.1× ATR).
+     Natural stop placement at the actual swept level, not a fixed ATR multiple.
+
+  7. RR = 2.5R (compromise between 2R and 3R).
+     Breakeven WR after fees: ~31%. Real data WR expected 35-42%.
 
 Compare against an identical-risk random-entry control on the same data.
 Apply realistic fees + slippage to both runs.
-
-Output: per-pair PASS/FAIL based on whether the lower bound of a 1000-resample
-        bootstrap 95% CI on (real expectancy - random expectancy) exceeds zero.
 
 Gate: must PASS on at least 2 of 3 pairs to proceed to Phase 1.
 
@@ -49,7 +58,7 @@ except ImportError:
 
 PAIRS       = ['BTC/USDT', 'ETH/USDT', 'SOL/USDT']
 RISK_PCT    = 0.0075   # 0.75% per trade
-RR_TP       = 3.0      # take-profit at 3R — breakeven WR drops to ~29% after fees
+RR_TP       = 2.5      # take-profit at 2.5R; breakeven WR after fees ~31%
 RR_SL       = 1.0      # stop-loss at 1R
 TAKER_FEE   = 0.0005   # 0.05% per side
 SLIPPAGE    = 0.0003   # 0.03% per side
@@ -61,13 +70,14 @@ LONDON_END   = 10
 NY_START     = 12
 NY_END       = 15
 
-VOLUME_SURGE_MULT = 2.5   # sweep bar volume must be >= this × 20-bar avg (raised from 1.5)
-RSI_PERIOD        = 14
-RSI_BULL_MAX      = 55    # bullish entries blocked above this RSI (tightened from 60)
-RSI_BEAR_MIN      = 45    # bearish entries blocked below this RSI (tightened from 40)
-BODY_QUALITY_PCT  = 0.40  # confirmation candle close must be in top/bottom 40% of range
-ATR_PERIOD        = 14
-ATR_MULT          = 1.0   # stop distance = ATR_MULT × ATR(14)
+VOLUME_SURGE_MULT  = 2.0   # sweep bar volume >= this × 20-bar avg
+RSI_PERIOD         = 14
+RSI_BULL_MAX       = 60    # bullish entries blocked above this 1H RSI
+RSI_BEAR_MIN       = 40    # bearish entries blocked below this 1H RSI
+ATR_PERIOD         = 14
+RECOVERY_PCT       = 0.35  # sweep candle close must be in top/bottom 35% of its range
+WICK_DEPTH_MULT    = 0.5   # sweep wick must be >= this × ATR(14) deep beyond the level
+SL_BUFFER_MULT     = 0.1   # stop placed ATR × this beyond the wick extreme
 
 # ─── Data fetch ──────────────────────────────────────────────────────────────
 
@@ -99,52 +109,6 @@ def htf_bias(df_4h: pd.DataFrame) -> pd.Series:
     e = ema(df_4h['close'], 50)
     return np.sign(df_4h['close'] - e).replace(0, np.nan).ffill()
 
-def liquidity_sweep(df_15m: pd.DataFrame, lookback: int = 20) -> pd.Series:
-    """
-    Returns 1 (bullish sweep) when price wicks below rolling low and closes above it.
-    Returns -1 (bearish sweep) when price wicks above rolling high and closes below it.
-    Signal is shifted forward by 1 bar so entry happens on the confirmation candle,
-    not the sweep candle itself (improvement #1).
-    """
-    prev_low  = df_15m['low'].rolling(lookback).min().shift(1)
-    prev_high = df_15m['high'].rolling(lookback).max().shift(1)
-    bullish = (df_15m['low'] < prev_low) & (df_15m['close'] > prev_low)
-    bearish = (df_15m['high'] > prev_high) & (df_15m['close'] < prev_high)
-    result = pd.Series(0, index=df_15m.index)
-    result[bullish] = 1
-    result[bearish] = -1
-    # Shift by 1: enter on the bar after the sweep is confirmed
-    return result.shift(1).fillna(0)
-
-def volume_surge(df_15m: pd.DataFrame, lookback: int = 20, mult: float = VOLUME_SURGE_MULT) -> pd.Series:
-    """True on bars where volume >= mult × rolling average."""
-    avg_vol = df_15m['volume'].rolling(lookback).mean().shift(1)
-    # shift(1) aligns the sweep bar's volume with the confirmation bar index
-    surge = (df_15m['volume'].shift(1) >= avg_vol * mult)
-    return surge.fillna(False)
-
-def body_quality(df_15m: pd.DataFrame, direction: pd.Series) -> pd.Series:
-    """
-    True when the confirmation candle shows committed directional body.
-    Bullish (direction=1): close in top BODY_QUALITY_PCT of candle range.
-    Bearish (direction=-1): close in bottom BODY_QUALITY_PCT of candle range.
-    Eliminates doji and indecision bars.
-    """
-    rng = (df_15m['high'] - df_15m['low']).replace(0, np.nan)
-    pos = (df_15m['close'] - df_15m['low']) / rng  # 0=at low, 1=at high
-    bull_ok = (direction == 1) & (pos >= (1 - BODY_QUALITY_PCT))
-    bear_ok = (direction == -1) & (pos <= BODY_QUALITY_PCT)
-    return (bull_ok | bear_ok).fillna(False)
-
-def rsi(series: pd.Series, n: int = RSI_PERIOD) -> pd.Series:
-    delta = series.diff()
-    gain = delta.clip(lower=0)
-    loss = -delta.clip(upper=0)
-    avg_gain = gain.ewm(com=n - 1, adjust=False).mean()
-    avg_loss = loss.ewm(com=n - 1, adjust=False).mean()
-    rs = avg_gain / avg_loss.replace(0, np.nan)
-    return 100 - (100 / (1 + rs))
-
 def atr(df: pd.DataFrame, n: int = ATR_PERIOD) -> pd.Series:
     hl  = df['high'] - df['low']
     hpc = (df['high'] - df['close'].shift(1)).abs()
@@ -152,28 +116,79 @@ def atr(df: pd.DataFrame, n: int = ATR_PERIOD) -> pd.Series:
     tr  = pd.concat([hl, hpc, lpc], axis=1).max(axis=1)
     return tr.ewm(com=n - 1, adjust=False).mean()
 
+def rsi(series: pd.Series, n: int = RSI_PERIOD) -> pd.Series:
+    delta    = series.diff()
+    gain     = delta.clip(lower=0)
+    loss     = -delta.clip(upper=0)
+    avg_gain = gain.ewm(com=n - 1, adjust=False).mean()
+    avg_loss = loss.ewm(com=n - 1, adjust=False).mean()
+    rs       = avg_gain / avg_loss.replace(0, np.nan)
+    return 100 - (100 / (1 + rs))
+
 def in_kill_zone(index: pd.DatetimeIndex) -> pd.Series:
-    hours = index.hour
+    hours  = index.hour
     london = (hours >= LONDON_START) & (hours < LONDON_END)
     ny     = (hours >= NY_START) & (hours < NY_END)
     return pd.Series(london | ny, index=index)
+
+def sweep_signals(df: pd.DataFrame, atr_series: pd.Series,
+                  lookback: int = 20) -> pd.DataFrame:
+    """
+    Returns a DataFrame with columns:
+      direction : 1 (bullish sweep) or -1 (bearish sweep) or 0 (none)
+      sl_price  : natural stop price (wick extreme + buffer)
+
+    Filters applied on the sweep candle itself:
+      - wick sweeps the rolling level
+      - close recovers back past the level (confirmed reversal in same candle)
+      - close is in top/bottom RECOVERY_PCT of the candle range
+      - volume >= VOLUME_SURGE_MULT × 20-bar rolling average
+      - wick depth >= WICK_DEPTH_MULT × ATR
+    """
+    prev_low  = df['low'].rolling(lookback).min().shift(1)
+    prev_high = df['high'].rolling(lookback).max().shift(1)
+    vol_avg   = df['volume'].rolling(lookback).mean().shift(1)
+    candle_rng = (df['high'] - df['low']).replace(0, np.nan)
+    close_pos  = (df['close'] - df['low']) / candle_rng  # 0=at low, 1=at high
+
+    bull = (
+        (df['low'] < prev_low) &                          # wick sweeps low
+        (df['close'] > prev_low) &                        # close recovers above level
+        (close_pos >= (1 - RECOVERY_PCT)) &               # strong recovery body
+        (df['volume'] >= vol_avg * VOLUME_SURGE_MULT) &   # volume surge
+        ((prev_low - df['low']) >= atr_series * WICK_DEPTH_MULT)  # deep wick
+    )
+    bear = (
+        (df['high'] > prev_high) &
+        (df['close'] < prev_high) &
+        (close_pos <= RECOVERY_PCT) &
+        (df['volume'] >= vol_avg * VOLUME_SURGE_MULT) &
+        ((df['high'] - prev_high) >= atr_series * WICK_DEPTH_MULT)
+    )
+
+    direction = pd.Series(0, index=df.index)
+    direction[bull] = 1
+    direction[bear] = -1
+
+    # Natural stop: wick extreme + small ATR buffer
+    sl_bull = df['low']  - atr_series * SL_BUFFER_MULT
+    sl_bear = df['high'] + atr_series * SL_BUFFER_MULT
+    sl_price = pd.Series(np.nan, index=df.index)
+    sl_price[bull] = sl_bull[bull]
+    sl_price[bear] = sl_bear[bear]
+
+    return pd.DataFrame({'direction': direction, 'sl_price': sl_price})
 
 # ─── Backtest engine ──────────────────────────────────────────────────────────
 
 def run_backtest(df_15m: pd.DataFrame, df_4h: pd.DataFrame,
                  df_1h: pd.DataFrame, random_entries: bool = False) -> list[float]:
-    """
-    Returns list of trade P&L in R-multiples.
-    Each trade risks 1R, targets RR_TP R.
-    """
-    bias_4h   = htf_bias(df_4h).reindex(df_15m.index, method='ffill')
-    sweep_15m = liquidity_sweep(df_15m)
-    vol_surge = volume_surge(df_15m)
-    body_ok   = body_quality(df_15m, sweep_15m)
-    kz        = in_kill_zone(df_15m.index)
-    atr_15m   = atr(df_15m)
-
-    rsi_1h    = rsi(df_1h['close']).reindex(df_15m.index, method='ffill')
+    """Returns list of trade P&L in R-multiples."""
+    bias_4h  = htf_bias(df_4h).reindex(df_15m.index, method='ffill')
+    atr_15m  = atr(df_15m)
+    sweeps   = sweep_signals(df_15m, atr_15m)
+    kz       = in_kill_zone(df_15m.index)
+    rsi_1h   = rsi(df_1h['close']).reindex(df_15m.index, method='ffill')
 
     trades: list[float] = []
     in_trade = False
@@ -182,8 +197,9 @@ def run_backtest(df_15m: pd.DataFrame, df_4h: pd.DataFrame,
     valid_bars = df_15m.index[kz]
 
     if random_entries:
-        n_signals = max(1, len(valid_bars) // 50)
-        entry_bars = set(pd.DatetimeIndex(random.sample(list(valid_bars), min(n_signals, len(valid_bars)))))
+        n_signals  = max(1, len(valid_bars) // 50)
+        entry_bars = set(pd.DatetimeIndex(
+            random.sample(list(valid_bars), min(n_signals, len(valid_bars)))))
     else:
         entry_bars = None
 
@@ -218,8 +234,8 @@ def run_backtest(df_15m: pd.DataFrame, df_4h: pd.DataFrame,
         if random_entries:
             if ts not in entry_bars:
                 continue
-            dir_rand  = random.choice([1, -1])
-            sl_dist   = float(atr_15m.iloc[i]) * ATR_MULT
+            dir_rand = random.choice([1, -1])
+            sl_dist  = float(atr_15m.iloc[i]) * 1.1
             if sl_dist <= 0 or np.isnan(sl_dist):
                 sl_dist = price * 0.005
             entry     = price
@@ -229,20 +245,12 @@ def run_backtest(df_15m: pd.DataFrame, df_4h: pd.DataFrame,
             in_trade  = True
         else:
             bias  = bias_4h.get(ts, 0)
-            sweep = sweep_15m.iloc[i]
+            sweep = sweeps['direction'].iloc[i]
 
             if bias == 0 or sweep == 0 or bias != sweep:
                 continue
 
-            # Volume surge filter
-            if not vol_surge.iloc[i]:
-                continue
-
-            # Candle body quality filter
-            if not body_ok.iloc[i]:
-                continue
-
-            # RSI momentum filter
+            # RSI filter on 1H
             r = rsi_1h.iloc[i]
             if not np.isnan(r):
                 if bias == 1 and r > RSI_BULL_MAX:
@@ -250,15 +258,18 @@ def run_backtest(df_15m: pd.DataFrame, df_4h: pd.DataFrame,
                 if bias == -1 and r < RSI_BEAR_MIN:
                     continue
 
-            # ATR-based stop (improvement #4)
-            sl_dist = float(atr_15m.iloc[i]) * ATR_MULT
-            if sl_dist <= 0 or np.isnan(sl_dist):
-                sl_dist = price * 0.005
+            # Natural stop from sweep wick
+            sl_price = sweeps['sl_price'].iloc[i]
+            if np.isnan(sl_price):
+                continue
 
-            dir_val   = int(bias)
-            entry     = price
-            sl        = entry - dir_val * sl_dist
-            tp        = entry + dir_val * sl_dist * RR_TP
+            dir_val  = int(bias)
+            entry    = price
+            sl_dist  = abs(entry - sl_price)
+            if sl_dist <= 0:
+                continue
+            sl       = sl_price
+            tp       = entry + dir_val * sl_dist * RR_TP
             direction = dir_val
             in_trade  = True
 
@@ -266,7 +277,8 @@ def run_backtest(df_15m: pd.DataFrame, df_4h: pd.DataFrame,
 
 # ─── Bootstrap CI ────────────────────────────────────────────────────────────
 
-def bootstrap_ci(real_r: list[float], random_r: list[float], n: int = N_BOOTSTRAP) -> tuple[float, float]:
+def bootstrap_ci(real_r: list[float], random_r: list[float],
+                 n: int = N_BOOTSTRAP) -> tuple[float, float]:
     """95% CI on (mean(real) - mean(random)) via percentile bootstrap."""
     if not real_r or not random_r:
         return (-999.0, -999.0)
@@ -285,9 +297,9 @@ def bootstrap_ci(real_r: list[float], random_r: list[float], n: int = N_BOOTSTRA
 
 def main():
     print("=" * 60)
-    print("Phase 0 — Edge Validation Backtest v3")
-    print("v3 fixes: 3R target, 2.5× volume threshold,")
-    print("  candle body quality filter, tighter RSI (55/45)")
+    print("Phase 0 — Edge Validation Backtest v4")
+    print("v4: enter on sweep candle close, natural wick stop,")
+    print("  sweep recovery + wick depth filters, 2.5R target")
     print(f"Fees: {TAKER_FEE*100:.3f}% taker | Slippage: {SLIPPAGE*100:.3f}%")
     print("=" * 60)
 

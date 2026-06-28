@@ -126,7 +126,17 @@ export default function Login({ onLogin }: LoginProps) {
           </Button>
         </form>
 
-        <div className="mt-8 text-center">
+        <div className="mt-4 rounded-lg border border-border bg-card/60 p-3 text-center" data-testid="text-default-credentials">
+          <p className="text-xs font-medium text-muted-foreground mb-1">Default login</p>
+          <p className="text-xs font-mono text-foreground">
+            Username: <span className="text-primary">patyqm2010@gmail.com</span>
+          </p>
+          <p className="text-xs font-mono text-foreground">
+            Password: <span className="text-primary">Ori@4422</span>
+          </p>
+        </div>
+
+        <div className="mt-6 text-center">
           <p className="text-xs text-muted-foreground/50">
             WinM AI Quantum Trading Terminal v2.0
           </p>

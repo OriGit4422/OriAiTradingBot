@@ -292,12 +292,28 @@ export async function assessTradeRisk(params: {
 
   // 6. R:R check
   const rr = Math.abs(tp - entry) / Math.abs(entry - sl);
-  if (rr < 1.5) {
+  if (rr < 1.0) {
+    // Risking more than the potential reward — never tradeable, regardless of confidence
+    blocked = true;
+    blockReason = `R:R ${rr.toFixed(2)} — risk exceeds reward, signal rejected`;
+  } else if (rr < 1.5) {
     riskScore += 25;
     warnings.push(`Low R:R ratio (${rr.toFixed(2)}) — minimum 1.5 recommended`);
   } else if (rr >= 3.0) {
     riskScore -= 10; // bonus for excellent R:R
     reasons.push(`Excellent R:R ${rr.toFixed(2)}`);
+  }
+
+  // 6b. Stop-loss distance sanity check — catch structurally-derived stops that
+  // are unreasonably far from entry (data error or bad swing-point selection)
+  const slDistancePct = entry > 0 ? (Math.abs(entry - sl) / entry) * 100 : 0;
+  const MAX_SL_DISTANCE_PCT = 8; // beyond this, a "swing" stop is no longer a risk-managed stop
+  if (slDistancePct > MAX_SL_DISTANCE_PCT) {
+    blocked = true;
+    blockReason = `Stop-loss ${slDistancePct.toFixed(1)}% from entry exceeds ${MAX_SL_DISTANCE_PCT}% max — signal rejected`;
+  } else if (slDistancePct > MAX_SL_DISTANCE_PCT * 0.6) {
+    riskScore += 15;
+    warnings.push(`Wide stop-loss (${slDistancePct.toFixed(1)}% from entry) — verify structure before sizing`);
   }
 
   // 7. Confidence-based risk scaling

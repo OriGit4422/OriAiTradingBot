@@ -40,9 +40,13 @@ export function Sidebar() {
 
   const [downloading, setDownloading] = useState(false);
 
-  const handleLogout = () => {
-    localStorage.removeItem('winm_auth');
-    window.location.reload();
+  const handleLogout = async () => {
+    try {
+      await fetch('/api/auth/logout', { method: 'POST', credentials: 'include' });
+    } finally {
+      localStorage.removeItem('winm_auth');
+      window.location.reload();
+    }
   };
 
   const handleDownloadProject = async () => {

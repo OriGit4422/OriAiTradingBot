@@ -41,13 +41,29 @@ function Router() {
 
 function App() {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
+  const [checked, setChecked] = useState(false);
 
   useEffect(() => {
     const auth = localStorage.getItem('winm_auth');
-    if (auth) {
-      setIsAuthenticated(true);
+    if (!auth) {
+      setChecked(true);
+      return;
     }
+    // localStorage only reflects the last login; confirm the session
+    // cookie is still valid server-side before trusting it.
+    fetch('/api/auth/me', { credentials: 'include' })
+      .then((res) => res.json())
+      .then((data) => {
+        if (!data.authenticated) localStorage.removeItem('winm_auth');
+        setIsAuthenticated(!!data.authenticated);
+      })
+      .catch(() => setIsAuthenticated(false))
+      .finally(() => setChecked(true));
   }, []);
+
+  if (!checked) {
+    return null;
+  }
 
   if (!isAuthenticated) {
     return (

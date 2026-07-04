@@ -1,4 +1,5 @@
 import type { VercelRequest, VercelResponse } from "@vercel/node";
+import { createSessionToken, buildSessionCookie } from "../../server/auth";
 
 export default function handler(req: VercelRequest, res: VercelResponse) {
   if (req.method !== "POST") {
@@ -6,10 +7,15 @@ export default function handler(req: VercelRequest, res: VercelResponse) {
   }
 
   const { username, password } = req.body as { username?: string; password?: string };
-  const validUser = process.env.AUTH_USERNAME || "patyqm2010@gmail.com";
-  const validPass = process.env.AUTH_PASSWORD || "Ori@4422";
+  const validUser = process.env.AUTH_USERNAME;
+  const validPass = process.env.AUTH_PASSWORD;
+  if (!validUser || !validPass) {
+    return res.status(500).json({ message: "Authentication is not configured" });
+  }
 
   if (username === validUser && password === validPass) {
+    const token = createSessionToken(validUser);
+    res.setHeader("Set-Cookie", buildSessionCookie(token));
     return res.json({ success: true, user: { username: validUser, role: "admin" } });
   }
 

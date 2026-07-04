@@ -7,6 +7,15 @@ import { storage } from "./storage";
 import { insertSettingsSchema, insertStrategySchema, insertSignalSchema, insertPositionSchema, insertUserAccessSchema, insertBotSettingsSchema } from "@shared/schema";
 import { getBotState, executeSignal, closeBotTrade, botControl, setBotMode, unlockLive, applySafeModePreset, type ExecMode } from "./bot-engine";
 import { z } from "zod";
+import {
+  requireAuth,
+  createSessionToken,
+  buildSessionCookie,
+  buildClearSessionCookie,
+  parseCookies,
+  verifySessionToken,
+  SESSION_COOKIE_NAME,
+} from "./auth";
 import { analyzeSignalWithAI, getMarketInsight, getDeepCoinAnalysis } from "./ai-analysis";
 import { notifySignal, sendTestNotifications, validateSignalBestPractice } from "./notifications";
 import { testBinanceConnectivity, testBybitConnectivity } from "./exchange-connectivity";
@@ -52,6 +61,10 @@ export async function registerRoutes(
   app: Express
 ): Promise<Server> {
 
+  // Gate every /api/* route behind a valid session; the middleware itself
+  // exempts /api/auth/login, /api/auth/logout, and /api/auth/me.
+  app.use(requireAuth);
+
   // ─── Auth ─────────────────────────────────────────────────
   app.post("/api/auth/login", (req, res) => {
     const { username, password } = req.body;
@@ -61,10 +74,23 @@ export async function registerRoutes(
       throw new Error("AUTH_USERNAME and AUTH_PASSWORD environment variables are required");
     }
     if (username === validUser && password === validPass) {
+      const token = createSessionToken(validUser);
+      res.setHeader("Set-Cookie", buildSessionCookie(token));
       res.json({ success: true, user: { username: validUser, role: "admin" } });
     } else {
       res.status(401).json({ success: false, message: "Invalid credentials" });
     }
+  });
+
+  app.post("/api/auth/logout", (_req, res) => {
+    res.setHeader("Set-Cookie", buildClearSessionCookie());
+    res.json({ success: true });
+  });
+
+  app.get("/api/auth/me", (req, res) => {
+    const cookies = parseCookies(req.headers.cookie);
+    const authenticated = verifySessionToken(cookies[SESSION_COOKIE_NAME]);
+    res.json({ authenticated });
   });
 
   // ─── AI Analysis ──────────────────────────────────────────

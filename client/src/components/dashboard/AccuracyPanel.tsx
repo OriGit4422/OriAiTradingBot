@@ -39,6 +39,8 @@ interface AccuracyReport {
     brierScore: number | null;
     totalPnlUsd: number;
     profitFactor: number | null;
+    avgWinR: number | null;
+    avgLossR: number | null;
     maxConsecutiveLosses: number;
   };
   calibration: CalibrationBucket[];
@@ -176,6 +178,32 @@ export function AccuracyPanel() {
             value={h.profitFactor === null ? '—' : h.profitFactor.toFixed(2)}
             tone={h.profitFactor === null ? '' : h.profitFactor >= 1 ? 'text-green-500' : 'text-red-500'}
             hint={`max ${h.maxConsecutiveLosses} losses in a row`}
+          />
+        </div>
+
+        {/*
+          Realized average win and loss, in R. Both are measured from actual pnl
+          against the risk actually taken, so a stop that slipped shows as worse
+          than -1.00R. A hit rate above 50% sitting next to an average loss
+          bigger than the average win is the classic hidden edge drain, and it is
+          invisible from hit rate alone.
+        */}
+        <div className="grid grid-cols-2 gap-2">
+          <Stat
+            label="Avg Win"
+            value={h.avgWinR === null ? '—' : `+${h.avgWinR.toFixed(2)}R`}
+            tone={h.avgWinR === null ? '' : 'text-green-500'}
+            hint="realized, not planned"
+          />
+          <Stat
+            label="Avg Loss"
+            value={h.avgLossR === null ? '—' : `${h.avgLossR.toFixed(2)}R`}
+            tone={
+              h.avgLossR === null ? ''
+              : h.avgLossR < -1.05 ? 'text-red-500'   // stops are slipping past plan
+              : 'text-amber-500'
+            }
+            hint={h.avgLossR !== null && h.avgLossR < -1.05 ? 'stops slipping past plan' : 'realized, not planned'}
           />
         </div>
 

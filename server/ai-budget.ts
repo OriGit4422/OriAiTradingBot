@@ -113,7 +113,28 @@ export interface BudgetStatus {
 
 const DEFAULT_DAILY_BUDGET_USD = 0.05;
 
-let dailyBudgetUsd = Number(process.env.AI_DAILY_BUDGET_USD ?? DEFAULT_DAILY_BUDGET_USD);
+/**
+ * Parse the configured cap, falling back to the default on anything unusable.
+ *
+ * `Number('')`, `Number('abc')` and `Number(undefined)` yield 0 or NaN. A NaN
+ * ceiling is the dangerous one: every `spend + cost > NaN` comparison in admit()
+ * is false, so a single typo in AI_DAILY_BUDGET_USD silently switched the daily
+ * cap off entirely and let spend run unbounded. The cap must fail closed.
+ */
+export function parseDailyBudget(raw: string | undefined): number {
+  if (raw === undefined || raw === null || String(raw).trim() === '') return DEFAULT_DAILY_BUDGET_USD;
+  const n = Number(raw);
+  if (!Number.isFinite(n) || n <= 0) {
+    console.warn(
+      `[ai-budget] AI_DAILY_BUDGET_USD="${raw}" is not a positive number — ` +
+      `using the $${DEFAULT_DAILY_BUDGET_USD}/day default instead.`,
+    );
+    return DEFAULT_DAILY_BUDGET_USD;
+  }
+  return n;
+}
+
+let dailyBudgetUsd = parseDailyBudget(process.env.AI_DAILY_BUDGET_USD);
 let ledgerDay = utcDay();
 let ledger = new Map<string, ProviderSpend>();
 let savedByCacheUsd = 0;
@@ -192,6 +213,17 @@ export function admit(opts: {
   const estCostUsd = estimateCostUsd(opts.model, estIn, opts.maxOutTokens);
   const ceiling = dailyBudgetUsd * TIER_CEILING[opts.tier];
 
+  // Fail closed. Any comparison against NaN is false, so a non-finite ceiling or
+  // cost estimate would wave every call through — the opposite of a spend cap.
+  if (!Number.isFinite(ceiling) || !Number.isFinite(estCostUsd)) {
+    e.blocked++;
+    return {
+      allowed: false,
+      estCostUsd: Number.isFinite(estCostUsd) ? estCostUsd : 0,
+      reason: 'AI budget guard: daily ceiling could not be evaluated — refusing the call',
+    };
+  }
+
   if (e.spendUsd + estCostUsd > ceiling) {
     e.blocked++;
     return {
@@ -267,8 +299,15 @@ export function getInFlight(key: string) {
 
 export function setInFlight(key: string, p: Promise<{ text: string; provider: string; model: string }>) {
   inFlight.set(key, p);
-  void p.finally(() => inFlight.delete(key));
+  // The stored promise rejects whenever the upstream call fails. `void p.finally(...)`
+  // used to leave that rejection on a derived promise nobody handled, and Node's
+  // default --unhandled-rejections=throw turns that into a process exit: one 404
+  // from a provider took the whole trading bot down. Swallowing here is safe —
+  // the awaiting caller in callAIProvider still receives the real error.
+  p.then(noop, noop).finally(() => inFlight.delete(key));
 }
+
+function noop(): void { /* rejection is reported to the awaiting caller, not here */ }
 
 export function clearCache(): void {
   responseCache.clear();

@@ -9,7 +9,7 @@ import {
   admit, commit, priceFor, estimateCostUsd, estimateTokens, extractUsage,
   getBudgetStatus, setDailyBudget, resetLedger, clearCache,
   cacheGet, cacheSet, makeCacheKey, recordCacheHit,
-  serializeLedger, restoreLedger,
+  serializeLedger, restoreLedger, parseDailyBudget, getDailyBudget,
 } from '../server/ai-budget';
 
 describe('pricing', () => {
@@ -192,5 +192,41 @@ describe('ledger persistence', () => {
   test('refuses null or malformed snapshots', () => {
     assert.equal(restoreLedger(null), false);
     assert.equal(restoreLedger({ day: new Date().toISOString().slice(0, 10) }), false);
+  });
+});
+
+describe('budget cap fails closed', () => {
+  test('a malformed AI_DAILY_BUDGET_USD falls back to the default', () => {
+    // Number('abc') is NaN, and `spend + cost > NaN` is false — a typo here used
+    // to switch the daily cap off entirely rather than tightening it.
+    for (const bad of ['abc', '', '   ', 'null', '-1', '0', 'NaN', undefined]) {
+      const v = parseDailyBudget(bad as string | undefined);
+      assert.ok(Number.isFinite(v) && v > 0, `parseDailyBudget(${JSON.stringify(bad)}) = ${v}`);
+    }
+  });
+
+  test('a valid value is used as given', () => {
+    assert.equal(parseDailyBudget('0.02'), 0.02);
+    assert.equal(parseDailyBudget('1'), 1);
+  });
+
+  test('a non-finite ceiling refuses the call instead of admitting it', () => {
+    resetLedger();
+    setDailyBudget(0.05);
+    // Drive the cost estimate itself non-finite.
+    const verdict = admit({
+      provider: 'X', model: 'gpt-4o', tier: 'critical',
+      promptChars: Number.POSITIVE_INFINITY, maxOutTokens: 10,
+    });
+    assert.equal(verdict.allowed, false);
+  });
+
+  test('setDailyBudget rejects values that would disable the cap', () => {
+    resetLedger();
+    setDailyBudget(0.03);
+    setDailyBudget(NaN);
+    setDailyBudget(-5);
+    setDailyBudget(0);
+    assert.equal(getBudgetStatus().dailyBudgetUsd, 0.03, 'a bad value overwrote a good cap');
   });
 });

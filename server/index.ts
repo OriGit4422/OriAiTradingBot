@@ -14,6 +14,20 @@ import { startMarketScanner, configureScanner } from "./agents/market-scanner";
 import { startLearningEngine } from "./agents/learning-engine";
 import { restoreBudgetLedger, startBudgetPersistence } from "./ai-budget-persistence";
 
+// ─── Last-resort crash guards ────────────────────────────────────────────────
+// A single unhandled promise rejection anywhere in the tree used to terminate the
+// process under Node's default --unhandled-rejections=throw — a provider 404 in
+// ai-providers took the whole bot offline, open positions and all. The specific
+// leak is fixed at its source, but a trading process should degrade loudly rather
+// than exit silently, so anything that slips through is logged and survived.
+process.on('unhandledRejection', (reason) => {
+  console.error('[fatal-guard] Unhandled promise rejection (process kept alive):', reason);
+});
+
+process.on('uncaughtException', (err) => {
+  console.error('[fatal-guard] Uncaught exception (process kept alive):', err);
+});
+
 const app = express();
 const httpServer = createServer(app);
 

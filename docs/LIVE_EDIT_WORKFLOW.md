@@ -36,7 +36,7 @@ npm run dev
 - Route definitions: `server/routes.ts`
 - Persistence layer: `server/storage.ts`
 - AI market/signal analysis: `server/ai-analysis.ts`
-- AI signal/chat/validation service: `server/ai-service.ts`
+- AI provider layer (budget, cache, model resolution): `server/ai-providers.ts`, `server/ai-providers-core.ts`
 - Database schema/types: `shared/schema.ts`
 
 ## 3) Live collaboration loop

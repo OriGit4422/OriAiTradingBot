@@ -41,12 +41,22 @@ interface LivePriceStore {
   lastTickAt: number;
   /** Age of the freshest data in ms — drives the staleness badge. */
   ageMs: number;
+  /**
+   * Where the newest data came from. 'rest' means the socket is not delivering
+   * and numbers are only as fresh as the 30 s poll, which the badge must not
+   * present as live.
+   */
+  source: 'socket' | 'rest' | 'none';
   get: (coin: string) => LiveQuote | undefined;
 }
 
+// Symbols not present in the REST seed are dropped from the subscription at
+// runtime (see `verified`), so a delisting or a rename — MATIC -> POL, for one —
+// costs a ticker rather than the whole feed. Both are listed; whichever Binance
+// actually serves is the one subscribed to.
 const DEFAULT_SYMBOLS = [
   'BTC', 'ETH', 'SOL', 'BNB', 'XRP', 'ADA', 'DOGE', 'AVAX', 'DOT', 'LINK',
-  'MATIC', 'UNI', 'LTC', 'ATOM', 'NEAR', 'AAVE', 'FIL', 'APT', 'ARB', 'OP',
+  'MATIC', 'POL', 'UNI', 'LTC', 'ATOM', 'NEAR', 'AAVE', 'FIL', 'APT', 'ARB', 'OP',
   'SUI', 'SEI', 'INJ', 'TIA',
 ];
 
@@ -55,12 +65,26 @@ export const STALE_AFTER_MS = 15_000;
 /** REST safety net cadence while the socket is healthy (cheap, public endpoint). */
 const FALLBACK_POLL_MS = 30_000;
 const MAX_RECONNECT_DELAY_MS = 30_000;
+/**
+ * A healthy combined ticker stream delivers something every second or so. Past
+ * this much silence the socket is treated as dead and rebuilt: a half-open TCP
+ * connection still reports readyState OPEN while delivering nothing, which is
+ * the failure that makes a dashboard quietly show minute-old prices.
+ */
+const SOCKET_SILENCE_TIMEOUT_MS = 20_000;
+const WATCHDOG_INTERVAL_MS = 5_000;
+/**
+ * Backstop for the rAF flush. Browsers stop firing requestAnimationFrame in a
+ * hidden or occluded tab, so a queued batch can sit unflushed indefinitely.
+ */
+const FLUSH_BACKSTOP_MS = 250;
 
 const Ctx = createContext<LivePriceStore>({
   quotes: {},
   status: 'connecting',
   lastTickAt: 0,
   ageMs: Infinity,
+  source: 'none',
   get: () => undefined,
 });
 
@@ -78,44 +102,65 @@ export function LivePriceProvider({
   const [quotes, setQuotes] = useState<Record<string, LiveQuote>>({});
   const [status, setStatus] = useState<FeedStatus>('connecting');
   const [lastTickAt, setLastTickAt] = useState(0);
+  const [source, setSource] = useState<LivePriceStore['source']>('none');
   // Re-render on a timer purely so the staleness badge counts up.
   const [, setTick] = useState(0);
 
   // Pending updates are accumulated here and flushed once per frame.
   const pending = useRef<Record<string, LiveQuote>>({});
   const frame = useRef<number | null>(null);
+  const backstop = useRef<ReturnType<typeof setTimeout> | null>(null);
   const socket = useRef<WebSocket | null>(null);
   const reconnectAttempt = useRef(0);
   const reconnectTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const closedByUs = useRef(false);
+  /** Last time the SOCKET delivered a frame — distinct from REST-sourced freshness. */
+  const lastSocketAt = useRef(0);
+  /**
+   * Symbols the REST seed proved exist. Binance rejects a combined stream that
+   * names an unknown symbol and closes the connection, so one delisted ticker in
+   * the default list takes the entire feed down. Subscribing only to confirmed
+   * symbols makes the feed self-healing across listing changes.
+   */
+  const verified = useRef<string[] | null>(null);
 
   const symbolKey = symbols.join(',');
 
   const flush = useCallback(() => {
-    frame.current = null;
+    if (frame.current !== null) { cancelAnimationFrame(frame.current); frame.current = null; }
+    if (backstop.current !== null) { clearTimeout(backstop.current); backstop.current = null; }
     const batch = pending.current;
     pending.current = {};
     if (!Object.keys(batch).length) return;
     setQuotes(prev => ({ ...prev, ...batch }));
     setLastTickAt(Date.now());
+    setSource('socket');
   }, []);
 
   const queue = useCallback((q: LiveQuote) => {
     pending.current[q.symbol] = q;
-    if (frame.current === null) {
-      frame.current = requestAnimationFrame(flush);
-    }
+    // rAF keeps this to one React commit per painted frame, but it never fires
+    // in a hidden tab; the timer guarantees the batch lands either way. Whichever
+    // runs first cancels the other inside flush().
+    if (frame.current === null) frame.current = requestAnimationFrame(flush);
+    if (backstop.current === null) backstop.current = setTimeout(flush, FLUSH_BACKSTOP_MS);
   }, [flush]);
 
   // ── REST seed + fallback ───────────────────────────────────────────────────
+  // Keyed on symbolKey rather than the `symbols` array: an inline array prop
+  // would otherwise give pollOnce a new identity every render, tearing down and
+  // rebuilding the WebSocket in a loop and leaving prices permanently behind.
   const pollOnce = useCallback(async () => {
+    const wanted = symbolKey.split(',').filter(Boolean);
     try {
       const tickers = await fetch24hTicker();
       const now = Date.now();
       const next: Record<string, LiveQuote> = {};
+      const seen: string[] = [];
       for (const t of tickers) {
         const sym = bareSymbol(t.symbol);
-        if (!symbols.includes(sym)) continue;
+        seen.push(sym);
+        if (!wanted.includes(sym)) continue;
         next[sym] = {
           symbol: sym,
           price: parseFloat(t.lastPrice),
@@ -126,14 +171,23 @@ export function LivePriceProvider({
           at: now,
         };
       }
+      if (seen.length) {
+        const live = wanted.filter(s => seen.includes(s));
+        // Only narrow the subscription when the seed actually resolved symbols;
+        // an empty or partial response must not silently unsubscribe everything.
+        if (live.length) verified.current = live;
+      }
       if (Object.keys(next).length) {
         setQuotes(prev => ({ ...prev, ...next }));
         setLastTickAt(now);
+        // REST is a fallback, not the live feed. Only claim 'socket' freshness
+        // when the socket itself has delivered recently.
+        setSource(Date.now() - lastSocketAt.current < SOCKET_SILENCE_TIMEOUT_MS ? 'socket' : 'rest');
       }
     } catch {
       setStatus(s => (s === 'live' ? 'degraded' : 'offline'));
     }
-  }, [symbols]);
+  }, [symbolKey]);
 
   // ── WebSocket lifecycle ────────────────────────────────────────────────────
   useEffect(() => {
@@ -141,7 +195,12 @@ export function LivePriceProvider({
 
     const connect = () => {
       if (closedByUs.current) return;
-      const streams = symbols.map(s => `${s.toLowerCase()}usdt@ticker`).join('/');
+      // Prefer the REST-confirmed list; before the seed lands, fall back to the
+      // configured symbols so the socket is not blocked on the first poll.
+      const subscribe = verified.current ?? symbolKey.split(',').filter(Boolean);
+      if (!subscribe.length) return;
+
+      const streams = subscribe.map(s => `${s.toLowerCase()}usdt@ticker`).join('/');
       let ws: WebSocket;
       try {
         ws = new WebSocket(`wss://stream.binance.com:9443/stream?streams=${streams}`);
@@ -154,6 +213,9 @@ export function LivePriceProvider({
 
       ws.onopen = () => {
         reconnectAttempt.current = 0;
+        // Not 'live' until a frame actually arrives: an accepted connection that
+        // never delivers is exactly the case the watchdog below exists for.
+        lastSocketAt.current = Date.now();
         setStatus('live');
       };
 
@@ -161,6 +223,7 @@ export function LivePriceProvider({
         try {
           const d = JSON.parse(event.data)?.data;
           if (!d?.s) return;
+          lastSocketAt.current = Date.now();
           queue({
             symbol: bareSymbol(d.s),
             price: parseFloat(d.c),
@@ -185,6 +248,22 @@ export function LivePriceProvider({
       };
     };
 
+    /**
+     * Force a rebuild when the socket goes quiet. readyState stays OPEN on a
+     * half-open connection and after Binance's 24 h stream expiry, so 'onclose'
+     * alone does not catch this — without the watchdog the badge keeps saying
+     * LIVE while every panel shows prices from the 30 s REST poll.
+     */
+    const watchdog = setInterval(() => {
+      if (closedByUs.current || document.hidden) return;
+      const ws = socket.current;
+      if (!ws || ws.readyState !== WebSocket.OPEN) return;
+      if (Date.now() - lastSocketAt.current < SOCKET_SILENCE_TIMEOUT_MS) return;
+      setStatus('degraded');
+      setSource('rest');
+      try { ws.close(); } catch { /* onclose schedules the reconnect */ }
+    }, WATCHDOG_INTERVAL_MS);
+
     const scheduleReconnect = () => {
       if (closedByUs.current || reconnectTimer.current) return;
       const attempt = Math.min(reconnectAttempt.current++, 5);
@@ -195,8 +274,13 @@ export function LivePriceProvider({
       }, delay);
     };
 
-    void pollOnce();     // seed immediately so the UI is never blank
-    connect();
+    // Seed first so the socket subscribes to a REST-confirmed symbol list, but
+    // never let a slow or blocked REST call hold the feed hostage — connect
+    // anyway after a short grace period and let the watchdog correct it.
+    const seeded = pollOnce();
+    const graceMs = 1500;
+    void Promise.race([seeded, new Promise(r => setTimeout(r, graceMs))])
+      .then(() => { if (!closedByUs.current && !socket.current) connect(); });
 
     // Safety net: if the socket silently stops delivering, REST keeps the
     // numbers moving and the status badge tells the truth about it.
@@ -209,9 +293,15 @@ export function LivePriceProvider({
     const onVisible = () => {
       if (document.hidden) return;
       void pollOnce();
-      if (!socket.current || socket.current.readyState > WebSocket.OPEN) {
+      const ws = socket.current;
+      const silent = Date.now() - lastSocketAt.current >= SOCKET_SILENCE_TIMEOUT_MS;
+      if (!ws || ws.readyState > WebSocket.OPEN) {
         reconnectAttempt.current = 0;
         connect();
+      } else if (silent) {
+        // Suspended sockets often come back OPEN but dead. Rebuild rather than
+        // trusting a connection that has not spoken since before the tab slept.
+        try { ws.close(); } catch { /* onclose schedules the reconnect */ }
       }
     };
     document.addEventListener('visibilitychange', onVisible);
@@ -220,8 +310,13 @@ export function LivePriceProvider({
       closedByUs.current = true;
       document.removeEventListener('visibilitychange', onVisible);
       clearInterval(poll);
-      if (reconnectTimer.current) clearTimeout(reconnectTimer.current);
-      if (frame.current !== null) cancelAnimationFrame(frame.current);
+      clearInterval(watchdog);
+      if (reconnectTimer.current) { clearTimeout(reconnectTimer.current); reconnectTimer.current = null; }
+      // Null the refs, not just cancel: a stale non-null frame id makes queue()
+      // believe a flush is already scheduled, and the feed stops updating for
+      // good on the next mount.
+      if (frame.current !== null) { cancelAnimationFrame(frame.current); frame.current = null; }
+      if (backstop.current !== null) { clearTimeout(backstop.current); backstop.current = null; }
       socket.current?.close();
       socket.current = null;
     };
@@ -240,11 +335,19 @@ export function LivePriceProvider({
 
   const value = useMemo<LivePriceStore>(() => ({
     quotes,
-    status: ageMs > STALE_AFTER_MS && status === 'live' ? 'degraded' : status,
+    // 'live' has to mean the socket is delivering. REST-sourced quotes are at
+    // best 30 s granular, so they are reported as degraded however recently the
+    // last poll landed — showing a poll result as a live tick is the exact
+    // dishonesty this store exists to avoid.
+    status:
+      status === 'live' && (ageMs > STALE_AFTER_MS || source === 'rest')
+        ? 'degraded'
+        : status,
     lastTickAt,
     ageMs,
+    source,
     get: (coin: string) => quotes[coin.replace(/USDT$/i, '').toUpperCase()],
-  }), [quotes, status, lastTickAt, ageMs]);
+  }), [quotes, status, lastTickAt, ageMs, source]);
 
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;
 }

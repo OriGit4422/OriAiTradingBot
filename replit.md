@@ -40,7 +40,6 @@ server/
   storage.ts           - Database storage interface (IStorage + DatabaseStorage)
   db.ts                - Drizzle/PostgreSQL connection
   ai-analysis.ts       - Claude AI market insight and signal analysis
-  ai-service.ts        - Claude AI signal generation, validation, strategy review, chat
 shared/
   schema.ts            - Drizzle schema (users, settings, strategies, signals, positions, wallet, userAccess)
   models/chat.ts       - Conversations and messages schema

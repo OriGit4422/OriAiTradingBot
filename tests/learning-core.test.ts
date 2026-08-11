@@ -10,10 +10,13 @@ import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
 
 import {
-  isotonic, buildSnapshot, applyLearning, tradesToOutcomes,
+  isotonic, buildSnapshot, applyLearning, tradesToOutcomes, realizedR, recencyWeight,
   MIN_SAMPLES, MIN_CONTEXT_SAMPLES, MAX_UPWARD_ADJUST, MAX_CONTEXT_ADJUST,
+  MAX_REALIZED_R, RECENCY_HALF_LIFE_DAYS, RECENCY_FLOOR,
   type TradeOutcome,
 } from '../server/agents/learning-core';
+
+const DAY_MS = 86_400_000;
 
 function makeOutcomes(spec: Array<Partial<TradeOutcome> & { n: number; win: boolean }>): TradeOutcome[] {
   const out: TradeOutcome[] = [];
@@ -211,11 +214,44 @@ describe('tradesToOutcomes', () => {
     assert.equal(tradesToOutcomes([{ ...base, status: 'open', pnl: null }]).length, 0);
   });
 
-  test('a win pays the planned R and a loss costs exactly 1R', () => {
-    const [win] = tradesToOutcomes([{ ...base, status: 'closed', pnl: 10 }]);
-    const [loss] = tradesToOutcomes([{ ...base, status: 'closed', pnl: -10 }]);
+  test('falls back to the planned R when riskAmount was never recorded', () => {
+    // Older rows predate riskAmount; they still count rather than being dropped.
+    const [win] = tradesToOutcomes([{ ...base, status: 'closed', pnl: 10, riskAmount: 0 }]);
+    const [loss] = tradesToOutcomes([{ ...base, status: 'closed', pnl: -10, riskAmount: 0 }]);
     assert.equal(win.pnlR, 2);
     assert.equal(loss.pnlR, -1);
+  });
+
+  test('uses realized R when riskAmount is recorded', () => {
+    // Risked $10, made $15 → 1.5R, whatever the plan said (rr is 2 here).
+    const [win] = tradesToOutcomes([{ ...base, status: 'closed', pnl: 15, riskAmount: 10 }]);
+    assert.equal(win.pnlR, 1.5);
+  });
+
+  test('a stop that slipped costs more than 1R', () => {
+    // The idealization this replaces booked every loss at exactly -1R, hiding
+    // slippage entirely — the most likely quiet drain on a real edge.
+    const [loss] = tradesToOutcomes([{ ...base, status: 'closed', pnl: -14, riskAmount: 10 }]);
+    assert.equal(loss.pnlR, -1.4);
+  });
+
+  test('a runner trailed out early is not booked as a full planned win', () => {
+    const [small] = tradesToOutcomes([{ ...base, status: 'closed', pnl: 3, riskAmount: 10, rr: 2 }]);
+    assert.equal(small.pnlR, 0.3);
+  });
+
+  test('a corrupt riskAmount cannot produce an unbounded outlier', () => {
+    const [o] = tradesToOutcomes([{ ...base, status: 'closed', pnl: 5000, riskAmount: 0.0001 }]);
+    assert.equal(o.pnlR, MAX_REALIZED_R);
+    const [neg] = tradesToOutcomes([{ ...base, status: 'closed', pnl: -5000, riskAmount: 0.0001 }]);
+    assert.equal(neg.pnlR, -MAX_REALIZED_R);
+  });
+
+  test('a negative or NaN riskAmount falls back instead of inverting the sign', () => {
+    const [neg] = tradesToOutcomes([{ ...base, status: 'closed', pnl: 10, riskAmount: -5 }]);
+    assert.equal(neg.pnlR, 2);
+    const [nan] = tradesToOutcomes([{ ...base, status: 'closed', pnl: 10, riskAmount: NaN }]);
+    assert.equal(nan.pnlR, 2);
   });
 
   test('break-even counts as a win, not a loss', () => {
@@ -232,5 +268,117 @@ describe('tradesToOutcomes', () => {
     const [o] = tradesToOutcomes([{ ...base, status: 'closed', pnl: 5, strategy: null, timeframe: null }]);
     assert.equal(o.strategy, 'unknown');
     assert.equal(o.timeframe, 'unknown');
+  });
+});
+
+describe('realizedR', () => {
+  test('is the ratio of what was made to what was risked', () => {
+    assert.equal(realizedR({ pnl: 20, riskAmount: 10, rr: 3 }), 2);
+    assert.equal(realizedR({ pnl: -10, riskAmount: 10, rr: 3 }), -1);
+    assert.equal(realizedR({ pnl: 0, riskAmount: 10, rr: 3 }), 0);
+  });
+
+  test('a break-even trade is 0R, not the planned win', () => {
+    // It counts as a "win" for hit rate, but it earned nothing, and expectancy
+    // has to see that.
+    assert.equal(realizedR({ pnl: 0, riskAmount: 10, rr: 2 }), 0);
+  });
+
+  test('is bounded in both directions', () => {
+    assert.ok(Math.abs(realizedR({ pnl: 1e9, riskAmount: 1e-9, rr: 2 })) <= MAX_REALIZED_R);
+    assert.ok(Math.abs(realizedR({ pnl: -1e9, riskAmount: 1e-9, rr: 2 })) <= MAX_REALIZED_R);
+  });
+
+  test('missing rr and missing riskAmount together still yield a usable number', () => {
+    assert.equal(realizedR({ pnl: 5, riskAmount: null as any, rr: null }), 1);
+    assert.equal(realizedR({ pnl: -5, riskAmount: null as any, rr: null }), -1);
+  });
+});
+
+describe('recency weighting', () => {
+  test('a trade closed today carries full weight', () => {
+    assert.equal(recencyWeight(0), 1);
+  });
+
+  test('weight halves over the half-life', () => {
+    assert.ok(Math.abs(recencyWeight(RECENCY_HALF_LIFE_DAYS) - 0.5) < 1e-9);
+  });
+
+  test('weight decreases monotonically with age', () => {
+    let prev = Infinity;
+    for (const d of [0, 10, 30, 60, 120, 365, 3650]) {
+      const w = recencyWeight(d);
+      assert.ok(w <= prev + 1e-9, `weight rose at ${d} days`);
+      prev = w;
+    }
+  });
+
+  test('old evidence is discounted but never erased', () => {
+    // A long losing history must not be able to age out of the record.
+    assert.equal(recencyWeight(100_000), RECENCY_FLOOR);
+    assert.ok(RECENCY_FLOOR > 0);
+  });
+
+  test('a missing or nonsensical age is treated as current, not as zero weight', () => {
+    assert.equal(recencyWeight(NaN), 1);
+    assert.equal(recencyWeight(-5), 1);
+    assert.equal(recencyWeight(Infinity), RECENCY_FLOOR);
+  });
+
+  test('recent losses outweigh older wins in a context multiplier', () => {
+    const now = Date.now();
+    const old = (win: boolean, n: number) => Array.from({ length: n }, () => ({
+      confidence: 70, win, pnlR: win ? 2 : -1,
+      strategy: 'Fading', timeframe: '1h', direction: 'LONG',
+      closedAt: new Date(now - 300 * DAY_MS),
+    }));
+    const recent = (win: boolean, n: number) => Array.from({ length: n }, () => ({
+      confidence: 70, win, pnlR: win ? 2 : -1,
+      strategy: 'Fading', timeframe: '1h', direction: 'LONG',
+      closedAt: new Date(now - 2 * DAY_MS),
+    }));
+
+    const snap = buildSnapshot([...old(true, 30), ...recent(false, 30)], now);
+    const fading = snap.contexts.find(c => c.kind === 'strategy' && c.key === 'Fading')!;
+
+    // Unweighted this book is exactly break-even on count; weighted, the recent
+    // losing half dominates, so expectancy must read negative.
+    assert.ok(fading.expectancyR < 0, `expected a negative read, got ${fading.expectancyR}R`);
+  });
+
+  test('decay cannot let a thin context clear the evidence gate', () => {
+    const now = Date.now();
+    const thin = Array.from({ length: MIN_CONTEXT_SAMPLES - 1 }, () => ({
+      confidence: 70, win: false, pnlR: -1,
+      strategy: 'Thin', timeframe: '1h', direction: 'LONG',
+      closedAt: new Date(now),
+    }));
+    const filler = Array.from({ length: MIN_SAMPLES }, () => ({
+      confidence: 70, win: true, pnlR: 2,
+      strategy: 'Other', timeframe: '4h', direction: 'SHORT',
+      closedAt: new Date(now),
+    }));
+    const snap = buildSnapshot([...thin, ...filler], now);
+    const t = snap.contexts.find(c => c.kind === 'strategy' && c.key === 'Thin')!;
+    assert.equal(t.applied, false, 'a sub-threshold context must never be applied');
+  });
+
+  test('buildSnapshot is deterministic for a fixed `now`', () => {
+    const now = 1_700_000_000_000;
+    const outcomes = Array.from({ length: 40 }, (_, i) => ({
+      confidence: 70, win: i % 2 === 0, pnlR: i % 2 === 0 ? 1.7 : -1.1,
+      strategy: 'SMC', timeframe: '1h', direction: 'LONG',
+      closedAt: new Date(now - i * DAY_MS),
+    }));
+    assert.deepEqual(buildSnapshot(outcomes, now), buildSnapshot(outcomes, now));
+  });
+
+  test('outcomes without a closedAt still produce a valid snapshot', () => {
+    const outcomes: TradeOutcome[] = Array.from({ length: 30 }, () => ({
+      confidence: 70, win: true, pnlR: 2, strategy: 'SMC', timeframe: '1h', direction: 'LONG',
+    }));
+    const snap = buildSnapshot(outcomes);
+    assert.equal(snap.sampleSize, 30);
+    assert.ok(Number.isFinite(snap.expectancyR!));
   });
 });

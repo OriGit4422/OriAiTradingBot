@@ -1,7 +1,8 @@
-import { useEffect, useState, useCallback } from 'react';
-import { fetch24hTicker } from '@/lib/binance';
+import { useMemo } from 'react';
 import { cn } from '@/lib/utils';
 import { Grid3X3, RefreshCw } from 'lucide-react';
+import { useLivePrices } from '@/lib/live-price-store';
+import { LiveFeedBadge } from './LiveFeedBadge';
 
 const COINS = [
   'BTC', 'ETH', 'BNB', 'SOL', 'XRP', 'ADA', 'AVAX', 'DOGE',
@@ -34,37 +35,22 @@ interface MarketHeatmapProps {
 }
 
 export function MarketHeatmap({ onSelectCoin }: MarketHeatmapProps) {
-  const [coins, setCoins] = useState<CoinData[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [lastUpdate, setLastUpdate] = useState<Date | null>(null);
+  // Reads the shared WebSocket feed — no poll loop, sub-second freshness.
+  const { quotes, lastTickAt } = useLivePrices();
 
-  const loadData = useCallback(async () => {
-    try {
-      const tickers = await fetch24hTicker();
-      const data: CoinData[] = COINS.map(coin => {
-        const t = tickers.find((t: any) => t.symbol === `${coin}USDT`);
-        if (!t) return null;
-        return {
-          symbol: coin,
-          price: parseFloat(t.lastPrice),
-          change: parseFloat(t.priceChangePercent),
-          volume: parseFloat(t.quoteVolume),
-        };
-      }).filter(Boolean) as CoinData[];
+  const coins = useMemo<CoinData[]>(() => {
+    return COINS
+      .map(coin => {
+        const q = quotes[coin];
+        if (!q) return null;
+        return { symbol: coin, price: q.price, change: q.changePercent, volume: q.quoteVolume };
+      })
+      .filter(Boolean as unknown as (v: CoinData | null) => v is CoinData)
+      .sort((a, b) => b.volume - a.volume);
+  }, [quotes]);
 
-      setCoins(data.sort((a, b) => b.volume - a.volume));
-      setLastUpdate(new Date());
-      setLoading(false);
-    } catch (e) {
-      setLoading(false);
-    }
-  }, []);
-
-  useEffect(() => {
-    loadData();
-    const interval = setInterval(() => { if (!document.hidden) loadData(); }, 30000);
-    return () => clearInterval(interval);
-  }, [loadData]);
+  const loading = coins.length === 0;
+  const lastUpdate = lastTickAt ? new Date(lastTickAt) : null;
 
   const positiveCount = coins.filter(c => c.change >= 0).length;
   const negativeCount = coins.filter(c => c.change < 0).length;
@@ -88,9 +74,9 @@ export function MarketHeatmap({ onSelectCoin }: MarketHeatmapProps) {
             <span className="w-2.5 h-2.5 rounded-sm bg-red-400 inline-block ml-1" />
             <span className="text-red-500 font-bold">{negativeCount}</span>
           </div>
-          <button onClick={loadData} className="p-1 hover:bg-muted/40 rounded">
-            <RefreshCw className={cn('w-3 h-3 text-muted-foreground', loading && 'animate-spin')} />
-          </button>
+          {loading
+            ? <RefreshCw className="w-3 h-3 text-muted-foreground animate-spin" />
+            : <LiveFeedBadge />}
         </div>
       </div>
 

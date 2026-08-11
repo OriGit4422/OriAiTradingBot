@@ -82,7 +82,10 @@ export function SignalStoreProvider({ children }: { children: React.ReactNode })
       .filter((r): r is PromiseFulfilledResult<SharedSignal> => r.status === 'fulfilled' && r.value !== null)
       .map(r => r.value);
 
-    const enhanced = await enhanceSignalsWithAI(raw, 12);
+    // Only the top few setups get an AI opinion. Every signal still carries a
+    // full deterministic score; asking the model about all 48 coin/timeframe
+    // pairs every cycle was the single largest source of API spend in the app.
+    const enhanced = await enhanceSignalsWithAI(raw, 3);
     setSignals(enhanced);
     setConfluenceData(calculateMultiTFConfluence(enhanced));
     setLastUpdated(new Date());

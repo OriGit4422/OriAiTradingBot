@@ -1,13 +1,18 @@
 import { callMultiAI, extractJson, type AIMessage } from './ai-providers';
 
 const AI_PROVIDER_COOLDOWN_MS = 5 * 60 * 1000;
+/** When the daily budget guard trips, back off for an hour rather than 5 min. */
+const AI_BUDGET_COOLDOWN_MS = 60 * 60 * 1000;
 let aiProviderDisabledUntil = 0;
 
 // ── Response caches to avoid redundant AI calls ──────────────────────────────
 const signalAnalysisCache = new Map<string, { result: any; expiresAt: number }>();
 const marketInsightCache = new Map<string, { result: any; expiresAt: number }>();
-const SIGNAL_CACHE_TTL_MS = 5 * 60 * 1000;   // 5 min — signals don't change that fast
-const MARKET_INSIGHT_CACHE_TTL_MS = 10 * 60 * 1000; // 10 min
+// A signal's inputs are candle-derived; on a 15m+ timeframe they cannot
+// meaningfully change inside a quarter hour, so re-asking the model inside that
+// window buys nothing but spend.
+const SIGNAL_CACHE_TTL_MS = 15 * 60 * 1000;
+const MARKET_INSIGHT_CACHE_TTL_MS = 30 * 60 * 1000;
 
 export interface AISignalAnalysis {
   verdict: 'STRONG_BUY' | 'BUY' | 'NEUTRAL' | 'SELL' | 'STRONG_SELL';
@@ -104,65 +109,33 @@ export async function analyzeSignalWithAI(signalData: {
     const rr = (Math.abs(signalData.tp - signalData.entry) / Math.abs(signalData.entry - signalData.sl)).toFixed(2);
     const ctx = signalData.agentContext;
 
-    const agentBlock = ctx ? `
-Multi-Agent Intelligence (already gathered — use this to sharpen your assessment):
-${ctx.coinglassBias    ? `- Derivatives (Coinglass):   Bias=${ctx.coinglassBias}, Signal="${ctx.coinglassSignal}", Funding=${ctx.fundingRate?.toFixed(5)}%, Longs=${ctx.longPercent?.toFixed(0)}%` : ''}
-${ctx.newsSentiment    ? `- News (Perplexity):         Sentiment=${ctx.newsSentiment}, RiskLevel=${ctx.newsRiskLevel}, Headline="${ctx.newsHeadline}"` : ''}
-${ctx.newsImpact       ? `- News (NewsAPI):            Overall=${ctx.newsImpact}${ctx.newsTopHeadlines?.length ? `, Top headlines: ${ctx.newsTopHeadlines.slice(0,3).map((h,i) => `[${i+1}] ${h}`).join(' | ')}` : ''}` : ''}
-${ctx.xSentiment       ? `- X/Social Sentiment:        ${ctx.xSentiment}` : ''}
-${ctx.whaleBias        ? `- Whale Flow (Arkham):       Bias=${ctx.whaleBias}, Signal="${ctx.whaleSignal}"` : ''}
-${ctx.smcStructure     ? `- SMC Market Structure:      ${ctx.smcStructure} (RSI Div=${ctx.rsiDivergence}, Phase=${ctx.marketPhase})` : ''}
-${ctx.quantumLiquidityScore !== undefined ? `- Strategy Scores (0-100):   SMC=${ctx.smcScore}, ICT=${ctx.ictScore}, Quantum-Liquidity=${ctx.quantumLiquidityScore}, Liquidity-Depth=${ctx.liquidityDepthScore}, CRT=${ctx.crtScore}` : ''}
-${ctx.smcV4Score !== undefined ? `- SMC/ICT Engine v4 Score:   ${ctx.smcV4Score}/10 (${ctx.smcV4Grade}) | Setup: ${ctx.smcV4Label} | Zone: ${ctx.premiumDiscount} | OTE: ${ctx.inOTEZone ? 'YES ✓' : 'NO'} | Breakers: ${ctx.breakerBlocks} | CISD: ${ctx.cisdCount} | PO3: ${ctx.powerOf3Phase}/${ctx.powerOf3Direction}` : ''}
-${ctx.liquidityClusters !== undefined ? `- Liquidity Clusters:        ${ctx.liquidityClusters} active clusters, Whale=${ctx.whaleActivity}, Volume=${ctx.volumeProfile}/${ctx.volumeForecast}` : ''}
-${ctx.ensembleDirection ? `- Ensemble Model:            Direction=${ctx.ensembleDirection}, Confidence=${ctx.ensembleConfidence}%, Ichimoku=${ctx.ichimokuSignal}` : ''}
-` : '';
+    // Token-minimal context. Every value below was already computed
+    // deterministically — the model is asked to weigh them, not to be taught
+    // the methodology. Restating the ICT scoring rubric on every call cost
+    // ~900 input tokens per signal and never changed the verdict distribution.
+    const parts: string[] = [];
+    if (ctx?.coinglassBias) parts.push(`deriv=${ctx.coinglassBias}/fund${ctx.fundingRate?.toFixed(3)}/L${ctx.longPercent?.toFixed(0)}`);
+    if (ctx?.newsSentiment) parts.push(`news=${ctx.newsSentiment}/${ctx.newsRiskLevel}`);
+    if (ctx?.xSentiment) parts.push(`social=${ctx.xSentiment}`);
+    if (ctx?.whaleBias) parts.push(`whale=${ctx.whaleBias}`);
+    if (ctx?.smcStructure) parts.push(`smc=${ctx.smcStructure}/div${ctx.rsiDivergence}/phase${ctx.marketPhase}`);
+    if (ctx?.quantumLiquidityScore !== undefined) parts.push(`scores SMC${ctx.smcScore}/ICT${ctx.ictScore}/QL${ctx.quantumLiquidityScore}/LD${ctx.liquidityDepthScore}`);
+    if (ctx?.smcV4Score !== undefined) parts.push(`v4=${ctx.smcV4Score}/10 ${ctx.smcV4Grade} zone${ctx.premiumDiscount} OTE${ctx.inOTEZone ? 'Y' : 'N'} brk${ctx.breakerBlocks} PO3${ctx.powerOf3Phase}`);
+    if (ctx?.ensembleDirection) parts.push(`ens=${ctx.ensembleDirection}@${ctx.ensembleConfidence}%`);
+    const agentBlock = parts.length ? `\nContext: ${parts.join(' | ')}` : '';
 
-    const prompt = `You are a senior crypto trading analyst AI with access to multi-source intelligence. Analyze this trading signal and provide a calibrated assessment.
-
-Signal Data:
-- Coin: ${signalData.coin}/USDT
-- Direction: ${signalData.type}
-- Strategy: ${signalData.strategy}
-- Entry: $${signalData.entry.toFixed(4)} | TP: $${signalData.tp.toFixed(4)} | SL: $${signalData.sl.toFixed(4)}
-- Market Price: $${signalData.marketPrice.toFixed(4)}
-- Timeframe: ${signalData.timeframe}
-- Base Confidence: ${signalData.confidence}%
-- Risk/Reward: 1:${rr}
-${agentBlock}
-Instructions — apply SMC/ICT Engine v4 methodology:
-1. Evaluate the technical merit using the full SMC/ICT Engine v4 framework:
-   - Layer 1 (HTF Context): HTF Bias (EMA50 higher TF), BOS/CHoCH, Premium/Discount zone (50% equilibrium), Kill Zones (London 7-9am UTC / NY 1-3pm UTC)
-   - Layer 2 (Zone Detection): Order Blocks (demand/supply OB), Breaker Blocks (failed OB flipped polarity — highest quality zone), Fair Value Gaps (3-candle imbalance), OTE Zone (61.8-79% Fibonacci)
-   - Layer 3 (Triggers): Liquidity Sweeps (EQH/EQL hunted + reversed), CISD (Change in State of Delivery — delivery shift), Power of 3 PO3 (Accumulation → Manipulation → Distribution)
-2. SMC/ICT Engine v4 Scoring (0-10): HTF+Sweep (+4.0), OB/Breaker (+2.0-4.0), OTE+FVG (+2.5), KZ+BOS (+2.0), PO3+CISD (+1.5). Grade: A+ Prime ≥9.0, A Strong ≥7.5, B+ Good ≥6.0, B Fair ≥5.0, Skip <5.0.
-3. R:R quality: R:R < 1.5 = deduct 20 pts; 1.5-2.0 = deduct 10 pts; 2.0-2.5 = neutral; ≥2.5 = add 5 pts; ≥3.0 = add 10 pts.
-4. Multi-Agent Intelligence weighting (when provided):
-   - SMC structure alignment with signal direction: ±10 pts
-   - Breaker Block or high-quality OB at entry: +8 pts; no zone: -5 pts
-   - Price in OTE zone (61.8-79% Fib) + FVG present: +8 pts
-   - Liquidity sweep confirmed (EQH/EQL hunted): +7 pts; no sweep: -3 pts
-   - PO3 Distribution phase + CISD: +6 pts
-   - Kill zone timing: +4 pts; off-hours: -3 pts
-   - News sentiment / X-social sentiment aligned: +5 pts; conflicting: -8 pts
-   - Whale flow + funding rate alignment: +5 pts; opposing: -5 pts
-   - Ensemble model direction conflict: -10 pts
-5. Higher-timeframe signals (1D, 1W) deserve more weight — only confirm if SMC structure + liquidity context truly support the bias.
-6. Never exceed 95% or go below 10% for adjustedConfidence.
-7. Be concise and precise — reference specific ICT v4 concepts and agent data points you used.
-
-Respond in JSON only:
-{
-  "verdict": "STRONG_BUY" | "BUY" | "NEUTRAL" | "SELL" | "STRONG_SELL",
-  "adjustedConfidence": <number 0-100>,
-  "reasoning": "<2-3 sentence analysis referencing the multi-agent data if present>",
-  "riskLevel": "LOW" | "MEDIUM" | "HIGH",
-  "keyLevels": { "support": <number>, "resistance": <number> },
-  "marketSentiment": "<brief 1-sentence sentiment>"
-}`;
+    const prompt = `Crypto signal review. Indicators are already computed — weigh them, do not recompute.
+${signalData.type} ${signalData.coin} ${signalData.timeframe} | entry ${signalData.entry.toFixed(4)} tp ${signalData.tp.toFixed(4)} sl ${signalData.sl.toFixed(4)} | R:R 1:${rr} | base ${signalData.confidence}% | ${signalData.strategy}${agentBlock}
+Rules: R:R<1.5 → cut hard. Context conflicting with direction → cut. Aligned SMC/v4 + sweep + OTE → support. Range 10-95.
+JSON only: {"verdict":"STRONG_BUY|BUY|NEUTRAL|SELL|STRONG_SELL","adjustedConfidence":<int>,"reasoning":"<max 25 words>","riskLevel":"LOW|MEDIUM|HIGH","keyLevels":{"support":<num>,"resistance":<num>},"marketSentiment":"<max 8 words>"}`;
 
     const messages: AIMessage[] = [{ role: 'user', content: prompt }];
-    const { text } = await callMultiAI(messages, 800);
+    const { text } = await callMultiAI(messages, {
+      maxTokens: 220,
+      tier: 'normal',
+      cacheTtlMs: SIGNAL_CACHE_TTL_MS,
+      label: 'signal-analysis',
+    });
 
     const jsonMatch = extractJson(text);
     if (!jsonMatch) throw new Error('Could not parse AI response');
@@ -182,7 +155,14 @@ Respond in JSON only:
     if (error.message?.includes('No AI providers configured')) {
       aiProviderDisabledUntil = Date.now() + AI_PROVIDER_COOLDOWN_MS;
     }
-    console.error('AI analysis error:', error?.message || error);
+    // Budget guard tripped: stop hammering the endpoint for the rest of the hour.
+    // The deterministic fallback is used and the signal is still tradeable.
+    if (error?.budgetExceeded) {
+      aiProviderDisabledUntil = Date.now() + AI_BUDGET_COOLDOWN_MS;
+      console.warn('[ai-analysis] AI budget reached — deterministic fallback for 1h:', error.message);
+    } else {
+      console.error('AI analysis error:', error?.message || error);
+    }
     return getAIFallback(signalData);
   }
 }

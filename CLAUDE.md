@@ -8,6 +8,28 @@
 
 - **Phase 0 before Phase 1.** Any new strategy logic must be validated via `validation/backtest_validator.py` before being wired into the live bot. The gate: bootstrap CI lower bound > 0 on 2 of 3 pairs after costs.
 
+- **Learning is bounded and evidence-gated.** `agents/learning-core.ts` calibrates confidence against realized outcomes (isotonic regression + Bayesian shrinkage). It may cut confidence freely but never adds more than `MAX_UPWARD_ADJUST` points, and is a no-op below `MIN_SAMPLES` closed trades. It runs on pure math — no AI calls.
+
+## AI Cost Discipline
+
+Every AI call goes through `ai-budget.ts`. Nothing calls a provider directly.
+
+| Control | Behaviour |
+|---------|-----------|
+| Daily cap | `$0.05` per provider by default (`AI_DAILY_BUDGET_USD`, or `POST /api/ai/budget`) |
+| Tier: `critical` | AI veto on a tradeable signal — allowed up to 100% of budget |
+| Tier: `normal` | signal analysis — cut off at 75% |
+| Tier: `cosmetic` | narratives, moods, prose — cut off at 35% |
+| Cache | content-hashed, TTL per tier; a repeat prompt costs $0 |
+| Single-flight | concurrent identical prompts collapse to one request |
+| Ledger | real provider token usage, priced and persisted per UTC day |
+
+Rules when adding an AI call:
+- Declare a `tier`. Untagged calls default to `normal`.
+- If the value is display-only prose, it is `cosmetic` — or better, derive it deterministically.
+- Never send the model values it cannot change. Restating a scoring rubric on every call is pure token cost.
+- Handle `AIBudgetExceededError` by falling back to the deterministic path. Losing the AI layer must never block a signal or silently penalise its confidence.
+
 ## Hard-coded Risk Rules (not config-overridable below the floor)
 
 | Rule | Value |
@@ -49,14 +71,26 @@ server/
     risk-management-agent.ts     ← risk + regime detection
     market-intelligence-agent.ts ← macro context
     trade-journal-agent.ts       ← stats + calibration
+    learning-core.ts             ← pure calibration math (no I/O, unit-tested)
+    learning-engine.ts           ← loads trades, caches, schedules the refresh
     market-scanner.ts
+  ai-budget.ts               ← daily spend cap, cache, single-flight, ledger
+  ai-budget-persistence.ts   ← ledger survives restarts
+  ai-providers.ts            ← the ONLY place that talks to an AI provider
+  accuracy.ts                ← realized accuracy report (/api/agents/accuracy)
   bot-engine.ts              ← execution, sizing, state
   routes.ts                  ← REST API
 validation/
   backtest_validator.py      ← Phase 0 edge validation (run before changing strategy)
+tests/                       ← node:test suites, `npm test`
 client/
   src/
+    lib/live-price-store.tsx ← single WebSocket price feed for the whole app
     pages/
     components/
 CLAUDE.md                    ← this file
 ```
+
+## Live Data
+
+Prices come from one shared Binance WebSocket (`lib/live-price-store.tsx`), batched to one React commit per frame. Panels must read from `useLivePrices()` — do not add per-component poll loops. REST is the cold-start seed and the fallback only. Staleness is always shown via `LiveFeedBadge`, never hidden.

@@ -17,6 +17,7 @@ import BotPage from "@/pages/bot";
 import AgentsPage from "@/pages/agents";
 import NotFound from "@/pages/not-found";
 import { applyThemeById, getActiveThemeId } from "@/lib/themes";
+import { LivePriceProvider } from "@/lib/live-price-store";
 
 // Apply saved theme immediately on boot (before first paint)
 applyThemeById(getActiveThemeId());
@@ -79,8 +80,12 @@ function App() {
   return (
     <QueryClientProvider client={queryClient}>
       <TooltipProvider>
-        <Toaster />
-        <Router />
+        {/* One shared WebSocket feed for every page — panels read from it
+            instead of each running their own 20–30 s poll loop. */}
+        <LivePriceProvider>
+          <Toaster />
+          <Router />
+        </LivePriceProvider>
       </TooltipProvider>
     </QueryClientProvider>
   );

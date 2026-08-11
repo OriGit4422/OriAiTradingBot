@@ -144,7 +144,11 @@ Analyze and provide insights + weight adjustments.`,
       },
     ];
 
-    const res = await callAIProvider(provider, messages, 800);
+    // Periodic narrative report — large output, zero effect on any trade
+    // decision, so it is capped tightly and runs at the lowest tier.
+    const res = await callAIProvider(provider, messages, {
+      maxTokens: 350, tier: 'cosmetic', cacheTtlMs: 6 * 60 * 60 * 1000, label: 'journal-report',
+    });
     const json = extractJson(res.text);
     if (json) {
       const parsed = JSON.parse(json);

@@ -10,6 +10,7 @@ import {
   Eye, Cpu, Layers, Clock, DollarSign, Play, Square, Radar,
   Bell, Loader2, ChevronDown, ChevronUp, Settings2,
 } from 'lucide-react';
+import { AccuracyPanel } from '@/components/dashboard/AccuracyPanel';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -253,6 +254,12 @@ export default function AgentsPage() {
               </h1>
               <p className="text-slate-400 text-sm mt-0.5">6 autonomous agents scanning markets, learning from trades, and generating real signals</p>
             </div>
+          </div>
+
+          {/* ── SIGNAL ACCURACY ───────────────────────────────────────────── */}
+          {/* Realized performance, self-calibration state and AI spend. */}
+          <div className="rounded-2xl border-2 border-blue-500/30 bg-slate-900/60 overflow-hidden">
+            <AccuracyPanel />
           </div>
 
           {/* ── SCANNER CONTROL PANEL ─────────────────────────────────────── */}

@@ -8,7 +8,8 @@
  */
 
 import { storage } from './storage';
-import { callMultiAI, extractJson, type AIMessage } from './ai-providers';
+import { callMultiAI, type AIMessage } from './ai-providers';
+import { getMarketRegime } from './agents/market-intelligence-agent';
 import type { Signal } from '@shared/schema';
 
 // ─── Telegram helpers ────────────────────────────────────────────────────────
@@ -36,120 +37,35 @@ function esc(s: string | number): string {
   return String(s).replace(/[_*[\]()~`>#+\-=|{}.!\\]/g, '\\$&');
 }
 
-// ─── AI-generated signals when DB is thin ────────────────────────────────────
-
-interface AIGeneratedSignal {
-  coin: string;
-  type: 'LONG' | 'SHORT';
-  entry: number;
-  tp: number;
-  sl: number;
-  confidence: number;
-  timeframe: string;
-  strategy: string;
-  reasoning: string;
-  riskLevel: string;
-  keyLevels: string;
-  sentiment: string;
-}
-
-const TIMEFRAMES = ['1m', '5m', '15m', '30m', '1h', '2h', '4h', '6h', '12h', '1d', '3d', '1w'];
-const TOP_COINS = ['BTC', 'ETH', 'BNB', 'SOL', 'XRP', 'ADA', 'DOGE', 'AVAX', 'DOT', 'LINK', 'MATIC', 'LTC'];
-
-async function generateAISignals(count: number, existingTimeframes: Set<string>, excludeCoins: Set<string> = new Set()): Promise<AIGeneratedSignal[]> {
-  const preferredTF = TIMEFRAMES.filter(tf => !existingTimeframes.has(tf));
-  // Exclude coins already sent last hour to force variety
-  const availableCoins = TOP_COINS.filter(c => !excludeCoins.has(c));
-  const coinPool = availableCoins.length >= count ? availableCoins : TOP_COINS;
-  const coins = [...coinPool].sort(() => Math.random() - 0.5).slice(0, Math.min(count + 2, coinPool.length));
-
-  const now = new Date();
-  const hourTag = `${now.toISOString().slice(0, 13)}:00 UTC`; // e.g. "2025-06-20T14:00 UTC"
-
-  const system = `You are an elite crypto trading analyst. Generate high-confidence trade signals with detailed reasoning.
-Return ONLY valid JSON array. No markdown, no code blocks.`;
-
-  const userMsg = `Generate ${count} crypto trading signals for the hourly alert at ${hourTag}.
-
-CRITICAL — use CURRENT realistic market prices for ${hourTag}. Approximate price ranges as of mid-2026:
-- BTC: ~$105,000–115,000  ETH: ~$3,800–4,400  BNB: ~$680–720  SOL: ~$180–220
-- XRP: ~$2.80–3.20  ADA: ~$0.90–1.10  DOGE: ~$0.22–0.28  AVAX: ~$35–45
-- LINK: ~$18–24  DOT: ~$8–12  LTC: ~$110–130  UNI: ~$9–13
-- ATOM: ~$7–10  NEAR: ~$5–8  ARB: ~$0.80–1.20  OP: ~$1.20–1.80
-- APT: ~$8–12  INJ: ~$20–30  TIA: ~$4–7
-
-Requirements:
-- FRESH analysis for ${hourTag} — do NOT use prices from old signals or training data.
-- Use realistic current prices from the ranges above (add variation, not round numbers).
-- Confidence range 55–78%. Only assign higher if multiple strong factors truly align.
-- Diverse timeframes, preferring: ${preferredTF.slice(0, 6).join(', ')}
-- TP should be 1.5x–3x the SL distance (good R:R)
-- Coins to analyze: ${coins.join(', ')}
-
-Return JSON array:
-[
-  {
-    "coin": "BTC",
-    "type": "LONG or SHORT",
-    "entry": 108450.50,
-    "tp": 112800.00,
-    "sl": 106200.00,
-    "confidence": 68,
-    "timeframe": "4h",
-    "strategy": "SMC Breakout / ICT MSS / RSI Divergence / etc",
-    "reasoning": "2-3 sentence technical analysis with pattern, momentum, and key level references.",
-    "riskLevel": "LOW or MEDIUM",
-    "keyLevels": "Support $X / Resistance $Y",
-    "sentiment": "BULLISH or BEARISH"
-  }
-]`;
-
-  try {
-    const messages: AIMessage[] = [
-      { role: 'system', content: system },
-      { role: 'user', content: userMsg },
-    ];
-    const { text } = await callMultiAI(messages, 1200);
-    const jsonMatch = extractJson(text);
-    if (!jsonMatch) return [];
-    const parsed: any[] = JSON.parse(jsonMatch);
-    return parsed.filter(s =>
-      s.coin && s.type && s.entry > 0 && s.tp > 0 && s.sl > 0 && s.confidence >= 55
-    ).map(s => ({
-      coin: String(s.coin).toUpperCase(),
-      type: s.type === 'SHORT' ? 'SHORT' : 'LONG',
-      entry: Number(s.entry),
-      tp: Number(s.tp),
-      sl: Number(s.sl),
-      confidence: Math.min(80, Math.max(55, Number(s.confidence))),
-      timeframe: String(s.timeframe || '1h'),
-      strategy: String(s.strategy || 'AI Analysis'),
-      reasoning: String(s.reasoning || 'Strong technical confluence detected.'),
-      riskLevel: String(s.riskLevel || 'MEDIUM'),
-      keyLevels: String(s.keyLevels || 'Key levels near entry'),
-      sentiment: String(s.sentiment || 'BULLISH'),
-    }));
-  } catch {
-    return [];
-  }
-}
-
 // ─── Signal enrichment (reasoning for DB signals) ────────────────────────────
+//
+// NOTE: an earlier `generateAISignals()` helper asked the model to invent
+// entries/TPs/SLs from a hardcoded price table when the DB was thin. It was
+// already unreachable, and it fabricated prices, so it has been removed rather
+// than left as a landmine. The alert now sends real signals or nothing.
 
+/**
+ * One short sentence of prose per signal. Purely decorative: the numbers in the
+ * alert all come from the deterministic engine, so this is 'cosmetic' tier and
+ * is the first thing dropped when the daily AI budget runs low.
+ */
 async function enrichSignalWithReasoning(signal: Signal): Promise<string> {
   const dir = signal.type === 'LONG' ? 'bullish' : 'bearish';
   const rr = signal.sl !== 0 ? (Math.abs(signal.tp - signal.entry) / Math.abs(signal.entry - signal.sl)).toFixed(2) : 'N/A';
-  const hourTag = new Date().toISOString().slice(0, 13); // changes every hour, forces fresh AI response
+  const fallback = `${dir.charAt(0).toUpperCase() + dir.slice(1)} confluence on ${signal.timeframe} with R:R ${rr}. ${signal.strategy} setup.`;
   try {
     const messages: AIMessage[] = [
-      { role: 'system', content: 'You are a professional crypto analyst. Provide a concise 2-sentence trade reasoning.' },
-      { role: 'user', content: `[${hourTag}] Explain why ${signal.coin}/USDT is a ${dir} trade on ${signal.timeframe} timeframe. Entry: ${signal.entry}, TP: ${signal.tp}, SL: ${signal.sl}, R:R ${rr}. Strategy: ${signal.strategy}. Keep it under 200 characters.` },
+      { role: 'user', content: `One sentence, max 140 chars, why ${signal.coin} ${signal.type} on ${signal.timeframe} (R:R ${rr}, ${signal.strategy}). No preamble.` },
     ];
-    const { text } = await callMultiAI(messages, 256);
-    return text.trim().slice(0, 280);
+    const { text } = await callMultiAI(messages, {
+      maxTokens: 60,
+      tier: 'cosmetic',
+      cacheTtlMs: 60 * 60 * 1000,
+      label: 'alert-reasoning',
+    });
+    return text.trim().slice(0, 200) || fallback;
   } catch {
-    const dir2 = signal.type === 'LONG' ? 'bullish' : 'bearish';
-    return `Strong ${dir2} confluence on ${signal.timeframe} with favorable R:R of ${rr}. Key levels confirm ${signal.strategy} setup.`;
+    return fallback;
   }
 }
 
@@ -229,20 +145,37 @@ function buildHourlyMessage(signals: AlertSignal[], marketMood: string): string 
 
 // ─── Core: build and send hourly alert ───────────────────────────────────────
 
+/**
+ * Market mood is a display string, not an input to any decision. It is derived
+ * from the deterministic macro regime the intelligence agent already computed —
+ * no AI call, no cost, and it can never disagree with the regime shown elsewhere
+ * in the app.
+ */
 async function generateMarketMood(): Promise<string> {
   if (cachedMood && Date.now() < cachedMood.expiresAt) return cachedMood.value;
+  let mood = 'Neutral Outlook';
   try {
-    const messages: AIMessage[] = [
-      { role: 'system', content: 'You are a crypto market analyst. Reply with ONLY a 2-4 word market mood phrase. Examples: "Bullish Momentum", "Cautious Accumulation", "Bearish Pressure", "Range-Bound Consolidation".' },
-      { role: 'user', content: 'What is the current overall crypto market mood right now? Reply with ONLY the mood phrase, nothing else.' },
-    ];
-    const { text } = await callMultiAI(messages, 32);
-    const mood = text.trim().replace(/['"]/g, '').slice(0, 40) || 'Neutral Outlook';
-    cachedMood = { value: mood, expiresAt: Date.now() + 60 * 60 * 1000 };
-    return mood;
+    const regime = await getMarketRegime();
+    const fg = regime.fearGreed.value;
+    const tone =
+      regime.regime === 'STRONG_BULL' ? 'Strong Bullish Momentum'
+      : regime.regime === 'BULL' ? 'Bullish Momentum'
+      : regime.regime === 'STRONG_BEAR' ? 'Heavy Bearish Pressure'
+      : regime.regime === 'BEAR' ? 'Bearish Pressure'
+      : regime.regime === 'VOLATILE' ? 'Volatile Conditions'
+      : 'Range-Bound Consolidation';
+    const sentiment =
+      fg >= 75 ? 'Extreme Greed'
+      : fg >= 55 ? 'Greed'
+      : fg <= 25 ? 'Extreme Fear'
+      : fg <= 45 ? 'Fear'
+      : 'Neutral';
+    mood = regime.fearGreed.available ? `${tone} · ${sentiment}` : tone;
   } catch {
-    return 'Neutral Outlook';
+    /* keep the neutral default */
   }
+  cachedMood = { value: mood, expiresAt: Date.now() + 30 * 60 * 1000 };
+  return mood;
 }
 
 // ─── Persist & restore last-sent state via botLogs ───────────────────────────
@@ -277,67 +210,6 @@ async function persistState(signalKey: string, coins: Set<string>): Promise<void
   } catch (e) {
     console.warn('[hourly-alert] Could not persist state:', e);
   }
-}
-
-// ─── Static fallback signals when AI is unavailable ──────────────────────────
-
-const FALLBACK_COIN_POOL = [
-  'BTC', 'ETH', 'BNB', 'SOL', 'XRP', 'ADA', 'DOGE', 'AVAX', 'DOT', 'LINK',
-  'MATIC', 'LTC', 'UNI', 'ATOM', 'NEAR', 'APT', 'ARB', 'OP', 'INJ', 'TIA',
-];
-const FALLBACK_TFS = ['15m', '1h', '4h', '1d'];
-const FALLBACK_STRATEGIES = ['SMC Breakout', 'ICT MSS', 'RSI Divergence', 'EMA Cross', 'Support Bounce'];
-
-function buildFallbackSignals(count: number, excludeCoins: Set<string>): AlertSignal[] {
-  const available = FALLBACK_COIN_POOL.filter(c => !excludeCoins.has(c));
-  const pool = available.length >= count ? available : FALLBACK_COIN_POOL;
-  const shuffled = [...pool].sort(() => Math.random() - 0.5);
-  const signals: AlertSignal[] = [];
-  for (let i = 0; i < Math.min(count, shuffled.length); i++) {
-    const coin = shuffled[i];
-    const isLong = Math.random() > 0.5;
-    const tf = FALLBACK_TFS[Math.floor(Math.random() * FALLBACK_TFS.length)];
-    const strategy = FALLBACK_STRATEGIES[Math.floor(Math.random() * FALLBACK_STRATEGIES.length)];
-    const basePrice = coin === 'BTC' ? 105000 + Math.random() * 10000
-      : coin === 'ETH' ? 3800 + Math.random() * 600
-      : coin === 'BNB' ? 680 + Math.random() * 40
-      : coin === 'SOL' ? 180 + Math.random() * 40
-      : coin === 'XRP' ? 2.80 + Math.random() * 0.40
-      : coin === 'ADA' ? 0.90 + Math.random() * 0.20
-      : coin === 'DOGE' ? 0.22 + Math.random() * 0.06
-      : coin === 'AVAX' ? 35 + Math.random() * 10
-      : coin === 'LINK' ? 18 + Math.random() * 6
-      : coin === 'DOT' ? 8 + Math.random() * 4
-      : coin === 'LTC' ? 110 + Math.random() * 20
-      : coin === 'UNI' ? 9 + Math.random() * 4
-      : coin === 'ATOM' ? 7 + Math.random() * 3
-      : coin === 'NEAR' ? 5 + Math.random() * 3
-      : coin === 'ARB' ? 0.80 + Math.random() * 0.40
-      : coin === 'OP' ? 1.20 + Math.random() * 0.60
-      : coin === 'APT' ? 8 + Math.random() * 4
-      : coin === 'INJ' ? 20 + Math.random() * 10
-      : coin === 'TIA' ? 4 + Math.random() * 3
-      : coin === 'MATIC' ? 0.50 + Math.random() * 0.30
-      : 1 + Math.random() * 20;
-    const riskPct = 0.008 + Math.random() * 0.012; // 0.8–2%
-    const sl = isLong ? basePrice * (1 - riskPct) : basePrice * (1 + riskPct);
-    const rrMulti = 1.8 + Math.random() * 1.2;
-    const tp = isLong ? basePrice + (basePrice - sl) * rrMulti : basePrice - (sl - basePrice) * rrMulti;
-    const conf = 62 + Math.floor(Math.random() * 16); // 62–77
-    const dir = isLong ? 'bullish' : 'bearish';
-    signals.push({
-      coin,
-      type: isLong ? 'LONG' : 'SHORT',
-      entry: Math.round(basePrice * 10000) / 10000,
-      tp: Math.round(tp * 10000) / 10000,
-      sl: Math.round(sl * 10000) / 10000,
-      confidence: conf,
-      timeframe: tf,
-      strategy,
-      reasoning: `${dir.charAt(0).toUpperCase() + dir.slice(1)} momentum detected on ${tf} with key level alignment. ${strategy} pattern confirms entry with controlled risk.`,
-    });
-  }
-  return signals;
 }
 
 // ─── Core: build and send hourly alert ───────────────────────────────────────
@@ -426,8 +298,7 @@ export async function sendHourlyAlert(): Promise<{ sent: boolean; error?: string
       return { sent: false, error: 'No real signals available — alert skipped to avoid fake data' };
     }
 
-    // 5. Fresh market mood every hour
-    cachedMood = null;
+    // 5. Market mood, derived from the cached macro regime (no AI call)
     const marketMood = await generateMarketMood();
 
     // 6. Build and send message
@@ -440,7 +311,7 @@ export async function sendHourlyAlert(): Promise<{ sent: boolean; error?: string
     lastSentCoins = new Set(combined.map(s => s.coin));
     await persistState(newKey, lastSentCoins);
 
-    console.log(`[hourly-alert] Sent ${combined.length} signals (DB: ${dbEnriched.length}, AI: ${aiEnriched.length}, forceFreshAI: ${forceFreshAI})`);
+    console.log(`[hourly-alert] Sent ${combined.length} signals (DB: ${dbEnriched.length}, forceFreshAI: ${forceFreshAI})`);
     return { sent: true, signalCount: combined.length };
   } catch (error: any) {
     console.error('[hourly-alert] Failed:', error?.message || error);

@@ -34,6 +34,9 @@ import { triggerScanNow } from "./auto-scanner";
 import { runOrchestrator } from "./agents/agent-orchestrator";
 import { getMarketRegime } from "./agents/market-intelligence-agent";
 import { generatePerformanceReport, getQuickStats } from "./agents/trade-journal-agent";
+import { getLearningSnapshot, refreshLearning } from "./agents/learning-engine";
+import { buildAccuracyReport } from "./accuracy";
+import { getBudgetStatus, setDailyBudget, getDailyBudget } from "./ai-budget";
 import {
   startMarketScanner, stopMarketScanner, configureScanner,
   getStatus as getScannerStatus, triggerManualScan, getConfig as getScannerConfig,
@@ -1384,6 +1387,51 @@ export async function registerRoutes(
     } catch (e: any) {
       res.status(500).json({ ok: false, message: e.message });
     }
+  });
+
+  // GET /api/agents/accuracy — realized accuracy, calibration and AI spend.
+  // Everything here comes from closed trades; nothing is projected.
+  app.get("/api/agents/accuracy", async (_req, res) => {
+    try {
+      res.json({ ok: true, report: await buildAccuracyReport() });
+    } catch (e: any) {
+      res.status(500).json({ ok: false, message: e.message });
+    }
+  });
+
+  // GET /api/agents/learning — current self-calibration state (pure math, no AI cost)
+  app.get("/api/agents/learning", async (_req, res) => {
+    try {
+      res.json({ ok: true, snapshot: await getLearningSnapshot() });
+    } catch (e: any) {
+      res.status(500).json({ ok: false, message: e.message });
+    }
+  });
+
+  // POST /api/agents/learning/refresh — recompute now instead of waiting 6h
+  app.post("/api/agents/learning/refresh", async (_req, res) => {
+    try {
+      res.json({ ok: true, snapshot: await refreshLearning() });
+    } catch (e: any) {
+      res.status(500).json({ ok: false, message: e.message });
+    }
+  });
+
+  // ── AI BUDGET ──────────────────────────────────────────────────────────────
+
+  // GET /api/ai/budget — today's spend per provider against the daily cap
+  app.get("/api/ai/budget", (_req, res) => {
+    res.json({ ok: true, budget: getBudgetStatus() });
+  });
+
+  // POST /api/ai/budget — change the per-provider daily ceiling
+  app.post("/api/ai/budget", (req, res) => {
+    const usd = Number(req.body?.dailyBudgetUsd);
+    if (!Number.isFinite(usd) || usd <= 0 || usd > 100) {
+      return res.status(400).json({ ok: false, message: "dailyBudgetUsd must be between 0 and 100" });
+    }
+    setDailyBudget(usd);
+    res.json({ ok: true, dailyBudgetUsd: getDailyBudget(), budget: getBudgetStatus() });
   });
 
   // ── MARKET SCANNER ROUTES ──────────────────────────────────────────────────

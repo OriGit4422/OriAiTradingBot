@@ -373,7 +373,10 @@ export async function getRiskAIAnalysis(
       },
     ];
 
-    const res = await callAIProvider(provider, messages, 120);
+    // Prose only — every risk number was computed deterministically above.
+    const res = await callAIProvider(provider, messages, {
+      maxTokens: 80, tier: 'cosmetic', cacheTtlMs: 30 * 60 * 1000, label: 'risk-narrative',
+    });
     return res.text.trim();
   } catch {
     return assessment.approved

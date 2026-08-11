@@ -4,9 +4,15 @@ import { serveStatic } from "./static";
 import { createServer } from "http";
 import { execSync } from "child_process";
 import { pool } from "./db";
+// Was missing: the scanner auto-start block below calls storage.getBotSettings(),
+// so every boot threw ReferenceError into its own catch and the market scanner
+// never started, no matter what scannerConfig.enabled was set to.
+import { storage } from "./storage";
 import { startHourlyAlertScheduler } from "./hourly-alerts";
 import { startAutoScanner } from "./auto-scanner";
 import { startMarketScanner, configureScanner } from "./agents/market-scanner";
+import { startLearningEngine } from "./agents/learning-engine";
+import { restoreBudgetLedger, startBudgetPersistence } from "./ai-budget-persistence";
 
 const app = express();
 const httpServer = createServer(app);
@@ -131,6 +137,14 @@ app.use((req, res, next) => {
 
   // Start auto-scanner (runs every 5 min, executes signals when autoExecute=true)
   startAutoScanner();
+
+  // Self-calibration from closed trades. Pure math on data already in the DB —
+  // no AI calls, so it runs regardless of the AI budget.
+  startLearningEngine();
+
+  // Restore today's AI spend so a restart cannot reset the daily cap.
+  await restoreBudgetLedger();
+  startBudgetPersistence();
 
   // Start autonomous market intelligence scanner
   // Reads config from bot settings — enabled/timeframes/coins set via UI or API

@@ -6,6 +6,11 @@
     "tsBuildInfoFile": "./node_modules/typescript/tsbuildinfo",
     "noEmit": true,
     "module": "ESNext",
+    // No target was set, so tsc defaulted to ES5 and flagged every Map/Set
+    // iteration as needing --downlevelIteration. The code already requires
+    // ES2020+ (AbortSignal.timeout, ??, ?.) and ships through esbuild/vite to
+    // Node 22 and evergreen browsers, so ES2022 is what actually runs.
+    "target": "ES2022",
     "strict": true,
     "lib": ["esnext", "dom", "dom.iterable"],
     "jsx": "preserve",

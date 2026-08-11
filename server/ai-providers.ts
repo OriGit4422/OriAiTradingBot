@@ -1,13 +1,74 @@
 /**
  * Multi-AI Provider System
- * Supports: OpenAI-compatible custom APIs + Google Gemini
- * Replaces all Anthropic/Claude connections
+ * Supports: OpenAI-compatible custom APIs + Google Gemini + Anthropic
+ *
+ * Every call is routed through the AI budget governor (./ai-budget), which
+ * caches, de-duplicates and hard-caps daily spend per provider. Callers declare
+ * a tier so decorative calls are dropped long before trade-critical ones.
  */
 import { storage } from './storage';
+import {
+  admit, commit, cacheGet, cacheSet, makeCacheKey, getInFlight, setInFlight,
+  recordCacheHit, extractUsage, type CallTier,
+} from './ai-budget';
 
 export interface AIMessage {
   role: 'user' | 'assistant' | 'system';
   content: string;
+}
+
+/**
+ * Per-call controls. Passing a bare number is still supported and means
+ * `{ maxTokens: n }`.
+ */
+export interface AICallOptions {
+  maxTokens?: number;
+  temperature?: number;
+  /** Budget tier — defaults to 'normal'. */
+  tier?: CallTier;
+  /** How long an identical prompt may be served from cache. 0 disables. */
+  cacheTtlMs?: number;
+  /** Short label for logs/diagnostics. */
+  label?: string;
+}
+
+export interface ResolvedCallOptions {
+  maxTokens: number;
+  temperature: number;
+  tier: CallTier;
+  cacheTtlMs: number;
+  label: string;
+}
+
+/** Default cache TTL by tier — cosmetic text is reusable far longer than a veto. */
+const DEFAULT_CACHE_TTL: Record<CallTier, number> = {
+  critical: 3 * 60 * 1000,
+  normal: 10 * 60 * 1000,
+  cosmetic: 60 * 60 * 1000,
+};
+
+export function resolveOptions(
+  opts: number | AICallOptions | undefined,
+  defaultMaxTokens: number,
+): ResolvedCallOptions {
+  const o: AICallOptions = typeof opts === 'number' ? { maxTokens: opts } : (opts ?? {});
+  const tier: CallTier = o.tier ?? 'normal';
+  return {
+    maxTokens: o.maxTokens ?? defaultMaxTokens,
+    temperature: o.temperature ?? 0.3,
+    tier,
+    cacheTtlMs: o.cacheTtlMs ?? DEFAULT_CACHE_TTL[tier],
+    label: o.label ?? 'ai-call',
+  };
+}
+
+/** Thrown when the governor refuses a call. Callers fall back to deterministic paths. */
+export class AIBudgetExceededError extends Error {
+  readonly budgetExceeded = true;
+  constructor(message: string) {
+    super(message);
+    this.name = 'AIBudgetExceededError';
+  }
 }
 
 export interface AIProviderConfig {
@@ -22,6 +83,14 @@ export interface AIResponse {
   text: string;
   provider: string;
   model: string;
+  /** Actual tokens consumed (provider-reported when available, else estimated). */
+  usage?: { tokensIn: number; tokensOut: number; measured: boolean };
+  /** True when the answer came from the response cache and cost nothing. */
+  cached?: boolean;
+}
+
+function promptChars(messages: AIMessage[]): number {
+  return messages.reduce((n, m) => n + (m.content?.length ?? 0), 0);
 }
 
 // ── OpenAI-compatible API call ────────────────────────────────────────────────
@@ -29,7 +98,7 @@ export interface AIResponse {
 async function callOpenAICompatible(
   config: AIProviderConfig,
   messages: AIMessage[],
-  maxTokens = 1024,
+  opts: ResolvedCallOptions,
 ): Promise<AIResponse> {
   const baseUrl = (config.baseUrl || 'https://api.openai.com/v1').replace(/\/$/, '');
   const url = `${baseUrl}/chat/completions`;
@@ -44,9 +113,9 @@ async function callOpenAICompatible(
     },
     body: JSON.stringify({
       model: config.model,
-      max_tokens: maxTokens,
+      max_tokens: opts.maxTokens,
       messages: formatted,
-      temperature: 0.35,
+      temperature: opts.temperature,
     }),
     signal: AbortSignal.timeout(30_000),
   });
@@ -58,7 +127,12 @@ async function callOpenAICompatible(
 
   const data = await response.json();
   const text: string = data.choices?.[0]?.message?.content ?? '';
-  return { text, provider: config.name, model: config.model };
+  return {
+    text,
+    provider: config.name,
+    model: config.model,
+    usage: extractUsage(data, promptChars(messages), text),
+  };
 }
 
 // ── Google Gemini API call ────────────────────────────────────────────────────
@@ -66,7 +140,7 @@ async function callOpenAICompatible(
 async function callGemini(
   config: AIProviderConfig,
   messages: AIMessage[],
-  maxTokens = 2048,
+  opts: ResolvedCallOptions,
 ): Promise<AIResponse> {
   const model = config.model || 'gemini-2.0-flash';
   const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${config.apiKey}`;
@@ -82,8 +156,8 @@ async function callGemini(
   const body: any = {
     contents,
     generationConfig: {
-      maxOutputTokens: maxTokens,
-      temperature: 0.3,
+      maxOutputTokens: opts.maxTokens,
+      temperature: opts.temperature,
       topP: 0.95,
       topK: 40,
     },
@@ -108,7 +182,12 @@ async function callGemini(
 
   const data = await response.json();
   const text: string = data.candidates?.[0]?.content?.parts?.[0]?.text ?? '';
-  return { text, provider: 'Gemini', model };
+  return {
+    text,
+    provider: 'Gemini',
+    model,
+    usage: extractUsage(data, promptChars(messages), text),
+  };
 }
 
 async function streamGemini(
@@ -177,7 +256,7 @@ async function streamGemini(
 async function callAnthropic(
   config: AIProviderConfig,
   messages: AIMessage[],
-  maxTokens = 1024,
+  opts: ResolvedCallOptions,
 ): Promise<AIResponse> {
   const baseUrl = (config.baseUrl || 'https://api.anthropic.com').replace(/\/$/, '');
   const url = `${baseUrl}/v1/messages`;
@@ -189,7 +268,8 @@ async function callAnthropic(
 
   const body: any = {
     model: config.model,
-    max_tokens: maxTokens,
+    max_tokens: opts.maxTokens,
+    temperature: opts.temperature,
     messages: chatMsgs.length ? chatMsgs : [{ role: 'user', content: 'Hello' }],
   };
   if (systemMsg) body.system = systemMsg.content;
@@ -212,36 +292,95 @@ async function callAnthropic(
 
   const data = await response.json();
   const text: string = data.content?.[0]?.text ?? '';
-  return { text, provider: config.name, model: config.model };
+  return {
+    text,
+    provider: config.name,
+    model: config.model,
+    usage: extractUsage(data, promptChars(messages), text),
+  };
 }
 
-// ── Unified caller with retry ─────────────────────────────────────────────────
+// ── Unified caller with retry + budget governor ───────────────────────────────
 
 async function sleep(ms: number) { return new Promise(r => setTimeout(r, ms)); }
+
+async function dispatch(
+  config: AIProviderConfig,
+  messages: AIMessage[],
+  opts: ResolvedCallOptions,
+): Promise<AIResponse> {
+  if (config.type === 'gemini') return callGemini(config, messages, opts);
+  if (config.type === 'anthropic') return callAnthropic(config, messages, opts);
+  return callOpenAICompatible(config, messages, opts);
+}
 
 export async function callAIProvider(
   config: AIProviderConfig,
   messages: AIMessage[],
-  maxTokens = 1024,
+  maxTokensOrOptions: number | AICallOptions = 1024,
   retries = 2,
 ): Promise<AIResponse> {
-  let lastError: Error | null = null;
-  for (let attempt = 0; attempt <= retries; attempt++) {
-    try {
-      if (config.type === 'gemini') return await callGemini(config, messages, maxTokens);
-      if (config.type === 'anthropic') return await callAnthropic(config, messages, maxTokens);
-      return await callOpenAICompatible(config, messages, maxTokens);
-    } catch (err: any) {
-      lastError = err;
-      // Don't retry auth errors (401, 403) or invalid request (400)
-      const isAuthErr = err.message?.includes('401') || err.message?.includes('403') || err.message?.includes('invalid_api_key');
-      const isBadReq = err.message?.includes('400') || err.message?.includes('invalid_request');
-      if (isAuthErr || isBadReq || attempt >= retries) break;
-      // Exponential backoff: 1s, 2s
-      await sleep(1000 * Math.pow(2, attempt));
-    }
+  const opts = resolveOptions(maxTokensOrOptions, 1024);
+  const model = config.model || (config.type === 'gemini' ? 'gemini-2.0-flash' : 'unknown');
+
+  // 1. Cache — identical prompt within TTL costs nothing.
+  const key = makeCacheKey([config.name, model, opts.maxTokens, opts.temperature, messages]);
+  const hit = cacheGet(key);
+  if (hit) {
+    recordCacheHit(config.name, hit.estCostUsd);
+    return { text: hit.text, provider: hit.provider, model: hit.model, cached: true };
   }
-  throw lastError ?? new Error('AI provider call failed');
+
+  // 2. Single-flight — concurrent identical prompts share one upstream request.
+  const pending = getInFlight(key);
+  if (pending) {
+    const shared = await pending;
+    return { ...shared, cached: true };
+  }
+
+  // 3. Budget gate — worst-case priced before the request is made.
+  const chars = promptChars(messages);
+  const verdict = admit({
+    provider: config.name,
+    model,
+    tier: opts.tier,
+    promptChars: chars,
+    maxOutTokens: opts.maxTokens,
+  });
+  if (!verdict.allowed) {
+    throw new AIBudgetExceededError(verdict.reason ?? 'AI daily budget reached');
+  }
+
+  const run = (async (): Promise<AIResponse> => {
+    let lastError: Error | null = null;
+    for (let attempt = 0; attempt <= retries; attempt++) {
+      try {
+        const res = await dispatch(config, messages, opts);
+        // 4. Ledger — commit real usage.
+        const usage = res.usage ?? { tokensIn: Math.ceil(chars / 4), tokensOut: 0, measured: false };
+        const cost = commit({
+          provider: config.name,
+          model,
+          tokensIn: usage.tokensIn,
+          tokensOut: usage.tokensOut,
+        });
+        cacheSet(key, { text: res.text, provider: res.provider, model: res.model, estCostUsd: cost }, opts.cacheTtlMs);
+        return res;
+      } catch (err: any) {
+        lastError = err;
+        // Don't retry auth errors (401, 403) or invalid request (400)
+        const isAuthErr = err.message?.includes('401') || err.message?.includes('403') || err.message?.includes('invalid_api_key');
+        const isBadReq = err.message?.includes('400') || err.message?.includes('invalid_request');
+        if (isAuthErr || isBadReq || attempt >= retries) break;
+        // Exponential backoff: 1s, 2s
+        await sleep(1000 * Math.pow(2, attempt));
+      }
+    }
+    throw lastError ?? new Error('AI provider call failed');
+  })();
+
+  setInFlight(key, run.then(r => ({ text: r.text, provider: r.provider, model: r.model })));
+  return run;
 }
 
 // ── Load active providers from DB settings ────────────────────────────────────
@@ -309,15 +448,33 @@ export async function getActiveProviders(): Promise<AIProviderConfig[]> {
 // ── Multi-AI: run all providers in parallel, aggregate JSON numeric fields ────
 
 function extractJson(text: string): string | null {
-  // Try markdown code block first
-  const codeBlock = text.match(/```(?:json)?\s*(\{[\s\S]*?\})\s*```/);
+  if (!text) return null;
+  // Try markdown code block first (object or array)
+  const codeBlock = text.match(/```(?:json)?\s*([[{][\s\S]*?[\]}])\s*```/);
   if (codeBlock) return codeBlock[1];
   // Then bare JSON object
   const bare = text.match(/\{[\s\S]*\}/);
-  return bare ? bare[0] : null;
+  if (bare) return bare[0];
+  // Finally a bare JSON array
+  const arr = text.match(/\[[\s\S]*\]/);
+  return arr ? arr[0] : null;
 }
 
-export { extractJson };
+/**
+ * Extract AND parse JSON from a model response.
+ * `extractJson` returns the raw substring; this returns the typed value or null.
+ */
+function parseJson<T = any>(text: string): T | null {
+  const raw = extractJson(text);
+  if (!raw) return null;
+  try {
+    return JSON.parse(raw) as T;
+  } catch {
+    return null;
+  }
+}
+
+export { extractJson, parseJson };
 
 function aggregateJsonResponses(texts: string[]): string {
   const parsed: any[] = [];
@@ -363,8 +520,9 @@ function aggregateJsonResponses(texts: string[]): string {
 
 export async function callMultiAI(
   messages: AIMessage[],
-  maxTokens = 1024,
-): Promise<{ text: string; providers: string[] }> {
+  maxTokensOrOptions: number | AICallOptions = 1024,
+): Promise<{ text: string; providers: string[]; cached?: boolean }> {
+  const opts = resolveOptions(maxTokensOrOptions, 1024);
   const providers = await getActiveProviders();
   if (providers.length === 0) {
     throw new Error('No AI providers configured. Add API keys in Settings → AI Agents.');
@@ -376,25 +534,54 @@ export async function callMultiAI(
   const fallbacks = providers.slice(1);
 
   try {
-    const r = await callAIProvider(primary, messages, maxTokens);
-    return { text: r.text, providers: [r.provider] };
+    const r = await callAIProvider(primary, messages, opts);
+    return { text: r.text, providers: [r.provider], cached: r.cached };
   } catch (primaryErr: any) {
     console.warn(`[ai-providers] Primary (${primary.name}) failed: ${primaryErr?.message} — trying fallbacks`);
     if (fallbacks.length === 0) throw primaryErr;
   }
 
-  // Primary failed — run all fallbacks in parallel
+  // Primary failed — try fallbacks SEQUENTIALLY, cheapest first, and stop at the
+  // first success. Fanning out in parallel multiplied spend by the number of
+  // configured providers for no accuracy gain (the responses were averaged).
+  const errors: string[] = [`${primary.name}: (failed — see above)`];
+  for (const p of fallbacks) {
+    try {
+      const r = await callAIProvider(p, messages, opts);
+      return { text: r.text, providers: [r.provider], cached: r.cached };
+    } catch (err: any) {
+      const reason = err?.message ?? String(err);
+      console.error(`[ai-providers] ${p.name} failed:`, reason);
+      errors.push(`${p.name}: ${reason}`);
+    }
+  }
+  throw new Error(`All AI providers failed — ${errors.join(' | ')}`);
+}
+
+/**
+ * Consensus mode — queries every configured provider and merges numeric fields.
+ * Costs N× a single call, so it is opt-in and never used on hot paths.
+ */
+export async function callConsensusAI(
+  messages: AIMessage[],
+  maxTokensOrOptions: number | AICallOptions = 1024,
+): Promise<{ text: string; providers: string[] }> {
+  const opts = resolveOptions(maxTokensOrOptions, 1024);
+  const providers = await getActiveProviders();
+  if (providers.length === 0) {
+    throw new Error('No AI providers configured. Add API keys in Settings → AI Agents.');
+  }
+
   const results = await Promise.allSettled(
-    fallbacks.map(p => callAIProvider(p, messages, maxTokens)),
+    providers.map(p => callAIProvider(p, messages, opts)),
   );
   const ok = results
     .filter((r): r is PromiseFulfilledResult<AIResponse> => r.status === 'fulfilled')
     .map(r => r.value);
 
   if (ok.length === 0) {
-    const errors = [primary, ...fallbacks].map((p, i) => {
-      if (i === 0) return `${p.name}: (failed — see above)`;
-      const r = results[i - 1];
+    const errors = providers.map((p, i) => {
+      const r = results[i];
       const reason = r.status === 'rejected' ? (r.reason?.message ?? String(r.reason)) : 'unknown';
       console.error(`[ai-providers] ${p.name} failed:`, reason);
       return `${p.name}: ${reason}`;
@@ -410,6 +597,8 @@ export async function callMultiAI(
 // ── Streaming helper for chat (SSE) ──────────────────────────────────────────
 // Returns text chunks via callback; uses first available provider
 
+const CHAT_MAX_TOKENS = 1500;
+
 export async function streamChatResponse(
   messages: AIMessage[],
   onChunk: (chunk: string) => void,
@@ -420,14 +609,48 @@ export async function streamChatResponse(
   }
 
   const config = providers[0];
+  const model = config.model || (config.type === 'gemini' ? 'gemini-2.0-flash' : 'unknown');
+  const chars = promptChars(messages);
+
+  // Chat is user-initiated, so it counts against the 'normal' tier rather than
+  // running outside the budget entirely.
+  const verdict = admit({
+    provider: config.name,
+    model,
+    tier: 'normal',
+    promptChars: chars,
+    maxOutTokens: CHAT_MAX_TOKENS,
+  });
+  if (!verdict.allowed) throw new AIBudgetExceededError(verdict.reason ?? 'AI daily budget reached');
+
+  // Streaming responses carry no reliable usage metadata, so the emitted text is
+  // measured locally and committed to the ledger when the stream ends.
+  let produced = '';
+  const track = (chunk: string) => { produced += chunk; onChunk(chunk); };
+  const settle = () => {
+    commit({
+      provider: config.name,
+      model,
+      tokensIn: Math.ceil(chars / 4),
+      tokensOut: Math.ceil(produced.length / 4),
+    });
+  };
 
   if (config.type === 'gemini') {
-    await streamGemini(config, messages, onChunk, 4096);
+    try {
+      await streamGemini(config, messages, track, CHAT_MAX_TOKENS);
+    } finally { settle(); }
     return;
   }
 
   if (config.type === 'anthropic') {
-    const r = await callAnthropic(config, messages, 4096);
+    const r = await callAnthropic(config, messages, resolveOptions({ maxTokens: CHAT_MAX_TOKENS }, CHAT_MAX_TOKENS));
+    commit({
+      provider: config.name,
+      model,
+      tokensIn: r.usage?.tokensIn ?? Math.ceil(chars / 4),
+      tokensOut: r.usage?.tokensOut ?? Math.ceil(r.text.length / 4),
+    });
     for (const word of r.text.split(' ')) onChunk(word + ' ');
     return;
   }
@@ -444,7 +667,7 @@ export async function streamChatResponse(
     },
     body: JSON.stringify({
       model: config.model,
-      max_tokens: 4096,
+      max_tokens: CHAT_MAX_TOKENS,
       messages: messages.map(m => ({ role: m.role, content: m.content })),
       stream: true,
     }),
@@ -462,22 +685,26 @@ export async function streamChatResponse(
   const decoder = new TextDecoder();
   let buffer = '';
 
-  while (true) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    buffer += decoder.decode(value, { stream: true });
-    const lines = buffer.split('\n');
-    buffer = lines.pop() ?? '';
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+      const lines = buffer.split('\n');
+      buffer = lines.pop() ?? '';
 
-    for (const line of lines) {
-      if (!line.startsWith('data: ')) continue;
-      const data = line.slice(6).trim();
-      if (data === '[DONE]') return;
-      try {
-        const parsed = JSON.parse(data);
-        const chunk = parsed.choices?.[0]?.delta?.content ?? '';
-        if (chunk) onChunk(chunk);
-      } catch (err) { console.warn('[ai-providers] Skipped entry:', err instanceof Error ? err.message : err); }
+      for (const line of lines) {
+        if (!line.startsWith('data: ')) continue;
+        const data = line.slice(6).trim();
+        if (data === '[DONE]') return;
+        try {
+          const parsed = JSON.parse(data);
+          const chunk = parsed.choices?.[0]?.delta?.content ?? '';
+          if (chunk) track(chunk);
+        } catch (err) { console.warn('[ai-providers] Skipped entry:', err instanceof Error ? err.message : err); }
+      }
     }
+  } finally {
+    settle();
   }
 }

@@ -197,7 +197,11 @@ async function enrichWithAI(
       },
     ];
 
-    const res = await callAIProvider(gemini, messages, 150);
+    // Display-only narrative: nothing downstream reads it, so it is the first
+    // thing dropped when the daily AI budget tightens.
+    const res = await callAIProvider(gemini, messages, {
+      maxTokens: 90, tier: 'cosmetic', cacheTtlMs: 60 * 60 * 1000, label: 'regime-narrative',
+    });
     return res.text.trim();
   } catch {
     return `${regime} market with Fear & Greed at ${fearGreed.value}. Trade with the trend, manage risk carefully.`;

@@ -1,10 +1,11 @@
-import { useEffect, useState, useCallback } from 'react';
-import { fetch24hTicker } from '@/lib/binance';
+import { useEffect, useState, useCallback, useMemo } from 'react';
 import { cn } from '@/lib/utils';
 import { Star, Plus, X, TrendingUp, TrendingDown, Bell, BellOff } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { toast } from '@/hooks/use-toast';
+import { useLivePrices } from '@/lib/live-price-store';
+import { LiveFeedBadge } from './LiveFeedBadge';
 
 const DEFAULT_WATCHLIST = ['BTC', 'ETH', 'SOL', 'BNB', 'XRP'];
 const STORAGE_KEY = 'winm_watchlist';
@@ -46,7 +47,6 @@ export function WatchlistPanel({ onSelectCoin, currentPrices }: WatchlistPanelPr
     } catch { return []; }
   });
 
-  const [prices, setPrices] = useState<Record<string, CoinPrice>>({});
   const [addInput, setAddInput] = useState('');
   const [showAddAlert, setShowAddAlert] = useState<string | null>(null);
   const [alertPrice, setAlertPrice] = useState('');
@@ -62,23 +62,24 @@ export function WatchlistPanel({ onSelectCoin, currentPrices }: WatchlistPanelPr
     setAlerts(a);
   };
 
-  const loadPrices = useCallback(async () => {
+  // Prices come from the shared WebSocket feed rather than a 20 s poll, so a
+  // price alert fires within a second of the level being touched instead of
+  // up to twenty seconds late.
+  const { quotes } = useLivePrices();
+
+  const prices = useMemo<Record<string, CoinPrice>>(() => {
+    const map: Record<string, CoinPrice> = {};
+    for (const sym of watchlist) {
+      const q = quotes[sym];
+      if (!q) continue;
+      map[sym] = { symbol: sym, price: q.price, change: q.changePercent, high: q.high24h, low: q.low24h };
+    }
+    return map;
+  }, [quotes, watchlist]);
+
+  const checkAlerts = useCallback(() => {
     try {
-      const tickers = await fetch24hTicker();
-      const map: Record<string, CoinPrice> = {};
-      tickers.forEach((t: any) => {
-        const sym = t.symbol.replace('USDT', '');
-        if (watchlist.includes(sym)) {
-          map[sym] = {
-            symbol: sym,
-            price: parseFloat(t.lastPrice),
-            change: parseFloat(t.priceChangePercent),
-            high: parseFloat(t.highPrice),
-            low: parseFloat(t.lowPrice),
-          };
-        }
-      });
-      setPrices(map);
+      const map = prices;
 
       // Check alerts
       const newAlerts = alerts.map(a => {
@@ -101,13 +102,10 @@ export function WatchlistPanel({ onSelectCoin, currentPrices }: WatchlistPanelPr
         saveAlerts(newAlerts);
       }
     } catch (e) { /* silent */ }
-  }, [watchlist, alerts]);
+  }, [prices, alerts]);
 
-  useEffect(() => {
-    loadPrices();
-    const interval = setInterval(() => { if (!document.hidden) loadPrices(); }, 20000);
-    return () => clearInterval(interval);
-  }, [loadPrices]);
+  // Re-evaluate alerts on every price change from the live feed.
+  useEffect(() => { checkAlerts(); }, [checkAlerts]);
 
   const handleAdd = () => {
     const coin = addInput.toUpperCase().replace('USDT', '').trim();
@@ -156,6 +154,7 @@ export function WatchlistPanel({ onSelectCoin, currentPrices }: WatchlistPanelPr
           <span className="text-xs font-black uppercase tracking-widest text-yellow-600">Watchlist</span>
           <div className="text-[9px] text-muted-foreground font-mono">Price alerts · {activeAlerts.length} active</div>
         </div>
+        <LiveFeedBadge />
       </div>
 
       {/* Add coin */}

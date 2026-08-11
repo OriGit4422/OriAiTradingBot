@@ -674,7 +674,9 @@ async function aiEnhanceScores(
       },
     ];
 
-    const res = await callAIProvider(provider, messages, 80);  // max 80 output tokens
+    const res = await callAIProvider(provider, messages, {
+      maxTokens: 80, tier: 'normal', cacheTtlMs: 10 * 60 * 1000, label: 'ta-enhance',
+    });
     const json = extractJson(res.text);
     if (json) {
       const parsed = JSON.parse(json);

@@ -9,11 +9,11 @@
 import { storage } from './storage';
 import {
   admit, commit, cacheGet, cacheSet, makeCacheKey, getInFlight, setInFlight,
-  recordCacheHit, extractUsage,
+  recordCacheHit, recordDowngrade, extractUsage, getMaxCallCostUsd, tierHeadroomUsd,
 } from './ai-budget';
 import {
   resolveOptions, isModelNotFound, noteRetiredModel, resolveGeminiModel,
-  isRetryableError, promptChars, extractJson, parseJson,
+  isRetryableError, promptChars, extractJson, parseJson, chooseModel,
   GEMINI_FALLBACK_MODEL, AIBudgetExceededError,
   type AIMessage, type AICallOptions, type ResolvedCallOptions,
   type AIProviderConfig, type AIResponse,
@@ -290,11 +290,33 @@ export async function callAIProvider(
     return { ...shared, cached: true };
   }
 
-  // 3. Budget gate — worst-case priced before the request is made.
+  // 3. Model routing — send the call to the cheapest model that still fits what
+  // this provider has left at this tier. Nothing is downgraded while the
+  // configured model fits, so this is invisible until the budget actually binds.
   const chars = promptChars(messages);
+  const choice = chooseModel({
+    config,
+    requested: model,
+    promptChars: chars,
+    maxOutTokens: opts.maxTokens,
+    capUsd: Math.min(getMaxCallCostUsd(), tierHeadroomUsd(config.name, opts.tier)),
+  });
+  if (choice.downgradedFrom) {
+    recordDowngrade(config.name);
+    console.log(
+      `[ai-providers] ${config.name}: ${opts.label} routed to ${choice.model} ` +
+      `instead of ${choice.downgradedFrom} to stay inside the daily budget ` +
+      `(~$${choice.estCostUsd.toFixed(5)} vs the $${getMaxCallCostUsd().toFixed(4)} per-call cap)`,
+    );
+  }
+  const effectiveConfig: AIProviderConfig = choice.model === config.model
+    ? config
+    : { ...config, model: choice.model };
+
+  // 4. Budget gate — worst-case priced against the model that will be called.
   const verdict = admit({
     provider: config.name,
-    model,
+    model: choice.model,
     tier: opts.tier,
     promptChars: chars,
     maxOutTokens: opts.maxTokens,
@@ -307,12 +329,12 @@ export async function callAIProvider(
     let lastError: Error | null = null;
     for (let attempt = 0; attempt <= retries; attempt++) {
       try {
-        const res = await dispatch(config, messages, opts);
-        // 4. Ledger — commit real usage.
+        const res = await dispatch(effectiveConfig, messages, opts);
+        // 5. Ledger — commit real usage.
         const usage = res.usage ?? { tokensIn: Math.ceil(chars / 4), tokensOut: 0, measured: false };
         const cost = commit({
           provider: config.name,
-          model,
+          model: choice.model,
           tokensIn: usage.tokensIn,
           tokensOut: usage.tokensOut,
         });

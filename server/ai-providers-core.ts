@@ -11,7 +11,7 @@
  * apart from the process-local map of models the API has reported as retired.
  */
 
-import type { CallTier } from './ai-budget';
+import { estimateCostUsd, type CallTier } from './ai-budget';
 
 // ─── Call options ─────────────────────────────────────────────────────────────
 
@@ -156,6 +156,130 @@ export function noteRetiredModel(model: string): string | null {
 /** Test hook — forget everything learned from 404s. */
 export function clearRetiredModels(): void {
   retiredAtRuntime.clear();
+}
+
+// ─── Economy routing ──────────────────────────────────────────────────────────
+//
+// A $0.05/day budget and a premium model are incompatible: at $15 per 1M output
+// tokens, a single 1,100-token answer is $0.017 — a third of the day. The app
+// then spends most of its life refusing calls, which is what "all my credits are
+// gone" looks like from the outside.
+//
+// Every prompt this app sends is short and structured: pre-computed indicator
+// values in, a fixed JSON object out. That is exactly the workload the small
+// models handle at full quality, so the premium model buys nothing here while
+// costing 20–50x. Routing non-fitting calls onto the small model is therefore
+// not a quality trade-off — it is removing an expense with no matching benefit.
+//
+// The downgrade is conditional, not unconditional: a configured model is used as
+// configured whenever its worst-case price fits what is left in the budget. Only
+// when it does not fit does the cheaper model take over, which keeps the feature
+// working instead of returning an error.
+
+/** Cheapest current model per provider that reliably returns well-formed JSON. */
+export const ECONOMY_MODELS = {
+  gemini: 'gemini-2.0-flash-lite',
+  openai: 'gpt-4o-mini',
+  anthropic: 'claude-3-5-haiku-latest',
+} as const;
+
+/**
+ * How aggressively to prefer the cheap model.
+ *
+ *   always — the default. Use the economy model whenever one exists. On Gemini
+ *            this is the difference between ~7 deep analyses a day and ~250, for
+ *            output of the same quality on prompts this small.
+ *   auto   — keep the configured model while it fits the remaining budget, and
+ *            downgrade only when it stops fitting. Costs more per call and
+ *            therefore yields fewer of them.
+ *   off    — never substitute. The configured model or nothing.
+ *
+ * Set `AI_ECONOMY_MODE` to change it. The default is deliberately the aggressive
+ * one: a user who has set a $0.05/day cap has already said which side of the
+ * cost/model trade-off they are on, and the panel reports every substitution
+ * rather than making the change invisible.
+ */
+export type EconomyMode = 'always' | 'auto' | 'off';
+
+export function parseEconomyMode(raw: string | undefined): EconomyMode {
+  const v = (raw ?? '').trim().toLowerCase();
+  if (v === 'auto' || v === 'off' || v === 'always') return v;
+  if (v !== '') {
+    console.warn(`[ai-providers] AI_ECONOMY_MODE="${raw}" is not always|auto|off — using "always".`);
+  }
+  return 'always';
+}
+
+let economyMode: EconomyMode = parseEconomyMode(process.env.AI_ECONOMY_MODE);
+
+export function getEconomyMode(): EconomyMode { return economyMode; }
+export function setEconomyMode(mode: EconomyMode): void { economyMode = mode; }
+
+/**
+ * The cheap model to fall back to for this provider, or null when there is no
+ * safe choice.
+ *
+ * Custom endpoints are only rewritten when they point at OpenAI itself. A
+ * self-hosted or proxied OpenAI-compatible server exposes its own model names,
+ * and substituting "gpt-4o-mini" there turns a budget problem into a 404.
+ */
+export function economyModelFor(config: Pick<AIProviderConfig, 'type' | 'baseUrl'>): string | null {
+  if (config.type === 'gemini') return ECONOMY_MODELS.gemini;
+  if (config.type === 'anthropic') return ECONOMY_MODELS.anthropic;
+  const base = config.baseUrl || 'https://api.openai.com/v1';
+  return /\/\/api\.openai\.com(\/|$)/.test(base) ? ECONOMY_MODELS.openai : null;
+}
+
+export interface ModelChoice {
+  /** The model the request should actually be sent to. */
+  model: string;
+  /** Set when the configured model was too expensive for the remaining budget. */
+  downgradedFrom?: string;
+  /** Worst-case price of the call at `model`. */
+  estCostUsd: number;
+}
+
+/**
+ * Pick the model to send this call to.
+ *
+ * `capUsd` is the smaller of the per-call ceiling and what the provider has left
+ * at this tier, so the choice adapts as the day fills: early calls run on the
+ * configured model, and once headroom tightens the same feature keeps working on
+ * the cheap one instead of failing. A downgrade is only taken when it actually
+ * helps — if the cheap model still does not fit, the configured model is kept and
+ * admission refuses it, so the caller falls back to its deterministic path with
+ * an accurate reason rather than a misleading one.
+ */
+export function chooseModel(opts: {
+  config: Pick<AIProviderConfig, 'type' | 'baseUrl'>;
+  requested: string;
+  promptChars: number;
+  maxOutTokens: number;
+  capUsd: number;
+  /** Defaults to the process-wide AI_ECONOMY_MODE setting. */
+  mode?: EconomyMode;
+}): ModelChoice {
+  const mode = opts.mode ?? economyMode;
+  const tokensIn = Math.ceil(opts.promptChars / 4);
+  const requestedCost = estimateCostUsd(opts.requested, tokensIn, opts.maxOutTokens);
+  const keep: ModelChoice = { model: opts.requested, estCostUsd: requestedCost };
+
+  if (mode === 'off') return keep;
+
+  const economy = economyModelFor(opts.config);
+  if (!economy || economy === opts.requested) return keep;
+
+  const economyCost = estimateCostUsd(economy, tokensIn, opts.maxOutTokens);
+  // Never "downgrade" onto something that is not actually cheaper — the pricing
+  // table can be wrong or incomplete, and a substitution that costs more is
+  // strictly worse than leaving the configured model in place.
+  if (economyCost >= requestedCost) return keep;
+
+  const swap: ModelChoice = { model: economy, downgradedFrom: opts.requested, estCostUsd: economyCost };
+
+  if (mode === 'always') return swap;
+  // mode === 'auto': the configured model stands while it fits what is left.
+  return requestedCost <= opts.capUsd ? keep : swap;
 }
 
 /**

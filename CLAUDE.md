@@ -17,18 +17,23 @@ Every AI call goes through `ai-budget.ts`. Nothing calls a provider directly.
 | Control | Behaviour |
 |---------|-----------|
 | Daily cap | `$0.05` per provider by default (`AI_DAILY_BUDGET_USD`, or `POST /api/ai/budget`) |
+| Per-call cap | no single call may reserve more than 20% of the day (`AI_MAX_CALL_USD`) |
+| Economy routing | `AI_ECONOMY_MODE=always` (default) sends every call to the cheapest capable model per provider; `auto` only downgrades when the budget binds; `off` disables it |
 | Tier: `critical` | AI veto on a tradeable signal — allowed up to 100% of budget |
-| Tier: `normal` | signal analysis — cut off at 75% |
+| Tier: `normal` | signal analysis, on-demand deep analysis — cut off at 75% |
 | Tier: `cosmetic` | narratives, moods, prose — cut off at 35% |
 | Cache | content-hashed, TTL per tier; a repeat prompt costs $0 |
 | Single-flight | concurrent identical prompts collapse to one request |
 | Ledger | real provider token usage, priced and persisted per UTC day |
+| Visibility | `GET /api/ai/budget` and the AI Credit Usage panel on the Agents page |
 
 Rules when adding an AI call:
 - Declare a `tier`. Untagged calls default to `normal`.
 - If the value is display-only prose, it is `cosmetic` — or better, derive it deterministically.
 - Never send the model values it cannot change. Restating a scoring rubric on every call is pure token cost.
-- Handle `AIBudgetExceededError` by falling back to the deterministic path. Losing the AI layer must never block a signal or silently penalise its confidence.
+- Set `maxTokens` to what the response actually needs. Admission is priced at `maxTokens`, so a generous ceiling reserves budget whether or not it is used — a call larger than the per-call cap can never be admitted, on any day, at any hour.
+- Omit fields that were never computed rather than sending `undefined`. They cost input tokens and invite the model to hedge about data it does not have.
+- Never let a failed AI call become a user-visible error. Fall back to the deterministic path, mark the result `degraded` with a reason, and return it. Losing the AI layer must never block a signal, silently penalise its confidence, or fail a request.
 
 ## Hard-coded Risk Rules (not config-overridable below the floor)
 

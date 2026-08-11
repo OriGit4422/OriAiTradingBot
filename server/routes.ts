@@ -36,7 +36,7 @@ import { getMarketRegime } from "./agents/market-intelligence-agent";
 import { generatePerformanceReport, getQuickStats } from "./agents/trade-journal-agent";
 import { getLearningSnapshot, refreshLearning } from "./agents/learning-engine";
 import { buildAccuracyReport } from "./accuracy";
-import { getBudgetStatus, setDailyBudget, getDailyBudget } from "./ai-budget";
+import { getBudgetStatus, setDailyBudget, getDailyBudget, setMaxCallCostUsd, getMaxCallCostUsd } from "./ai-budget";
 import {
   startMarketScanner, stopMarketScanner, configureScanner,
   getStatus as getScannerStatus, triggerManualScan, getConfig as getScannerConfig,
@@ -1420,18 +1420,51 @@ export async function registerRoutes(
   // ── AI BUDGET ──────────────────────────────────────────────────────────────
 
   // GET /api/ai/budget — today's spend per provider against the daily cap
-  app.get("/api/ai/budget", (_req, res) => {
-    res.json({ ok: true, budget: getBudgetStatus() });
+  app.get("/api/ai/budget", async (_req, res) => {
+    const { getEconomyMode } = await import('./ai-providers-core');
+    res.json({ ok: true, budget: { ...getBudgetStatus(), economyMode: getEconomyMode() } });
   });
 
-  // POST /api/ai/budget — change the per-provider daily ceiling
+  // POST /api/ai/budget — change the per-provider daily ceiling, and optionally
+  // the most any single call may cost. Both are accepted in one request so the
+  // settings UI can save them together.
   app.post("/api/ai/budget", (req, res) => {
-    const usd = Number(req.body?.dailyBudgetUsd);
-    if (!Number.isFinite(usd) || usd <= 0 || usd > 100) {
-      return res.status(400).json({ ok: false, message: "dailyBudgetUsd must be between 0 and 100" });
+    const { dailyBudgetUsd, maxCallUsd } = req.body ?? {};
+
+    if (dailyBudgetUsd !== undefined) {
+      const usd = Number(dailyBudgetUsd);
+      if (!Number.isFinite(usd) || usd <= 0 || usd > 100) {
+        return res.status(400).json({ ok: false, message: "dailyBudgetUsd must be between 0 and 100" });
+      }
+      setDailyBudget(usd);
     }
-    setDailyBudget(usd);
-    res.json({ ok: true, dailyBudgetUsd: getDailyBudget(), budget: getBudgetStatus() });
+
+    if (maxCallUsd !== undefined) {
+      // null clears the override and hands the cap back to the 20%-of-day default.
+      if (maxCallUsd === null) {
+        setMaxCallCostUsd(null);
+      } else {
+        const usd = Number(maxCallUsd);
+        if (!Number.isFinite(usd) || usd <= 0 || usd > getDailyBudget()) {
+          return res.status(400).json({
+            ok: false,
+            message: `maxCallUsd must be between 0 and the daily budget ($${getDailyBudget()})`,
+          });
+        }
+        setMaxCallCostUsd(usd);
+      }
+    }
+
+    if (dailyBudgetUsd === undefined && maxCallUsd === undefined) {
+      return res.status(400).json({ ok: false, message: "provide dailyBudgetUsd and/or maxCallUsd" });
+    }
+
+    res.json({
+      ok: true,
+      dailyBudgetUsd: getDailyBudget(),
+      perCallCapUsd: getMaxCallCostUsd(),
+      budget: getBudgetStatus(),
+    });
   });
 
   // ── MARKET SCANNER ROUTES ──────────────────────────────────────────────────

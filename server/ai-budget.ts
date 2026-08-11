@@ -14,7 +14,11 @@
  *                      cosmetic → blocked past 35% of the daily budget
  *                      normal   → blocked past 75%
  *                      critical → allowed to 100% (AI veto on a live signal)
- *   4. LEDGER      — real token usage (from provider usage metadata when
+ *   4. PER-CALL CAP — no single call may reserve more than 20% of the day
+ *                    (`AI_MAX_CALL_USD` to override). Paired with the economy
+ *                    routing in ai-providers-core, a call that does not fit is
+ *                    moved onto a cheaper model instead of being refused.
+ *   5. LEDGER      — real token usage (from provider usage metadata when
  *                    present, estimated otherwise) is priced and accumulated.
  *                    Past the ceiling the call is refused and the caller falls
  *                    back to its deterministic path. Nothing silently overspends.
@@ -98,17 +102,39 @@ export interface ProviderSpend {
   tokensOut: number;
   blocked: number;
   cacheHits: number;
+  /** Calls served by a cheaper model than the one configured, to stay in budget. */
+  downgraded?: number;
+}
+
+/** A provider's line in the status payload, with the derived numbers the UI shows. */
+export interface ProviderBudgetView extends ProviderSpend {
+  /** Dollars left before the critical (100%) ceiling. */
+  remainingUsd: number;
+  /** Share of the daily budget already spent, 0–1. */
+  usedFraction: number;
+  /** Per-tier dollars still available today. */
+  headroomUsd: Record<CallTier, number>;
+  /** Realized $ per 1k tokens — the honest read on how expensive this provider is. */
+  costPer1kTokens: number | null;
 }
 
 export interface BudgetStatus {
   day: string;
   dailyBudgetUsd: number;
+  /** Ceiling for any one call. */
+  perCallCapUsd: number;
   totalSpendUsd: number;
-  providers: ProviderSpend[];
+  totalTokensIn: number;
+  totalTokensOut: number;
+  providers: ProviderBudgetView[];
   tierCeilings: Record<CallTier, number>;
   cacheEntries: number;
   /** Money not spent because a cached answer was reused. */
   savedByCacheUsd: number;
+  /** Calls refused by the governor today, across all providers. */
+  blockedCalls: number;
+  /** Calls answered from cache — free output. */
+  cacheHits: number;
 }
 
 const DEFAULT_DAILY_BUDGET_USD = 0.05;
@@ -134,7 +160,23 @@ export function parseDailyBudget(raw: string | undefined): number {
   return n;
 }
 
+/**
+ * No single call may reserve more than this share of the daily budget.
+ *
+ * Without it, one generous `maxTokens` swallows the day. The deep-coin-analysis
+ * call is the case that proved it: 1,100 output tokens priced against a premium
+ * model is ~$0.018, which is more than the entire cosmetic ceiling ($0.0175 of a
+ * $0.05 day). Every attempt was refused on a *fresh* ledger — the feature could
+ * never succeed, at any hour, and the refusal surfaced as a 500.
+ *
+ * A per-call cap turns that class of failure into a routing decision instead:
+ * the governor knows up front that the call does not fit, and the provider layer
+ * moves it to a cheaper model rather than discovering the problem at admission.
+ */
+const PER_CALL_BUDGET_FRACTION = 0.20;
+
 let dailyBudgetUsd = parseDailyBudget(process.env.AI_DAILY_BUDGET_USD);
+let perCallCapOverrideUsd = parsePerCallCap(process.env.AI_MAX_CALL_USD);
 let ledgerDay = utcDay();
 let ledger = new Map<string, ProviderSpend>();
 let savedByCacheUsd = 0;
@@ -156,7 +198,7 @@ function entry(provider: string): ProviderSpend {
   rollIfNewDay();
   let e = ledger.get(provider);
   if (!e) {
-    e = { provider, spendUsd: 0, calls: 0, tokensIn: 0, tokensOut: 0, blocked: 0, cacheHits: 0 };
+    e = { provider, spendUsd: 0, calls: 0, tokensIn: 0, tokensOut: 0, blocked: 0, cacheHits: 0, downgraded: 0 };
     ledger.set(provider, e);
   }
   return e;
@@ -170,17 +212,78 @@ export function getDailyBudget(): number {
   return dailyBudgetUsd;
 }
 
+/**
+ * Parse an explicit per-call ceiling. Unlike the daily budget this is optional,
+ * so an unusable value means "no override" rather than a hard default — the
+ * fraction of the daily budget takes over and the cap still exists.
+ */
+export function parsePerCallCap(raw: string | undefined): number | null {
+  if (raw === undefined || raw === null || String(raw).trim() === '') return null;
+  const n = Number(raw);
+  if (!Number.isFinite(n) || n <= 0) {
+    console.warn(
+      `[ai-budget] AI_MAX_CALL_USD="${raw}" is not a positive number — ` +
+      `falling back to ${PER_CALL_BUDGET_FRACTION * 100}% of the daily budget.`,
+    );
+    return null;
+  }
+  return n;
+}
+
+/** The most a single call may cost. Never above the daily budget itself. */
+export function getMaxCallCostUsd(): number {
+  const fromFraction = dailyBudgetUsd * PER_CALL_BUDGET_FRACTION;
+  const cap = perCallCapOverrideUsd ?? fromFraction;
+  return Math.min(cap, dailyBudgetUsd);
+}
+
+export function setMaxCallCostUsd(usd: number | null): void {
+  perCallCapOverrideUsd = usd !== null && Number.isFinite(usd) && usd > 0 ? usd : null;
+}
+
+/**
+ * Dollars this provider may still spend at this tier today.
+ *
+ * The provider layer uses it to pick a model that fits what is actually left,
+ * rather than sending an expensive request that admission will refuse. Clamped
+ * at 0 so an over-spent tier reports "nothing left", not a negative allowance.
+ */
+export function tierHeadroomUsd(provider: string, tier: CallTier): number {
+  const e = entry(provider);
+  return Math.max(0, dailyBudgetUsd * TIER_CEILING[tier] - e.spendUsd);
+}
+
 export function getBudgetStatus(): BudgetStatus {
   rollIfNewDay();
   const providers = [...ledger.values()].sort((a, b) => b.spendUsd - a.spendUsd);
+  const view: ProviderBudgetView[] = providers.map(p => {
+    const tokens = p.tokensIn + p.tokensOut;
+    return {
+      ...p,
+      spendUsd: round6(p.spendUsd),
+      remainingUsd: round6(Math.max(0, dailyBudgetUsd - p.spendUsd)),
+      usedFraction: dailyBudgetUsd > 0 ? Math.min(1, p.spendUsd / dailyBudgetUsd) : 1,
+      headroomUsd: {
+        critical: round6(Math.max(0, dailyBudgetUsd * TIER_CEILING.critical - p.spendUsd)),
+        normal: round6(Math.max(0, dailyBudgetUsd * TIER_CEILING.normal - p.spendUsd)),
+        cosmetic: round6(Math.max(0, dailyBudgetUsd * TIER_CEILING.cosmetic - p.spendUsd)),
+      },
+      costPer1kTokens: tokens > 0 ? round6((p.spendUsd / tokens) * 1000) : null,
+    };
+  });
   return {
     day: ledgerDay,
     dailyBudgetUsd,
+    perCallCapUsd: round6(getMaxCallCostUsd()),
     totalSpendUsd: round6(providers.reduce((s, p) => s + p.spendUsd, 0)),
-    providers: providers.map(p => ({ ...p, spendUsd: round6(p.spendUsd) })),
+    totalTokensIn: providers.reduce((s, p) => s + p.tokensIn, 0),
+    totalTokensOut: providers.reduce((s, p) => s + p.tokensOut, 0),
+    providers: view,
     tierCeilings: TIER_CEILING,
     cacheEntries: responseCache.size,
     savedByCacheUsd: round6(savedByCacheUsd),
+    blockedCalls: providers.reduce((s, p) => s + p.blocked, 0),
+    cacheHits: providers.reduce((s, p) => s + p.cacheHits, 0),
   };
 }
 
@@ -224,6 +327,22 @@ export function admit(opts: {
     };
   }
 
+  // A single call may never reserve more than the per-call ceiling, however
+  // empty the ledger is. This is what makes an oversized request fail as a
+  // routing decision the provider layer can correct, rather than as a mystery
+  // refusal that only shows up once the day is already half spent.
+  const perCall = getMaxCallCostUsd();
+  if (estCostUsd > perCall) {
+    e.blocked++;
+    return {
+      allowed: false,
+      estCostUsd,
+      reason:
+        `AI budget guard: a single ${opts.model} call priced at ~$${estCostUsd.toFixed(5)} ` +
+        `exceeds the $${perCall.toFixed(4)} per-call cap — lower maxTokens or use a cheaper model`,
+    };
+  }
+
   if (e.spendUsd + estCostUsd > ceiling) {
     e.blocked++;
     return {
@@ -257,6 +376,12 @@ export function recordCacheHit(provider: string, savedUsd: number): void {
   const e = entry(provider);
   e.cacheHits++;
   savedByCacheUsd += savedUsd;
+}
+
+/** Note that a call was served by a cheaper model than the configured one. */
+export function recordDowngrade(provider: string): void {
+  const e = entry(provider);
+  e.downgraded = (e.downgraded ?? 0) + 1;
 }
 
 // ─── Response cache + single-flight ───────────────────────────────────────────

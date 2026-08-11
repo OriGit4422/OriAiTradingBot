@@ -904,6 +904,13 @@ export function getQuantumSignal(symbol: string, price: number, data: BinanceKli
       whaleActivity: analysis.whaleActivity.detected ? analysis.whaleActivity.direction : 'NONE',
       volumeForecast: analysis.volumeForecast.expectedSpike ? analysis.volumeForecast.direction : 'STABLE',
       riskReward,
+      // Volatility and the adaptive stop/target distances travel with the signal
+      // so the server can rebuild the exact same levels without candles. Without
+      // them the deterministic fallback has to guess a stop from a timeframe
+      // percentage, which is a worse stop than the one already computed here.
+      atr,
+      dynamicSL,
+      dynamicTP,
       kellyFraction: Math.round(kellyFraction * 1000) / 10,
       ensembleDirection: analysis.ensembleScore.direction,
       ensembleConfidence: analysis.ensembleScore.confidence,

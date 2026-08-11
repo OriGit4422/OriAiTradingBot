@@ -11,6 +11,7 @@ import {
   Bell, Loader2, ChevronDown, ChevronUp, Settings2,
 } from 'lucide-react';
 import { AccuracyPanel } from '@/components/dashboard/AccuracyPanel';
+import { AIBudgetPanel } from '@/components/dashboard/AIBudgetPanel';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -256,10 +257,17 @@ export default function AgentsPage() {
             </div>
           </div>
 
-          {/* ── SIGNAL ACCURACY ───────────────────────────────────────────── */}
-          {/* Realized performance, self-calibration state and AI spend. */}
-          <div className="rounded-2xl border-2 border-blue-500/30 bg-slate-900/60 overflow-hidden">
-            <AccuracyPanel />
+          {/* ── SIGNAL ACCURACY + AI SPEND ────────────────────────────────── */}
+          {/* Realized performance beside what the AI layer cost to produce it.
+              Side by side on purpose: accuracy is only meaningful against its
+              price, and a budget that ran out explains a drop in AI coverage. */}
+          <div className="grid grid-cols-1 xl:grid-cols-3 gap-4">
+            <div className="xl:col-span-2 rounded-2xl border-2 border-blue-500/30 bg-slate-900/60 overflow-hidden">
+              <AccuracyPanel />
+            </div>
+            <div className="rounded-2xl border-2 border-emerald-500/30 bg-slate-900/60 overflow-hidden">
+              <AIBudgetPanel />
+            </div>
           </div>
 
           {/* ── SCANNER CONTROL PANEL ─────────────────────────────────────── */}

@@ -1,4 +1,10 @@
 import { callMultiAI, extractJson, type AIMessage } from './ai-providers';
+import {
+  buildDeepAnalysisPrompt, deterministicDeepAnalysis,
+  type DeepAnalysisInput, type DeepCoinAnalysis,
+} from './deep-analysis-core';
+
+export type { DeepCoinAnalysis } from './deep-analysis-core';
 
 const AI_PROVIDER_COOLDOWN_MS = 5 * 60 * 1000;
 /** When the daily budget guard trips, back off for an hour rather than 5 min. */
@@ -167,100 +173,43 @@ JSON only: {"verdict":"STRONG_BUY|BUY|NEUTRAL|SELL|STRONG_SELL","adjustedConfide
   }
 }
 
-export interface DeepCoinAnalysis {
-  coin: string;
-  timeframe: string;
-  direction: 'LONG' | 'SHORT' | 'NEUTRAL';
-  confidence: number;
-  entry: number;
-  stopLoss: number;
-  takeProfit1: number;
-  takeProfit2: number;
-  takeProfit3: number;
-  riskReward: string;
-  smcAnalysis: string;
-  ictAnalysis: string;
-  quantumLiquidityAnalysis: string;
-  newsImpact: string;
-  socialSentiment: string;
-  technicalAnalysis: string;
-  multiTimeframeAnalysis: string;
-  tradeRationale: string;
-  confluenceScore: number;
-  confluenceFactors: string[];
-  analysisLogs: string[];
-  riskAssessment: string;
-  keyLevels: { support: number[]; resistance: number[] };
-  invalidation: string;
-  summary: string;
-  warnings: string[];
-  timestamp: string;
-}
+/**
+ * Deep analysis of one asset.
+ *
+ * The deterministic plan is built first and always. The AI pass is an overlay on
+ * top of it: when it succeeds its narrative and levels are used, and when it does
+ * not — spent budget, missing key, provider outage, unparseable answer — the
+ * deterministic plan is returned with `degraded: true` and the reason attached.
+ *
+ * This function does not throw. Every failure mode it has still leaves a usable,
+ * fully-populated analysis, because the numbers never depended on the AI in the
+ * first place. Throwing here surfaced as a 500 that told the user their analysis
+ * had failed when in fact only the commentary on it had.
+ */
+export async function getDeepCoinAnalysis(input: DeepAnalysisInput): Promise<DeepCoinAnalysis> {
+  const { coin, timeframe, marketPrice } = input;
 
-export async function getDeepCoinAnalysis(input: {
-  coin: string;
-  timeframe: string;
-  marketPrice: number;
-  indicators?: any;
-  recentNews?: string[];
-  xSentiment?: string;
-}): Promise<DeepCoinAnalysis> {
-  const { coin, timeframe, marketPrice, indicators = {}, recentNews = [], xSentiment } = input;
-  const sd = indicators.strategyDepth || {};
+  if (Date.now() < aiProviderDisabledUntil) {
+    return deterministicDeepAnalysis(
+      input,
+      'AI layer is in cooldown after a recent budget or provider failure — deterministic plan shown.',
+    );
+  }
 
-  const techBlock = `
-Live Technical Snapshot (${coin}/USDT @ ${timeframe}, current price $${marketPrice}):
-- RSI: ${indicators.rsi}, MACD: ${indicators.macdSignal}, EMA Trend: ${indicators.emaTrend}
-- Market Structure: ${indicators.marketStructure}, RSI Divergence: ${indicators.rsiDivergence}
-- Market Phase: ${indicators.marketPhase}, Volume: ${indicators.volumeProfile} (forecast: ${indicators.volumeForecast})
-- Whale Activity: ${indicators.whaleActivity}, Liquidity Clusters: ${indicators.liquidityClusters}
-- Ensemble: ${indicators.ensembleDirection} @ ${indicators.ensembleConfidence}%, Ichimoku: ${indicators.ichimokuSignal}
-- Strategy Depth Scores (0-100): SMC=${sd.smc}, ICT=${sd.ict}, Quantum-Liquidity=${sd.quantum}, Liquidity-Depth=${sd.liquidity}, CRT=${sd.crt}
-- Trend Strength: ${indicators.trendStrength}%, R:R: ${indicators.riskReward}`;
-
-  const newsBlock = recentNews.length
-    ? `\nRecent News Headlines:\n${recentNews.slice(0, 5).map((h, i) => `${i + 1}. ${h}`).join('\n')}`
-    : '';
-  const socialBlock = xSentiment ? `\nX/Social Sentiment: ${xSentiment}` : '';
-
-  // Token-minimal. The methodology block that used to live here restated the
-  // entire SMC/ICT v4 scoring rubric — ~1,150 input tokens on every call, teaching
-  // the model a weighting scheme it cannot apply, because it receives the already
-  // computed summary values below and no candles. Per CLAUDE.md the model weighs
-  // pre-computed values; it does not recompute them. Output lengths are capped for
-  // the same reason: the long-form field text was the dominant cost of this call.
-  const prompt = `Institutional crypto analyst. Values below are already computed — interpret them, do not recompute.
-${coin}/USDT ${timeframe} @ $${marketPrice}${techBlock}${newsBlock}${socialBlock}
-
-Rules: SL beyond structure invalidation, not a fixed %. Min R:R 1:2. All levels within +/-12% of $${marketPrice}.
-Every prose field: max 2 sentences, specific to the numbers above, no boilerplate.
-
-JSON only, no markdown:
-{"direction":"LONG|SHORT|NEUTRAL","confidence":<0-100>,"entry":<num>,"stopLoss":<num>,"takeProfit1":<num>,"takeProfit2":<num>,"takeProfit3":<num>,"riskReward":"1:X",
-"smcAnalysis":"<structure grade, BOS/CHoCH, OB range, premium/discount>",
-"ictAnalysis":"<FVG, OTE zone, killzone timing>",
-"quantumLiquidityAnalysis":"<BSL/SSL levels, likely sweep target>",
-"technicalAnalysis":"<RSI, MACD, EMA, volume, volatility>",
-"multiTimeframeAnalysis":"<HTF bias vs ${timeframe} trigger>",
-"newsImpact":"<catalyst and event risk>",
-"socialSentiment":"<retail read, contrarian or confirmatory>",
-"tradeRationale":"<why this direction, this entry, now>",
-"confluenceScore":<0-100>,
-"confluenceFactors":["<factor: aligned|conflicting>","<up to 6>"],
-"analysisLogs":["SMC: <1 line>","ICT: <1 line>","LIQUIDITY: <1 line>","TECHNICALS: <1 line>","MTF: <1 line>","CATALYSTS: <1 line>","LEVELS: entry/SL/TP1-3/RR","CONFLUENCE: score + reason"],
-"riskAssessment":"<LOW|MEDIUM|HIGH + key risk + sizing note>",
-"keyLevels":{"support":[<num>,<num>,<num>],"resistance":[<num>,<num>,<num>]},
-"invalidation":"<exact price/event that kills the setup>",
-"summary":"<2 sentence actionable verdict>",
-"warnings":["<warning>","<warning>"]}`;
+  const prompt = buildDeepAnalysisPrompt(input);
 
   try {
     const { text } = await callMultiAI([{ role: 'user', content: prompt }], {
-      // Display-only narrative around numbers the deterministic engine already
-      // produced, so it is 'cosmetic': the first thing dropped when the daily
-      // budget tightens, and never at the expense of the AI veto on a live signal.
-      maxTokens: 1100,
-      tier: 'cosmetic',
+      // User-initiated and trade-facing, so it belongs in 'normal' rather than
+      // with the decorative prose — but it still yields to the AI veto on a live
+      // signal, which is the only tier allowed to reach 100% of the budget.
+      //
+      // 650 output tokens is enough for every field at the one-sentence cap the
+      // prompt sets, and is what the governor prices admission at. The old 1,100
+      // was more than a third of a $0.05 day on a premium model, so the call
+      // could never be admitted at all.
+      maxTokens: 650,
+      tier: 'normal',
       cacheTtlMs: 15 * 60 * 1000,
       label: 'deep-coin-analysis',
     });
@@ -268,43 +217,80 @@ JSON only, no markdown:
     if (!jsonMatch) throw new Error('Could not parse AI response');
     const p = JSON.parse(jsonMatch);
     const dir = ['LONG', 'SHORT', 'NEUTRAL'].includes(p.direction) ? p.direction : 'NEUTRAL';
+
+    // Fall back field by field to the deterministic plan rather than to filler
+    // like "analysis unavailable": a truncated answer should lose the fields it
+    // truncated, not the whole result.
+    const base = deterministicDeepAnalysis(input);
+    const num = (v: unknown, fallback: number) => (Number.isFinite(Number(v)) ? Number(v) : fallback);
+
     return {
       coin,
       timeframe,
       direction: dir,
-      confidence: Math.min(95, Math.max(10, Number(p.confidence) || 60)),
-      entry: Number(p.entry) || marketPrice,
-      stopLoss: Number(p.stopLoss) || marketPrice * (dir === 'LONG' ? 0.97 : 1.03),
-      takeProfit1: Number(p.takeProfit1) || marketPrice * (dir === 'LONG' ? 1.02 : 0.98),
-      takeProfit2: Number(p.takeProfit2) || marketPrice * (dir === 'LONG' ? 1.05 : 0.95),
-      takeProfit3: Number(p.takeProfit3) || marketPrice * (dir === 'LONG' ? 1.08 : 0.92),
-      riskReward: p.riskReward || '1:2',
-      smcAnalysis: p.smcAnalysis || 'SMC analysis unavailable.',
-      ictAnalysis: p.ictAnalysis || 'ICT analysis unavailable.',
-      quantumLiquidityAnalysis: p.quantumLiquidityAnalysis || 'Quantum liquidity analysis unavailable.',
-      newsImpact: p.newsImpact || 'No significant news impact identified.',
-      socialSentiment: p.socialSentiment || 'Neutral social sentiment.',
-      technicalAnalysis: p.technicalAnalysis || 'Technical analysis unavailable.',
-      multiTimeframeAnalysis: p.multiTimeframeAnalysis || 'Multi-timeframe analysis unavailable.',
-      tradeRationale: p.tradeRationale || 'Trade rationale unavailable.',
-      confluenceScore: Math.min(100, Math.max(0, Number(p.confluenceScore) || 0)),
-      confluenceFactors: Array.isArray(p.confluenceFactors) ? p.confluenceFactors.slice(0, 10) : [],
-      analysisLogs: Array.isArray(p.analysisLogs) ? p.analysisLogs.slice(0, 10) : [],
-      riskAssessment: p.riskAssessment || 'Risk assessment unavailable.',
+      confidence: Math.min(95, Math.max(10, num(p.confidence, base.confidence))),
+      entry: num(p.entry, marketPrice),
+      stopLoss: num(p.stopLoss, base.stopLoss),
+      takeProfit1: num(p.takeProfit1, base.takeProfit1),
+      takeProfit2: num(p.takeProfit2, base.takeProfit2),
+      takeProfit3: num(p.takeProfit3, base.takeProfit3),
+      riskReward: p.riskReward || base.riskReward,
+      smcAnalysis: p.smcAnalysis || base.smcAnalysis,
+      ictAnalysis: p.ictAnalysis || base.ictAnalysis,
+      quantumLiquidityAnalysis: p.quantumLiquidityAnalysis || base.quantumLiquidityAnalysis,
+      newsImpact: p.newsImpact || base.newsImpact,
+      socialSentiment: p.socialSentiment || base.socialSentiment,
+      technicalAnalysis: p.technicalAnalysis || base.technicalAnalysis,
+      multiTimeframeAnalysis: p.multiTimeframeAnalysis || base.multiTimeframeAnalysis,
+      tradeRationale: p.tradeRationale || base.tradeRationale,
+      confluenceScore: Math.min(100, Math.max(0, num(p.confluenceScore, base.confluenceScore))),
+      confluenceFactors: Array.isArray(p.confluenceFactors) && p.confluenceFactors.length
+        ? p.confluenceFactors.slice(0, 10)
+        : base.confluenceFactors,
+      analysisLogs: Array.isArray(p.analysisLogs) && p.analysisLogs.length
+        ? p.analysisLogs.slice(0, 10)
+        : base.analysisLogs,
+      riskAssessment: p.riskAssessment || base.riskAssessment,
       keyLevels: {
-        support: Array.isArray(p.keyLevels?.support) ? p.keyLevels.support.map(Number).filter(Boolean) : [],
-        resistance: Array.isArray(p.keyLevels?.resistance) ? p.keyLevels.resistance.map(Number).filter(Boolean) : [],
+        support: Array.isArray(p.keyLevels?.support) && p.keyLevels.support.length
+          ? p.keyLevels.support.map(Number).filter(Boolean)
+          : base.keyLevels.support,
+        resistance: Array.isArray(p.keyLevels?.resistance) && p.keyLevels.resistance.length
+          ? p.keyLevels.resistance.map(Number).filter(Boolean)
+          : base.keyLevels.resistance,
       },
-      invalidation: p.invalidation || 'Setup invalidated on structure break.',
-      summary: p.summary || 'Analysis complete.',
+      invalidation: p.invalidation || base.invalidation,
+      summary: p.summary || base.summary,
       warnings: Array.isArray(p.warnings) ? p.warnings.slice(0, 4) : [],
       timestamp: new Date().toISOString(),
+      source: 'ai',
+      degraded: false,
     };
   } catch (error: any) {
-    if (error.message?.includes('No AI providers configured')) {
+    const message = error?.message || String(error);
+
+    if (message.includes('No AI providers configured')) {
       aiProviderDisabledUntil = Date.now() + AI_PROVIDER_COOLDOWN_MS;
+      return deterministicDeepAnalysis(
+        input,
+        'No AI provider is configured — add a key in Settings → AI Agents for the narrative layer. Levels below are from the deterministic engine.',
+      );
     }
-    throw new Error('Deep coin analysis failed: ' + (error?.message || error));
+
+    if (error?.budgetExceeded || /budget guard/i.test(message)) {
+      aiProviderDisabledUntil = Date.now() + AI_BUDGET_COOLDOWN_MS;
+      console.warn('[ai-analysis] Deep analysis hit the AI budget — deterministic plan returned:', message);
+      return deterministicDeepAnalysis(
+        input,
+        "Today's AI budget is spent, so this plan comes from the deterministic engine. Raise the cap in Settings or wait for the 00:00 UTC reset.",
+      );
+    }
+
+    console.error('[ai-analysis] Deep analysis failed, returning deterministic plan:', message);
+    return deterministicDeepAnalysis(
+      input,
+      `AI providers are unreachable (${message.slice(0, 160)}) — deterministic plan shown.`,
+    );
   }
 }
 
@@ -371,43 +357,28 @@ export async function getMarketInsight(coins: string[], marketData?: any[]): Pro
   if (Date.now() < aiProviderDisabledUntil) return fallbackResult;
 
   try {
+    // `sym price chg% vol` per line. The old form spelled out "Current Price",
+    // "24h Change" and "24h Volume" on every line — ~20 wasted input tokens per
+    // coin, repeated on every refresh for the life of the app.
     const marketContext = marketData?.length
-      ? marketData.map(d => `${d.symbol}: Current Price $${d.price}, 24h Change ${d.change > 0 ? '+' : ''}${d.change.toFixed(2)}%, 24h Volume $${(d.volume / 1e6).toFixed(0)}M`).join('\n')
-      : coins.map(c => `${c}: price data unavailable`).join('\n');
+      ? marketData.map(d => `${d.symbol} ${d.price} ${d.change > 0 ? '+' : ''}${d.change.toFixed(2)}% ${(d.volume / 1e6).toFixed(0)}M`).join('\n')
+      : coins.map(c => `${c} -`).join('\n');
 
-    const system = 'You are a professional crypto market analyst providing real-time analysis. Return ONLY valid JSON. No markdown, no code blocks. CRITICAL: Use the EXACT current prices provided below in your analysis. Key levels must be near the actual current price - not generic round numbers. For example if BTC is at $67,800, key levels should be around $66,500-$69,000 range, NOT $60,000.';
-
-    const userMsg = `Analyze these live crypto markets using the REAL prices below. Your key levels and analysis MUST reference prices close to the actual current values.
-
-LIVE MARKET DATA:
+    // Rules that the parser below enforces anyway are not restated here.
+    // Sentiment/action agreement and trade-direction agreement are both corrected
+    // deterministically after the response lands, so paying tokens to ask for
+    // them bought nothing — the code was already the authority.
+    const userMsg = `Crypto market read. JSON only, no markdown.
+Data (sym price chg24h vol24h):
 ${marketContext}
 
-Return this exact JSON structure:
-{
-  "overview": "2-3 sentence market overview referencing actual prices and % changes from the data above",
-  "coins": [
-    {"coin": "BTC", "sentiment": "BULLISH or BEARISH or NEUTRAL", "shortAnalysis": "1 sentence using actual price data", "keyLevel": "specific realistic price level near current price", "action": "BUY or SELL or HOLD or WATCH", "xSentiment":"short social sentiment read", "fomoLevel":"LOW or MEDIUM or HIGH", "liquidityView":"where liquidity is clustered", "psychologicalLevels":"major round numbers", "newsBias":"bullish/bearish/neutral headline bias"}
-  ],
-  "upcomingTrades": [
-    {"coin": "BTC", "direction": "LONG or SHORT", "reason": "1 sentence with specific price targets near current levels", "confidence": 75, "timeframe": "1h or 4h or 15m"}
-  ],
-  "marketMood": "1-3 word mood description"
-}
+Key levels within 5% of the price shown. Sentiment follows chg24h: >+1% BULLISH, <-1% BEARISH, else NEUTRAL.
+3-5 upcomingTrades, only from non-NEUTRAL coins. Every prose field: one short sentence.
 
-RULES:
-- Include ALL coins: ${coins.join(', ')}
-- Sentiment MUST match the 24h change: positive change (>1%) = BULLISH, negative (<-1%) = BEARISH, small change = NEUTRAL
-- Action MUST align with sentiment: BULLISH = BUY, BEARISH = SELL, NEUTRAL = HOLD or WATCH
-- Key levels MUST be within 5% of the current price shown above
-- Generate 3-5 upcoming trade ideas using only BULLISH or BEARISH coins (do NOT include NEUTRAL coins in upcomingTrades)
-- CRITICAL: upcomingTrades direction MUST match the coin sentiment — BULLISH coins get LONG, BEARISH coins get SHORT. Never assign LONG to a BEARISH coin or SHORT to a BULLISH coin
-- Confidence should reflect how strong the setup is (60-95 range)
-- Be specific about prices, not generic`;
+{"overview":"<2 sentences citing real prices>","coins":[{"coin":"","sentiment":"BULLISH|BEARISH|NEUTRAL","shortAnalysis":"","keyLevel":"","action":"BUY|SELL|HOLD|WATCH","xSentiment":"","fomoLevel":"LOW|MEDIUM|HIGH","liquidityView":"","psychologicalLevels":"","newsBias":""}],"upcomingTrades":[{"coin":"","direction":"LONG|SHORT","reason":"","confidence":<60-95>,"timeframe":"15m|1h|4h"}],"marketMood":"<1-3 words>"}
+All ${coins.length} coins required.`;
 
-    const messages: AIMessage[] = [
-      { role: 'system', content: system },
-      { role: 'user', content: userMsg },
-    ];
+    const messages: AIMessage[] = [{ role: 'user', content: userMsg }];
 
     const { text } = await callMultiAI(messages, {
       // Dashboard overview prose — cosmetic tier, and cached for as long as the

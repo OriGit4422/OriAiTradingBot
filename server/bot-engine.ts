@@ -1,5 +1,6 @@
 import { storage } from './storage';
 import { realizedR } from './agents/learning-core';
+import { isLiveTradingConfirmed, LIVE_TRADING_BLOCKED_MESSAGE } from './live-trading-gate';
 import type { BotSettings, BotTrade, Signal } from '@shared/schema';
 import { placeBinanceOrder, placeBybitOrder, placeMexcOrder, getBinanceBalance, getBybitBalance, getMexcBalance, getExchangePositions, type ExchangeName } from './exchanges';
 
@@ -261,6 +262,19 @@ async function dispatchOrder(
     rr: number;
   },
 ): Promise<ExecResult> {
+  // Second gate, checked at the moment of execution rather than only when the
+  // mode is set — so a deployment that loses the env var stops placing live
+  // orders immediately instead of continuing on a stale mode.
+  if (s.mode === 'live' && !isLiveTradingConfirmed()) {
+    await storage.createBotLog({
+      level: 'error',
+      event: 'LIVE_ORDER_BLOCKED',
+      message: `Live order blocked for ${intent.symbol}: LIVE_TRADING_CONFIRMED is not set`,
+      meta: { symbol: intent.symbol, direction: intent.direction, exchange: intent.exchange },
+    });
+    return { ok: false, message: LIVE_TRADING_BLOCKED_MESSAGE };
+  }
+
   // Live / Testnet execution — route to real exchange
   if (s.mode === 'live' || s.mode === 'testnet') {
     const exchange = (intent.exchange || s.connectedExchange || 'bybit') as ExchangeName;
@@ -583,6 +597,11 @@ export async function setBotMode(mode: ExecMode) {
   const s = await storage.getBotSettings();
   if (mode === 'live' && !s.liveUnlocked) {
     return { ok: false, message: 'Live trading is locked. Complete the unlock requirements first.' };
+  }
+  // Both gates are required, so refuse the switch up front rather than letting
+  // the mode flip and every subsequent order fail at dispatch.
+  if (mode === 'live' && !isLiveTradingConfirmed()) {
+    return { ok: false, message: LIVE_TRADING_BLOCKED_MESSAGE };
   }
   const updated = await storage.upsertBotSettings({ mode });
   await storage.createBotLog({ level: 'info', event: 'MODE_CHANGED', message: `Trading mode changed to ${mode}` });

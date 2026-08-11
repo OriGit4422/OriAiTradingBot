@@ -312,7 +312,9 @@ export function buildSnapshot(outcomes: TradeOutcome[], now: number = Date.now()
   }
 
   return {
-    generatedAt: new Date().toISOString(),
+    // Derived from `now` rather than the wall clock, so buildSnapshot is a pure
+    // function of its arguments and two calls with the same inputs agree.
+    generatedAt: new Date(now).toISOString(),
     sampleSize: n,
     active,
     brierScore: brier !== null ? Math.round(brier * 10000) / 10000 : null,

@@ -47,6 +47,34 @@ export const MAX_CONTEXT_ADJUST = 0.15;
 /** Calibration may never add more than this many points to the raw score. */
 export const MAX_UPWARD_ADJUST = 5;
 
+/**
+ * Recency weighting. A trade's evidential weight halves every this many days, so
+ * the engine tracks the market it is trading now rather than averaging over
+ * regimes that ended months ago.
+ *
+ * Two deliberate limits keep this from becoming a way to act on thin evidence:
+ *   • Weight is floored at RECENCY_FLOOR, so old trades are discounted, never
+ *     erased — a long losing history cannot be aged out of the record.
+ *   • Weighting affects the *strength* of an adjustment only. Every evidence
+ *     gate (MIN_SAMPLES, MIN_CONTEXT_SAMPLES) still counts raw closed trades, so
+ *     decay can never make a 12-trade context behave as though it had more.
+ */
+export const RECENCY_HALF_LIFE_DAYS = 60;
+export const RECENCY_FLOOR = 0.25;
+
+/**
+ * Evidential weight of a trade closed `ageDays` ago.
+ *
+ * An unknown age (NaN) counts as current — a missing timestamp is not evidence
+ * that a trade is old, and silently discounting it would quietly drop real
+ * history. An infinite age decays to the floor like any other very old trade.
+ */
+export function recencyWeight(ageDays: number): number {
+  if (Number.isNaN(ageDays) || ageDays <= 0) return 1;
+  const decayed = Math.pow(0.5, ageDays / RECENCY_HALF_LIFE_DAYS);
+  return Math.max(RECENCY_FLOOR, Math.min(1, decayed));
+}
+
 const BUCKET_EDGES = [0, 50, 60, 65, 70, 75, 80, 85, 90, 101];
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -95,10 +123,17 @@ export interface LearningSnapshot {
 export interface TradeOutcome {
   confidence: number;
   win: boolean;
+  /**
+   * Realized R: profit or loss as a multiple of the risk actually taken.
+   * Measured from the trade's own pnl and riskAmount wherever both are
+   * recorded, so slippage, partial exits and early closes are all reflected.
+   */
   pnlR: number;
   strategy: string;
   timeframe: string;
   direction: string;
+  /** When the trade closed, for recency weighting. Undefined = treated as current. */
+  closedAt?: Date | string | null;
 }
 
 // ─── Isotonic regression (pool-adjacent-violators) ────────────────────────────
@@ -145,9 +180,22 @@ function bucketLabel(min: number, max: number): string {
   return max >= 100 ? `${min}%+` : `${min}-${max - 1}%`;
 }
 
-export function buildSnapshot(outcomes: TradeOutcome[]): LearningSnapshot {
+/** Age of a trade in days, relative to `now`. Missing dates count as current. */
+function ageDaysOf(o: TradeOutcome, now: number): number {
+  if (!o.closedAt) return 0;
+  const t = o.closedAt instanceof Date ? o.closedAt.getTime() : new Date(o.closedAt).getTime();
+  if (!Number.isFinite(t)) return 0;
+  return Math.max(0, (now - t) / 86_400_000);
+}
+
+export function buildSnapshot(outcomes: TradeOutcome[], now: number = Date.now()): LearningSnapshot {
   const notes: string[] = [];
   const n = outcomes.length;
+
+  // Recency weights, computed once. Raw counts still drive every evidence gate.
+  const weightOf = new Map<TradeOutcome, number>();
+  for (const o of outcomes) weightOf.set(o, recencyWeight(ageDaysOf(o, now)));
+  const w = (o: TradeOutcome) => weightOf.get(o) ?? 1;
 
   const buckets: CalibrationBucket[] = [];
   for (let i = 0; i < BUCKET_EDGES.length - 1; i++) {
@@ -158,10 +206,14 @@ export function buildSnapshot(outcomes: TradeOutcome[]): LearningSnapshot {
     const predicted = Math.min(99, (min + Math.min(max, 100)) / 2) / 100;
     const rawWinRate = inBucket.length ? wins / inBucket.length : null;
 
-    // Bayesian shrinkage toward the predicted rate — small samples barely move.
+    // Bayesian shrinkage toward the predicted rate, on recency-weighted counts:
+    // a bucket whose evidence is all a year old carries less than the same
+    // bucket filled last month, and shrinks further toward the prior.
+    const wTotal = inBucket.reduce((s, o) => s + w(o), 0);
+    const wWins = inBucket.reduce((s, o) => s + (o.win ? w(o) : 0), 0);
     const calibrated =
       inBucket.length > 0
-        ? (wins + SHRINKAGE_STRENGTH * predicted) / (inBucket.length + SHRINKAGE_STRENGTH)
+        ? (wWins + SHRINKAGE_STRENGTH * predicted) / (wTotal + SHRINKAGE_STRENGTH)
         : null;
 
     buckets.push({
@@ -189,8 +241,13 @@ export function buildSnapshot(outcomes: TradeOutcome[]): LearningSnapshot {
     b.divergencePts = Math.round((smoothed[i] - b.predictedWinRate) * 1000) / 10;
   });
 
-  // Context stats.
-  const baselineExpectancy = n ? outcomes.reduce((s, o) => s + o.pnlR, 0) / n : 0;
+  // Context stats. Expectancy is recency-weighted for the same reason the
+  // calibration buckets are: a strategy that stopped working two months ago
+  // should not be propped up by how well it did before that.
+  const totalWeight = outcomes.reduce((s, o) => s + w(o), 0);
+  const baselineExpectancy = totalWeight
+    ? outcomes.reduce((s, o) => s + o.pnlR * w(o), 0) / totalWeight
+    : 0;
   const contexts: ContextStat[] = [];
 
   const group = (kind: ContextStat['kind'], keyOf: (o: TradeOutcome) => string) => {
@@ -203,11 +260,15 @@ export function buildSnapshot(outcomes: TradeOutcome[]): LearningSnapshot {
     }
     for (const [key, list] of map) {
       const wins = list.filter(o => o.win).length;
-      const expectancyR = list.reduce((s, o) => s + o.pnlR, 0) / list.length;
+      const listWeight = list.reduce((s, o) => s + w(o), 0);
+      const expectancyR = listWeight
+        ? list.reduce((s, o) => s + o.pnlR * w(o), 0) / listWeight
+        : 0;
       // Difference in expectancy, scaled and clamped. 1R of edge ≈ full adjustment.
       const rawDelta = Math.max(-1, Math.min(1, expectancyR - baselineExpectancy));
-      // Shrink by sample size so a 12-trade context moves less than a 100-trade one.
-      const confidenceWeight = list.length / (list.length + SHRINKAGE_STRENGTH);
+      // Shrink by weighted sample size so a 12-trade context moves less than a
+      // 100-trade one, and a stale context less than a current one.
+      const confidenceWeight = listWeight / (listWeight + SHRINKAGE_STRENGTH);
       const multiplier = 1 + rawDelta * MAX_CONTEXT_ADJUST * confidenceWeight;
       contexts.push({
         key,
@@ -256,6 +317,8 @@ export function buildSnapshot(outcomes: TradeOutcome[]): LearningSnapshot {
     active,
     brierScore: brier !== null ? Math.round(brier * 10000) / 10000 : null,
     overallWinRate: n ? Math.round((outcomes.filter(o => o.win).length / n) * 1000) / 1000 : null,
+    // Recency-weighted: this is the number the engine acts on, so it is the one
+    // reported. accuracy.ts also publishes the unweighted lifetime figures.
     expectancyR: n ? Math.round(baselineExpectancy * 100) / 100 : null,
     calibration: buckets,
     contexts: contexts.sort((a, b) => b.trades - a.trades),
@@ -328,21 +391,49 @@ export function applyLearning(
 
 // ─── Trade → outcome mapping ──────────────────────────────────────────────────
 
+/**
+ * Cap on a single trade's realized R.
+ *
+ * Guards against a corrupt or near-zero riskAmount turning one trade into a
+ * thousand-R outlier that dominates every expectancy figure. Real trades do not
+ * reach this; a division artefact does.
+ */
+export const MAX_REALIZED_R = 20;
+
+/**
+ * Realized R for a closed trade: what the trade actually returned as a multiple
+ * of what was actually risked.
+ *
+ * The previous rule — a win pays the planned rr, a loss costs exactly 1R — is an
+ * idealization. It books a trade that was stopped out at 1.4R of slippage as
+ * -1.0R, and a runner trailed out at 0.3R as a full planned win. Calibration,
+ * expectancy and every context multiplier are computed from this number, so the
+ * idealization propagated into every decision the learning layer makes.
+ *
+ * Falls back to the planned figure only when riskAmount was never recorded
+ * (older rows), so historical trades still count rather than being dropped.
+ */
+export function realizedR(t: Pick<BotTrade, 'pnl' | 'rr' | 'riskAmount'>): number {
+  const pnl = t.pnl ?? 0;
+  const risk = t.riskAmount ?? 0;
+  if (risk > 0 && Number.isFinite(pnl)) {
+    const r = pnl / risk;
+    if (Number.isFinite(r)) return Math.max(-MAX_REALIZED_R, Math.min(MAX_REALIZED_R, r));
+  }
+  return pnl >= 0 ? (t.rr ?? 1) : -1;
+}
+
 /** Turn closed bot trades into the outcome records the engine consumes. */
 export function tradesToOutcomes(trades: BotTrade[]): TradeOutcome[] {
   return trades
     .filter(t => t.status === 'closed' && t.pnl !== null && t.pnl !== undefined)
-    .map(t => {
-      const win = (t.pnl ?? 0) >= 0;
-      // R-multiple: a win pays the planned R:R, a loss costs 1R.
-      const pnlR = win ? (t.rr ?? 1) : -1;
-      return {
-        confidence: t.confidence ?? 0,
-        win,
-        pnlR,
-        strategy: t.strategy ?? 'unknown',
-        timeframe: t.timeframe ?? 'unknown',
-        direction: t.direction ?? 'unknown',
-      };
-    });
+    .map(t => ({
+      confidence: t.confidence ?? 0,
+      win: (t.pnl ?? 0) >= 0,
+      pnlR: realizedR(t),
+      strategy: t.strategy ?? 'unknown',
+      timeframe: t.timeframe ?? 'unknown',
+      direction: t.direction ?? 'unknown',
+      closedAt: t.closedAt ?? t.createdAt ?? null,
+    }));
 }

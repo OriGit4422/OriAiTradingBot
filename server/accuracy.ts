@@ -20,7 +20,7 @@
 
 import { storage } from './storage';
 import {
-  getLearningSnapshot, MIN_CONTEXT_SAMPLES,
+  getLearningSnapshot, realizedR, MIN_CONTEXT_SAMPLES,
   type LearningSnapshot,
 } from './agents/learning-engine';
 import { getBudgetStatus } from './ai-budget';
@@ -69,7 +69,9 @@ export interface AccuracyReport {
 
 function sliceStats(key: string, trades: BotTrade[]): AccuracySlice {
   const wins = trades.filter(t => (t.pnl ?? 0) >= 0).length;
-  const rTotal = trades.reduce((s, t) => s + ((t.pnl ?? 0) >= 0 ? (t.rr ?? 1) : -1), 0);
+  // Realized R, not the planned R:R — see realizedR() in learning-core. A slice
+  // that mostly wins small and loses big has to show up as the losing slice it is.
+  const rTotal = trades.reduce((s, t) => s + realizedR(t), 0);
   return {
     key,
     trades: trades.length,
@@ -134,6 +136,18 @@ function buildVerdict(r: Omit<AccuracyReport, 'verdict'>): string {
     );
   }
 
+  // Now that losses are measured rather than assumed to be exactly -1R, an
+  // average loss materially worse than plan is visible — and it is usually
+  // execution (slippage, gapped stops, late fills) rather than signal quality,
+  // so it needs saying separately from expectancy.
+  const avgLoss = r.headline.avgLossR;
+  if (avgLoss !== null && avgLoss < -1.1) {
+    parts.push(
+      `Average loss is ${avgLoss}R against a planned -1.00R — stops are being filled past their level. ` +
+      `That gap is execution cost, not signal quality; it will not improve by raising the confidence threshold.`,
+    );
+  }
+
   const worstSlice = [...r.byStrategy, ...r.byTimeframe]
     .filter(s => s.significant)
     .sort((a, b) => a.expectancyR - b.expectancyR)[0];
@@ -166,8 +180,15 @@ export async function buildAccuracyReport(): Promise<AccuracyReport> {
       brierScore: snapshot.brierScore,
       totalPnlUsd: Math.round(closed.reduce((s, t) => s + (t.pnl ?? 0), 0) * 100) / 100,
       profitFactor: grossLoss > 0 ? Math.round((grossWin / grossLoss) * 100) / 100 : null,
-      avgWinR: wins.length ? Math.round((wins.reduce((s, t) => s + (t.rr ?? 1), 0) / wins.length) * 100) / 100 : null,
-      avgLossR: losses.length ? -1 : null,
+      // Both are realized. avgLossR was previously hardcoded to -1, which asserted
+      // that no stop had ever slipped — it made the report unable to show the one
+      // thing most likely to be quietly eating the edge.
+      avgWinR: wins.length
+        ? Math.round((wins.reduce((s, t) => s + realizedR(t), 0) / wins.length) * 100) / 100
+        : null,
+      avgLossR: losses.length
+        ? Math.round((losses.reduce((s, t) => s + realizedR(t), 0) / losses.length) * 100) / 100
+        : null,
       maxConsecutiveLosses: maxConsecutiveLosses(closed),
     },
     calibration: snapshot.calibration,

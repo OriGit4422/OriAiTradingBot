@@ -1,4 +1,5 @@
 import { storage } from './storage';
+import { realizedR } from './agents/learning-core';
 import type { BotSettings, BotTrade, Signal } from '@shared/schema';
 import { placeBinanceOrder, placeBybitOrder, placeMexcOrder, getBinanceBalance, getBybitBalance, getMexcBalance, getExchangePositions, type ExchangeName } from './exchanges';
 
@@ -527,7 +528,9 @@ export async function closeBotTrade(id: string, exitPrice: number, exitReason = 
 
   // Calibration record: predicted confidence vs realized outcome
   // Used by the calibration curve endpoint to detect when predicted vs actual diverge.
-  const pnlR = trade.rr ? (pnl >= 0 ? trade.rr : -1) : (pnl >= 0 ? 1 : -1);
+  // Realized R, so the calibration trail records what the trade actually
+  // returned rather than what it was planned to return.
+  const pnlR = realizedR({ pnl, rr: trade.rr, riskAmount: trade.riskAmount });
   await storage.createBotLog({
     level: 'info',
     event: 'CALIBRATION_RECORD',

@@ -9,89 +9,19 @@
 import { storage } from './storage';
 import {
   admit, commit, cacheGet, cacheSet, makeCacheKey, getInFlight, setInFlight,
-  recordCacheHit, extractUsage, type CallTier,
+  recordCacheHit, extractUsage,
 } from './ai-budget';
+import {
+  resolveOptions, isModelNotFound, noteRetiredModel, resolveGeminiModel,
+  isRetryableError, promptChars, extractJson, parseJson,
+  GEMINI_FALLBACK_MODEL, AIBudgetExceededError,
+  type AIMessage, type AICallOptions, type ResolvedCallOptions,
+  type AIProviderConfig, type AIResponse,
+} from './ai-providers-core';
 
-export interface AIMessage {
-  role: 'user' | 'assistant' | 'system';
-  content: string;
-}
-
-/**
- * Per-call controls. Passing a bare number is still supported and means
- * `{ maxTokens: n }`.
- */
-export interface AICallOptions {
-  maxTokens?: number;
-  temperature?: number;
-  /** Budget tier — defaults to 'normal'. */
-  tier?: CallTier;
-  /** How long an identical prompt may be served from cache. 0 disables. */
-  cacheTtlMs?: number;
-  /** Short label for logs/diagnostics. */
-  label?: string;
-}
-
-export interface ResolvedCallOptions {
-  maxTokens: number;
-  temperature: number;
-  tier: CallTier;
-  cacheTtlMs: number;
-  label: string;
-}
-
-/** Default cache TTL by tier — cosmetic text is reusable far longer than a veto. */
-const DEFAULT_CACHE_TTL: Record<CallTier, number> = {
-  critical: 3 * 60 * 1000,
-  normal: 10 * 60 * 1000,
-  cosmetic: 60 * 60 * 1000,
-};
-
-export function resolveOptions(
-  opts: number | AICallOptions | undefined,
-  defaultMaxTokens: number,
-): ResolvedCallOptions {
-  const o: AICallOptions = typeof opts === 'number' ? { maxTokens: opts } : (opts ?? {});
-  const tier: CallTier = o.tier ?? 'normal';
-  return {
-    maxTokens: o.maxTokens ?? defaultMaxTokens,
-    temperature: o.temperature ?? 0.3,
-    tier,
-    cacheTtlMs: o.cacheTtlMs ?? DEFAULT_CACHE_TTL[tier],
-    label: o.label ?? 'ai-call',
-  };
-}
-
-/** Thrown when the governor refuses a call. Callers fall back to deterministic paths. */
-export class AIBudgetExceededError extends Error {
-  readonly budgetExceeded = true;
-  constructor(message: string) {
-    super(message);
-    this.name = 'AIBudgetExceededError';
-  }
-}
-
-export interface AIProviderConfig {
-  name: string;
-  type: 'custom' | 'gemini' | 'anthropic';
-  baseUrl?: string;
-  apiKey: string;
-  model: string;
-}
-
-export interface AIResponse {
-  text: string;
-  provider: string;
-  model: string;
-  /** Actual tokens consumed (provider-reported when available, else estimated). */
-  usage?: { tokensIn: number; tokensOut: number; measured: boolean };
-  /** True when the answer came from the response cache and cost nothing. */
-  cached?: boolean;
-}
-
-function promptChars(messages: AIMessage[]): number {
-  return messages.reduce((n, m) => n + (m.content?.length ?? 0), 0);
-}
+// The pure half of this layer lives in ./ai-providers-core so it can be unit
+// tested without a DATABASE_URL. Re-exported here so callers keep one import.
+export * from './ai-providers-core';
 
 // ── OpenAI-compatible API call ────────────────────────────────────────────────
 
@@ -142,7 +72,16 @@ async function callGemini(
   messages: AIMessage[],
   opts: ResolvedCallOptions,
 ): Promise<AIResponse> {
-  const model = config.model || 'gemini-2.0-flash';
+  return callGeminiWithModel(config, messages, opts, resolveGeminiModel(config.model), true);
+}
+
+async function callGeminiWithModel(
+  config: AIProviderConfig,
+  messages: AIMessage[],
+  opts: ResolvedCallOptions,
+  model: string,
+  mayDowngrade: boolean,
+): Promise<AIResponse> {
   const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${config.apiKey}`;
 
   const systemMsg = messages.find(m => m.role === 'system');
@@ -177,6 +116,15 @@ async function callGemini(
 
   if (!response.ok) {
     const errText = await response.text().catch(() => response.statusText);
+    // A retired/unknown model is a configuration problem, not a transient one.
+    // Downgrade once to a model that exists rather than surfacing a 404 that
+    // would strip the AI layer off every signal until someone edits Settings.
+    if (mayDowngrade && isModelNotFound(response.status, errText)) {
+      const replacement = noteRetiredModel(model);
+      if (replacement) {
+        return callGeminiWithModel(config, messages, opts, replacement, false);
+      }
+    }
     throw new Error(`Gemini API ${response.status}: ${errText}`);
   }
 
@@ -196,7 +144,7 @@ async function streamGemini(
   onChunk: (chunk: string) => void,
   maxTokens = 4096,
 ): Promise<void> {
-  const model = config.model || 'gemini-2.0-flash';
+  const model = resolveGeminiModel(config.model);
   const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:streamGenerateContent?alt=sse&key=${config.apiKey}`;
 
   const systemMsg = messages.find(m => m.role === 'system');
@@ -321,7 +269,11 @@ export async function callAIProvider(
   retries = 2,
 ): Promise<AIResponse> {
   const opts = resolveOptions(maxTokensOrOptions, 1024);
-  const model = config.model || (config.type === 'gemini' ? 'gemini-2.0-flash' : 'unknown');
+  // Price and cache against the model that will actually be called, not the id
+  // stored in Settings — those diverge once a retired model has been downgraded.
+  const model = config.type === 'gemini'
+    ? resolveGeminiModel(config.model)
+    : (config.model || 'unknown');
 
   // 1. Cache — identical prompt within TTL costs nothing.
   const key = makeCacheKey([config.name, model, opts.maxTokens, opts.temperature, messages]);
@@ -368,10 +320,11 @@ export async function callAIProvider(
         return res;
       } catch (err: any) {
         lastError = err;
-        // Don't retry auth errors (401, 403) or invalid request (400)
-        const isAuthErr = err.message?.includes('401') || err.message?.includes('403') || err.message?.includes('invalid_api_key');
-        const isBadReq = err.message?.includes('400') || err.message?.includes('invalid_request');
-        if (isAuthErr || isBadReq || attempt >= retries) break;
+        // Only transient failures are worth a retry. Auth, malformed-request and
+        // missing-model errors are deterministic: retrying them three times with
+        // backoff just delays every signal by ~3s and, on metered providers,
+        // bills for the same rejection twice more.
+        if (!isRetryableError(err?.message) || attempt >= retries) break;
         // Exponential backoff: 1s, 2s
         await sleep(1000 * Math.pow(2, attempt));
       }
@@ -379,6 +332,8 @@ export async function callAIProvider(
     throw lastError ?? new Error('AI provider call failed');
   })();
 
+  // The derived promise must never be the only holder of a rejection: setInFlight
+  // attaches a handler, and `run` itself is returned to (and awaited by) the caller.
   setInFlight(key, run.then(r => ({ text: r.text, provider: r.provider, model: r.model })));
   return run;
 }
@@ -392,14 +347,18 @@ export async function getActiveProviders(): Promise<AIProviderConfig[]> {
   const primary: AIProviderConfig[] = [];
   const fallback: AIProviderConfig[] = [];
 
-  // Gemini is always first — cheapest, highest quota
+  // Gemini is always first — cheapest, highest quota.
+  // The previous mapping here pointed gemini-1.5-pro at gemini-1.5-pro-latest and
+  // gemini-1.0-pro at gemini-1.5-flash; the whole 1.5 line has since been retired
+  // from v1beta, so both aliases 404'd. resolveGeminiModel owns this now and lands
+  // every retired id on a model that currently exists.
   if (ss.geminiEnabled && ss.geminiApiKey) {
-    // Auto-correct legacy model names that no longer exist on v1beta
-    const rawModel: string = ss.geminiModel || 'gemini-2.0-flash';
-    const model = rawModel === 'gemini-1.5-pro' ? 'gemini-1.5-pro-latest'
-                : rawModel === 'gemini-1.0-pro' ? 'gemini-1.5-flash'
-                : rawModel;
-    primary.push({ name: 'Gemini', type: 'gemini', apiKey: ss.geminiApiKey, model });
+    primary.push({
+      name: 'Gemini',
+      type: 'gemini',
+      apiKey: ss.geminiApiKey,
+      model: resolveGeminiModel(ss.geminiModel),
+    });
   }
 
   if (ss.customAi1Enabled && ss.customAi1ApiKey) {
@@ -447,34 +406,6 @@ export async function getActiveProviders(): Promise<AIProviderConfig[]> {
 
 // ── Multi-AI: run all providers in parallel, aggregate JSON numeric fields ────
 
-function extractJson(text: string): string | null {
-  if (!text) return null;
-  // Try markdown code block first (object or array)
-  const codeBlock = text.match(/```(?:json)?\s*([[{][\s\S]*?[\]}])\s*```/);
-  if (codeBlock) return codeBlock[1];
-  // Then bare JSON object
-  const bare = text.match(/\{[\s\S]*\}/);
-  if (bare) return bare[0];
-  // Finally a bare JSON array
-  const arr = text.match(/\[[\s\S]*\]/);
-  return arr ? arr[0] : null;
-}
-
-/**
- * Extract AND parse JSON from a model response.
- * `extractJson` returns the raw substring; this returns the typed value or null.
- */
-function parseJson<T = any>(text: string): T | null {
-  const raw = extractJson(text);
-  if (!raw) return null;
-  try {
-    return JSON.parse(raw) as T;
-  } catch {
-    return null;
-  }
-}
-
-export { extractJson, parseJson };
 
 function aggregateJsonResponses(texts: string[]): string {
   const parsed: any[] = [];

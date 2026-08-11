@@ -267,8 +267,15 @@ export function getInFlight(key: string) {
 
 export function setInFlight(key: string, p: Promise<{ text: string; provider: string; model: string }>) {
   inFlight.set(key, p);
-  void p.finally(() => inFlight.delete(key));
+  // The stored promise rejects whenever the upstream call fails. `void p.finally(...)`
+  // used to leave that rejection on a derived promise nobody handled, and Node's
+  // default --unhandled-rejections=throw turns that into a process exit: one 404
+  // from a provider took the whole trading bot down. Swallowing here is safe —
+  // the awaiting caller in callAIProvider still receives the real error.
+  p.then(noop, noop).finally(() => inFlight.delete(key));
 }
+
+function noop(): void { /* rejection is reported to the awaiting caller, not here */ }
 
 export function clearCache(): void {
   responseCache.clear();

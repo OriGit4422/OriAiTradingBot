@@ -86,7 +86,15 @@ export function registerChatRoutes(app: Express): void {
         // Fallback: try non-streaming multi-AI call
         console.error("Streaming failed, falling back to batch:", streamErr.message);
         try {
-          const { text } = await callMultiAI(chatMessages, 4096);
+          // Non-streaming fallback for the chat panel. User-initiated prose, so
+          // 'normal' tier — and 4096 tokens was four times what the streaming
+          // path itself allows (CHAT_MAX_TOKENS), making the fallback the more
+          // expensive of the two.
+          const { text } = await callMultiAI(chatMessages, {
+            maxTokens: 1200,
+            tier: 'normal',
+            label: 'chat-fallback',
+          });
           fullResponse = text;
           // Emit entire response as one chunk
           res.write(`data: ${JSON.stringify({ content: text })}\n\n`);

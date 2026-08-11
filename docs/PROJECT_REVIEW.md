@@ -23,7 +23,7 @@ The app is feature-rich and visually polished, but there are important opportuni
 | API client layer | `client/src/lib/queryClient.ts` | Fetch wrapper + React Query defaults and error behavior. |
 | API server | `server/index.ts`, `server/routes.ts` | Express lifecycle, middleware, and REST endpoint registration. |
 | Storage/data access | `server/storage.ts`, `server/db.ts` | Drizzle database connection and CRUD abstraction. |
-| AI services | `server/ai-analysis.ts`, `server/ai-service.ts` | Claude-driven market insight, signal analysis, validation, and chat. |
+| AI services | `server/ai-analysis.ts`, `server/ai-providers.ts` | Market insight and signal analysis, routed through the budget governor. |
 | Shared schema | `shared/schema.ts` | DB tables and zod-based insert schemas used across app. |
 
 ---
@@ -67,10 +67,7 @@ The app is feature-rich and visually polished, but there are important opportuni
 | `registerRoutes` | `server/routes.ts` | Central route composition for all REST endpoints. |
 | `analyzeSignalWithAI` | `server/ai-analysis.ts` | Asks Claude for structured JSON signal quality analysis. |
 | `getMarketInsight` | `server/ai-analysis.ts` | Produces multi-coin market insight and trade ideas from price context. |
-| `generateAISignal` | `server/ai-service.ts` | Generates a signal payload for a pair using Claude. |
-| `validateSignal` | `server/ai-service.ts` | Runs AI-based risk/quality validation for a signal. |
-| `reviewStrategy` | `server/ai-service.ts` | Scores strategy quality and returns review notes. |
-| `chatWithAI` | `server/ai-service.ts` | Handles conversational assistant responses. |
+| `callMultiAI` | `server/ai-providers.ts` | Single entry point for every AI call: cache, single-flight, tier gate, ledger. |
 | `DatabaseStorage.*` methods | `server/storage.ts` | CRUD operations for settings/strategies/signals/positions/wallet/user access. |
 
 ### Frontend + Data

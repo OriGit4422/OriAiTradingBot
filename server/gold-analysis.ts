@@ -198,7 +198,16 @@ ${indicatorSummary}
 
 Respond in JSON only:
 {"confidence": <number>, "reasoning": "<string>", "verdict": "STRONG_${signalType}" or "${signalType}" or "NEUTRAL" or "AVOID"}`,
-    }], 800);
+    }], {
+      // Adjusts the confidence on a signal that may be traded, so it earns the
+      // 'critical' tier — but 800 tokens bought nothing: the response is one
+      // number, one verdict and two sentences.
+      maxTokens: 160,
+      temperature: 0.1,
+      tier: 'critical',
+      cacheTtlMs: 3 * 60 * 1000,
+      label: 'gold-signal-review',
+    });
 
     const match = text.match(/\{[\s\S]*\}/);
     if (match) {

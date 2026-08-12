@@ -10,6 +10,8 @@ import {
   getBudgetStatus, setDailyBudget, resetLedger, clearCache,
   cacheGet, cacheSet, makeCacheKey, recordCacheHit,
   serializeLedger, restoreLedger, parseDailyBudget, getDailyBudget,
+  getMaxCallCostUsd, setMaxCallCostUsd, parsePerCallCap, tierHeadroomUsd,
+  recordDowngrade,
 } from '../server/ai-budget';
 
 describe('pricing', () => {
@@ -82,11 +84,33 @@ describe('admission control', () => {
   });
 
   test('admission prices the worst case, not the expected case', () => {
-    // A 4000-token max output on gpt-4o is $0.04, which alone nearly fills the budget.
-    const v = admit({ provider: 'Y', model: 'gpt-4o', tier: 'critical', promptChars: 0, maxOutTokens: 4000 });
-    assert.equal(v.allowed, true);
-    const v2 = admit({ provider: 'Y', model: 'gpt-4o', tier: 'critical', promptChars: 0, maxOutTokens: 6000 });
-    assert.equal(v2.allowed, false, 'a call that could exceed the cap must be refused up front');
+    // Both calls below sit under the per-call cap, so the tier ceiling is what
+    // decides them — and it decides on maxOutTokens, not on what the model would
+    // most likely return. gemini-2.0-flash output is $0.40/1M.
+    commit({ provider: 'Y', model: 'gemini-2.0-flash', tokensIn: 0, tokensOut: 112500 }); // $0.045
+
+    const small = admit({ provider: 'Y', model: 'gemini-2.0-flash', tier: 'critical', promptChars: 0, maxOutTokens: 2000 });
+    assert.equal(small.allowed, true, '$0.0008 on top of $0.045 still fits the $0.05 day');
+
+    const large = admit({ provider: 'Y', model: 'gemini-2.0-flash', tier: 'critical', promptChars: 0, maxOutTokens: 20000 });
+    assert.equal(large.allowed, false, 'a call that *could* exceed the cap must be refused up front');
+  });
+
+  test('no single call may reserve more than the per-call cap', () => {
+    // The regression this guards: deep-coin-analysis asked for 1,100 output
+    // tokens on a premium model — ~$0.018, more than the whole cosmetic ceiling.
+    // It was refused on a completely fresh ledger, so the feature could never
+    // work at any hour of any day, and the refusal surfaced to the user as a 500.
+    const cap = getMaxCallCostUsd();
+    assert.ok(cap > 0 && cap < getDailyBudget(), `per-call cap $${cap} must sit under the daily budget`);
+
+    const tooBig = admit({ provider: 'Fresh', model: 'claude-sonnet-4-6', tier: 'critical', promptChars: 2000, maxOutTokens: 1100 });
+    assert.equal(tooBig.allowed, false, 'an oversized call must be refused even on an empty ledger');
+    assert.match(tooBig.reason ?? '', /per-call cap/i);
+
+    // The same call on the economy model is ~30x cheaper and sails through.
+    const economy = admit({ provider: 'Fresh', model: 'gemini-2.0-flash-lite', tier: 'normal', promptChars: 2000, maxOutTokens: 1100 });
+    assert.equal(economy.allowed, true, 'the cheap model must fit comfortably inside the cap');
   });
 
   test('blocked calls are counted', () => {

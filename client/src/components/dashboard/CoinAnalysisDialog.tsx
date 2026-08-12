@@ -176,6 +176,19 @@ export function CoinAnalysisDialog({ open, onOpenChange, defaultCoin = 'BTC', de
 
           {result && (
             <div className="space-y-3 py-2">
+              {/* A deterministic plan is a real answer, but it is not the same
+                  answer as an AI-reviewed one — say so rather than letting the
+                  user assume the model weighed in when it did not. */}
+              {result.degraded && (
+                <div className="rounded-lg border border-amber-500/40 bg-amber-500/10 p-2.5 flex gap-2" data-testid="banner-analysis-degraded">
+                  <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
+                  <div className="text-[11px] leading-relaxed">
+                    <span className="font-bold text-amber-700">Deterministic plan — no AI review.</span>{' '}
+                    <span className="text-amber-800/90">{result.notice}</span>
+                  </div>
+                </div>
+              )}
+
               <div className={cn("rounded-lg border-2 p-3 flex items-center justify-between", dirBg)}>
                 <div className="flex items-center gap-2">
                   <Badge variant={result.direction === 'LONG' ? 'default' : result.direction === 'SHORT' ? 'destructive' : 'secondary'} className="text-sm h-7 px-2 font-black">
@@ -186,7 +199,9 @@ export function CoinAnalysisDialog({ open, onOpenChange, defaultCoin = 'BTC', de
                   <Badge variant="outline" className="font-mono">{result.timeframe}</Badge>
                 </div>
                 <div className="text-right">
-                  <div className="text-[10px] uppercase font-mono text-muted-foreground">AI Confidence</div>
+                  <div className="text-[10px] uppercase font-mono text-muted-foreground">
+                    {result.degraded ? 'Engine Confidence' : 'AI Confidence'}
+                  </div>
                   <div className={cn("text-2xl font-black font-mono", dirColor)} data-testid="text-analysis-confidence">{result.confidence}%</div>
                 </div>
               </div>
